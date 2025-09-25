@@ -15,10 +15,81 @@ static void die(enum Err e, const char* msg)
         fprintf(stderr, "fiskta: error %d\n", e);
 }
 
+static void print_usage(void)
+{
+    printf("fiskta v2.2 - Streaming Text Extraction Tool\n");
+    printf("\n");
+    printf("USAGE:\n");
+    printf("  fiskta [options] <operations> [file|-]\n");
+    printf("\n");
+    printf("OPERATIONS:\n");
+    printf("  take <n><unit>              Extract n units from current position\n");
+    printf("  skip <n><unit>              Move cursor n units forward (no output)\n");
+    printf("  find <string>               Search for string and update cursor\n");
+    printf("  take to <location>          Extract from cursor to location\n");
+    printf("  take until <string>         Extract from cursor until string found\n");
+    printf("  label <name>                Mark current position with label\n");
+    printf("  goto <location>             Jump to labeled position\n");
+    printf("\n");
+    printf("UNITS:\n");
+    printf("  b                           Bytes\n");
+    printf("  l                           Lines (LF only, CR treated as bytes)\n");
+    printf("\n");
+    printf("LABELS:\n");
+    printf("  NAME                        UPPERCASE, ≤16 chars, [A-Z_-]\n");
+    printf("\n");
+    printf("LOCATIONS:\n");
+    printf("  cursor                      Current cursor position\n");
+    printf("  BOF                         Beginning of file\n");
+    printf("  EOF                         End of file\n");
+    printf("  match-start                 Start of last match\n");
+    printf("  match-end                   End of last match\n");
+    printf("  line-start                  Start of current line\n");
+    printf("  line-end                    End of current line\n");
+    printf("  <label>                     Named label position\n");
+    printf("\n");
+    printf("OFFSETS:\n");
+    printf("  <location> +<n><unit>       n units after location\n");
+    printf("  <location> -<n><unit>       n units before location\n");
+    printf("\n");
+    printf("EXAMPLES:\n");
+    printf("  fiskta take 10b file.txt                    # Extract first 10 bytes\n");
+    printf("  fiskta take 3l file.txt                     # Extract first 3 lines\n");
+    printf("  fiskta find \"ERROR\" take to match-start file.txt  # Extract to ERROR\n");
+    printf("  fiskta take to BOF +100b file.txt          # Extract from BOF+100b\n");
+    printf("  fiskta skip 5b take 10b file.txt           # Skip 5, take 10\n");
+    printf("  fiskta take until \"---\" file.txt          # Extract until \"---\"\n");
+    printf("  echo \"Hello\" | fiskta take 5b -          # Process stdin\n");
+    printf("\n");
+    printf("CLAUSES:\n");
+    printf("  Separate operations with ';'. Each clause executes independently.\n");
+    printf("  If a clause fails, subsequent clauses still execute.\n");
+    printf("  Command succeeds if ANY clause succeeds.\n");
+    printf("\n");
+    printf("OPTIONS:\n");
+    printf("  -h, --help                  Show this help message\n");
+    printf("  -v, --version               Show version information\n");
+    printf("\n");
+    printf("For more information, see the README.md file.\n");
+}
+
 int main(int argc, char** argv)
 {
+    // Handle help and version options
+    if (argc == 2) {
+        if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
+            print_usage();
+            return 0;
+        } else if (strcmp(argv[1], "-v") == 0 || strcmp(argv[1], "--version") == 0) {
+            printf("fiskta v2.2\n");
+            printf("Streaming text extraction tool\n");
+            return 0;
+        }
+    }
+    
     if (argc < 3) {
-        fprintf(stderr, "Usage: fiskta <tokens...> <input-file|->\n");
+        fprintf(stderr, "Usage: fiskta [options] <operations> [file|-]\n");
+        fprintf(stderr, "Try 'fiskta --help' for more information.\n");
         return 2;
     }
 

@@ -32,13 +32,23 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     vm.last_match.valid = false;
     vm.gen_counter = 0;
 
-    // Execute each clause
+    // Execute each clause independently
+    int successful_clauses = 0;
+    enum Err last_err = E_OK;
+    
     for (int i = 0; i < prg->clause_count; i++) {
         err = execute_clause(&prg->clauses[i], prg, &io, &vm, out);
-        if (err != E_OK) {
-            io_close(&io);
-            return err;
+        if (err == E_OK) {
+            successful_clauses++;
+        } else {
+            last_err = err;  // Remember the last error
         }
+    }
+    
+    // Return error only if all clauses failed
+    if (successful_clauses == 0) {
+        io_close(&io);
+        return last_err;
     }
 
     io_close(&io);
