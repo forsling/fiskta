@@ -45,7 +45,7 @@ enum Err parse_program(int argc, char** argv, Program* prg, const char** in_path
     prg->name_cap = 32;
     prg->name_count = 0;
 
-    // Parse clauses separated by ";"
+    // Parse clauses separated by "::"
     int idx = 0;
     while (idx < token_count) {
         Clause clause = { 0 };
@@ -79,7 +79,7 @@ enum Err parse_program(int argc, char** argv, Program* prg, const char** in_path
         prg->clauses[prg->clause_count++] = clause;
 
         // Skip semicolon if present
-        if (idx < token_count && strcmp(tokens[idx], ";") == 0) {
+        if (idx < token_count && strcmp(tokens[idx], "::") == 0) {
             idx++;
         }
     }
@@ -114,7 +114,7 @@ void parse_free(Program* prg)
 
 static enum Err parse_clause(char** tokens, int* idx, int token_count, Clause* clause, Program* prg)
 {
-    while (*idx < token_count && strcmp(tokens[*idx], ";") != 0) {
+    while (*idx < token_count && strcmp(tokens[*idx], "::") != 0) {
         Op op = { 0 };
         enum Err err = parse_op(tokens, idx, token_count, &op, prg);
         if (err != E_OK) {

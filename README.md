@@ -81,7 +81,7 @@ Locations can be modified with offsets:
 
 ### Clauses and Error Handling
 
-**Clauses** are groups of operations separated by semicolons (`;`). They are fundamental to how fiskta handles errors and operations:
+**Clauses** are groups of operations separated by double colons (`::`). They are fundamental to how fiskta handles errors and operations:
 
 #### Clause Atomicity
 
@@ -103,7 +103,7 @@ If `find "ERROR"` fails (no match found), the entire command fails and nothing i
 
 ```bash
 # Multiple clauses - each clause is independent
-fiskta find "ERROR" take to match-end ";" find "WARNING" take to match-end file.txt
+fiskta find "ERROR" take to match-end "::" find "WARNING" take to match-end file.txt
 ```
 
 - First clause: Find "ERROR" and extract to it
@@ -115,15 +115,15 @@ fiskta find "ERROR" take to match-end ";" find "WARNING" take to match-end file.
 
 ```bash
 # Clause 1 fails, Clause 2 succeeds
-fiskta find "MISSING" take 10b ";" find "FOUND" take 10b file.txt
+fiskta find "MISSING" take 10b "::" find "FOUND" take 10b file.txt
 # Result: Extracts 10 bytes from "FOUND" (first clause ignored)
 
 # All clauses fail
-fiskta find "A" take 5b ";" find "B" take 5b file.txt
+fiskta find "A" take 5b "::" find "B" take 5b file.txt
 # Result: No output, command fails
 
 # All clauses succeed
-fiskta find "FIRST" take 5b ";" find "SECOND" take 5b file.txt
+fiskta find "FIRST" take 5b "::" find "SECOND" take 5b file.txt
 # Result: Concatenated output from both matches
 ```
 
@@ -187,26 +187,26 @@ fiskta skip 10b take to cursor +20b file.txt
 
 ```bash
 # Skip then extract (separate clauses)
-fiskta skip 5b ";" take 10b file.txt
+fiskta skip 5b "::" take 10b file.txt
 
 # Find then extract to end of line
 fiskta find "pattern" take to line-end file.txt
 
 # Complex extraction with labels
-fiskta label start take 5b ";" goto start take 5b file.txt
+fiskta label start take 5b "::" goto start take 5b file.txt
 ```
 
 ### Error Handling with Clauses
 
 ```bash
 # Fallback extraction - try multiple patterns
-fiskta find "ERROR" take 10b ";" find "WARNING" take 10b ";" find "INFO" take 10b file.txt
+fiskta find "ERROR" take 10b "::" find "WARNING" take 10b "::" find "INFO" take 10b file.txt
 
 # Conditional extraction - different strategies
-fiskta find "header" take to match-end ";" find "body" take 100b file.txt
+fiskta find "header" take to match-end "::" find "body" take 100b file.txt
 
 # Robust processing - continue on failure
-fiskta find "section1" take 50b ";" find "section2" take 50b ";" find "section3" take 50b file.txt
+fiskta find "section1" take 50b "::" find "section2" take 50b "::" find "section3" take 50b file.txt
 ```
 
 ### Advanced Patterns

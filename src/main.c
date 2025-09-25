@@ -62,7 +62,7 @@ static void print_usage(void)
     printf("  echo \"Hello\" | fiskta take 5b -          # Process stdin\n");
     printf("\n");
     printf("CLAUSES:\n");
-    printf("  Separate operations with ';'. Each clause executes independently.\n");
+    printf("  Separate operations with '::'. Each clause executes independently.\n");
     printf("  If a clause fails, subsequent clauses still execute.\n");
     printf("  Command succeeds if ANY clause succeeds.\n");
     printf("\n");
