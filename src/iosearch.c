@@ -12,11 +12,11 @@
 #include <io.h>
 #endif
 
-// Forward declarations for naive search algorithm
-static enum Err naive_search_forward(const unsigned char* text, size_t text_len,
+// Forward declarations for Two-Way algorithm
+static enum Err two_way_forward(const unsigned char* text, size_t text_len,
     const unsigned char* needle, size_t needle_len,
     i64* ms, i64* me);
-static enum Err naive_search_backward(const unsigned char* text, size_t text_len,
+static enum Err two_way_backward(const unsigned char* text, size_t text_len,
     const unsigned char* needle, size_t needle_len,
     i64* ms, i64* me);
 
@@ -265,7 +265,7 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
             if (n == 0) break;
 
             i64 local_ms, local_me;
-            enum Err err = naive_search_forward(io->buf, n, needle, nlen, &local_ms, &local_me);
+            enum Err err = two_way_forward(io->buf, n, needle, nlen, &local_ms, &local_me);
             if (err == E_OK) { 
                 *ms = block_lo + local_ms; 
                 *me = block_lo + local_me; 
@@ -313,7 +313,7 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
             i64 search_pos = 0;
             while (search_pos < n) {
                 i64 local_ms, local_me;
-                enum Err err = naive_search_forward(io->buf + search_pos, n - search_pos,
+                enum Err err = two_way_forward(io->buf + search_pos, n - search_pos,
                     needle, nlen, &local_ms, &local_me);
                 if (err != E_OK)
                     break;
@@ -344,8 +344,8 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
     }
 }
 
-// Naive search algorithm implementation
-static enum Err naive_search_forward(const unsigned char* text, size_t text_len,
+// Two-Way algorithm implementation (Crochemore–Perrin)
+static enum Err two_way_forward(const unsigned char* text, size_t text_len,
     const unsigned char* needle, size_t needle_len,
     i64* ms, i64* me)
 {
@@ -353,27 +353,74 @@ static enum Err naive_search_forward(const unsigned char* text, size_t text_len,
         return E_NO_MATCH;
     }
 
-    // Simple naive search implementation
-    const unsigned char* found = NULL;
-
-    // Naive search
-    for (size_t i = 0; i <= text_len - needle_len; i++) {
-        if (memcmp(text + i, needle, needle_len) == 0) {
-            found = text + i;
-            break;
+    // Critical factorization: find the position that minimizes the local period
+    size_t critical_pos = 0;
+    size_t period = needle_len;
+    
+    // Find the critical factorization position
+    for (size_t i = 1; i < needle_len; i++) {
+        size_t j = 0;
+        while (j < needle_len - i && needle[j] == needle[i + j]) {
+            j++;
+        }
+        if (j == needle_len - i) {
+            // Found a period
+            size_t p = i;
+            if (p < period) {
+                period = p;
+                critical_pos = i;
+            }
         }
     }
 
-    if (found) {
-        *ms = found - text;
-        *me = *ms + needle_len;
-        return E_OK;
+    // If no period found, use naive search
+    if (period == needle_len) {
+        for (size_t i = 0; i <= text_len - needle_len; i++) {
+            if (memcmp(text + i, needle, needle_len) == 0) {
+                *ms = i;
+                *me = i + needle_len;
+                return E_OK;
+            }
+        }
+        return E_NO_MATCH;
+    }
+
+    // Two-Way search
+    size_t text_pos = 0;
+    while (text_pos <= text_len - needle_len) {
+        // Compare right part first
+        size_t right_len = needle_len - critical_pos;
+        size_t i = critical_pos;
+        while (i < needle_len && text[text_pos + i] == needle[i]) {
+            i++;
+        }
+        
+        if (i == needle_len) {
+            // Right part matches, compare left part
+            i = critical_pos;
+            while (i > 0 && text[text_pos + i - 1] == needle[i - 1]) {
+                i--;
+            }
+            
+            if (i == 0) {
+                // Full match found
+                *ms = text_pos;
+                *me = text_pos + needle_len;
+                return E_OK;
+            }
+            
+            // Mismatch in left part, shift by 1
+            text_pos++;
+        } else {
+            // Mismatch in right part, shift by period
+            text_pos += period;
+        }
     }
 
     return E_NO_MATCH;
 }
 
-static enum Err naive_search_backward(const unsigned char* text, size_t text_len,
+static enum Err two_way_backward(const unsigned char* text, size_t text_len,
     const unsigned char* needle, size_t needle_len,
     i64* ms, i64* me)
 {
@@ -381,14 +428,22 @@ static enum Err naive_search_backward(const unsigned char* text, size_t text_len
         return E_NO_MATCH;
     }
 
-    // Find the rightmost occurrence
+    // For backward search, we scan the text backwards and use forward Two-Way
+    // to find the rightmost match
     i64 best_ms = -1;
     i64 best_me = -1;
 
-    for (size_t i = 0; i <= text_len - needle_len; i++) {
-        if (memcmp(text + i, needle, needle_len) == 0) {
-            best_ms = i;
-            best_me = i + needle_len;
+    // Start from the end and work backwards
+    for (size_t i = text_len - needle_len; i < text_len; i--) {
+        // Use forward Two-Way to search from position i
+        i64 local_ms, local_me;
+        enum Err err = two_way_forward(text + i, text_len - i, needle, needle_len, &local_ms, &local_me);
+        
+        if (err == E_OK) {
+            // Found a match, record it as the rightmost
+            best_ms = i + local_ms;
+            best_me = i + local_me;
+            break; // This is the rightmost match
         }
     }
 
