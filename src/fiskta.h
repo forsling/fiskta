@@ -9,15 +9,21 @@
 typedef int64_t i64;
 typedef uint64_t u64;
 
-enum Unit { UNIT_BYTES,
-    UNIT_LINES };
-enum OpKind { OP_FIND,
+enum Unit {
+    UNIT_BYTES,
+    UNIT_LINES
+};
+
+enum OpKind {
+    OP_FIND,
     OP_SKIP,
     OP_TAKE_LEN,
     OP_TAKE_TO,
     OP_TAKE_UNTIL,
     OP_LABEL,
-    OP_GOTO };
+    OP_GOTO
+};
+
 enum LocBase {
     LOC_CURSOR,
     LOC_BOF,
@@ -28,6 +34,7 @@ enum LocBase {
     LOC_LINE_START,
     LOC_LINE_END
 };
+
 enum Err {
     E_OK = 0,
     E_PARSE,

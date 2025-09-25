@@ -16,7 +16,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
     Range** ranges, int* range_count, int* range_cap,
     LabelWrite** label_writes, int* label_count, int* label_cap);
 static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* io,
-    const VM* vm, const Match* staged_match, i64* out);
+    const VM* vm, const Match* staged_match, i64 staged_cursor, i64* out);
 static enum Err resolve_at_expr(const AtExpr* at, File* io, const Match* match, i64* out);
 static void commit_labels(VM* vm, const Program* prg, const LabelWrite* label_writes, int label_count);
 
@@ -35,16 +35,16 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     // Execute each clause independently
     int successful_clauses = 0;
     enum Err last_err = E_OK;
-    
+
     for (int i = 0; i < prg->clause_count; i++) {
         err = execute_clause(&prg->clauses[i], prg, &io, &vm, out);
         if (err == E_OK) {
             successful_clauses++;
         } else {
-            last_err = err;  // Remember the last error
+            last_err = err; // Remember the last error
         }
     }
-    
+
     // Return error only if all clauses failed
     if (successful_clauses == 0) {
         io_close(&io);
@@ -121,7 +121,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
         if (op->u.find.to.base == LOC_EOF && !op->u.find.to.has_off) {
             win_hi = io_size(io);
         } else {
-            enum Err err = resolve_loc_expr(&op->u.find.to, prg, io, vm, c_last_match, &win_hi);
+            enum Err err = resolve_loc_expr(&op->u.find.to, prg, io, vm, c_last_match, *c_cursor, &win_hi);
             if (err != E_OK)
                 return err;
         }
@@ -221,7 +221,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
 
     case OP_TAKE_TO: {
         i64 target;
-        enum Err err = resolve_loc_expr(&op->u.take_to.to, prg, io, vm, c_last_match, &target);
+        enum Err err = resolve_loc_expr(&op->u.take_to.to, prg, io, vm, c_last_match, *c_cursor, &target);
         if (err != E_OK)
             return err;
 
@@ -310,7 +310,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
     }
 
     case OP_GOTO: {
-        enum Err err = resolve_loc_expr(&op->u.go.to, prg, io, vm, c_last_match, c_cursor);
+        enum Err err = resolve_loc_expr(&op->u.go.to, prg, io, vm, c_last_match, *c_cursor, c_cursor);
         if (err != E_OK)
             return err;
         break;
@@ -324,13 +324,13 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
 }
 
 static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* io,
-    const VM* vm, const Match* staged_match, i64* out)
+    const VM* vm, const Match* staged_match, i64 staged_cursor, i64* out)
 {
     i64 base;
 
     switch (loc->base) {
     case LOC_CURSOR:
-        base = vm->cursor;
+        base = staged_cursor;
         break;
     case LOC_BOF:
         base = 0;

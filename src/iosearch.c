@@ -12,11 +12,11 @@
 #include <io.h>
 #endif
 
-// Forward declarations for Two-Way algorithm
-static enum Err two_way_forward(const unsigned char* text, size_t text_len,
+// Forward declarations for naive search algorithm
+static enum Err naive_search_forward(const unsigned char* text, size_t text_len,
     const unsigned char* needle, size_t needle_len,
     i64* ms, i64* me);
-static enum Err two_way_backward(const unsigned char* text, size_t text_len,
+static enum Err naive_search_backward(const unsigned char* text, size_t text_len,
     const unsigned char* needle, size_t needle_len,
     i64* ms, i64* me);
 
@@ -127,81 +127,61 @@ enum Err io_emit(File* io, i64 start, i64 end, FILE* out)
 
 enum Err io_line_start(File* io, i64 pos, i64* out)
 {
-    if (pos < 0 || pos > io->size) {
-        return E_LOC_RESOLVE;
+    if (pos <= 0) { 
+        *out = 0; 
+        return E_OK; 
     }
-
-    if (pos == 0) {
-        *out = 0;
-        return E_OK;
-    }
-
-    // Find last LF before pos
-    i64 search_start = pos - 1;
-    if (search_start > FW_WIN) {
-        search_start = pos - FW_WIN;
-    }
-
-    if (fseeko(io->f, search_start, SEEK_SET) != 0) {
-        return E_IO;
-    }
-
-    size_t read_size = pos - search_start;
-    size_t n = fread(io->buf, 1, read_size, io->f);
-    if (n == 0) {
-        *out = 0;
-        return E_OK;
-    }
-
-    // Search backwards for LF
-    for (i64 i = n - 1; i >= 0; i--) {
-        if (io->buf[i] == '\n') {
-            *out = search_start + i + 1;
-            return E_OK;
+    
+    i64 search_end = pos;
+    i64 block = FW_WIN;
+    while (search_end > 0) {
+        i64 block_lo = search_end - block;
+        if (block_lo < 0) block_lo = 0;
+        if (fseeko(io->f, block_lo, SEEK_SET) != 0) return E_IO;
+        size_t n = fread(io->buf, 1, (size_t)(search_end - block_lo), io->f);
+        for (i64 i = (i64)n - 1; i >= 0; --i) {
+            if (io->buf[i] == '\n') { 
+                *out = block_lo + i + 1; 
+                return E_OK; 
+            }
         }
+        if (block_lo == 0) { 
+            *out = 0; 
+            return E_OK; 
+        }
+        search_end = block_lo;
     }
-
-    *out = search_start;
+    *out = 0; 
     return E_OK;
 }
 
 enum Err io_line_end(File* io, i64 pos, i64* out)
 {
-    if (pos < 0 || pos > io->size) {
-        return E_LOC_RESOLVE;
+    if (pos >= io->size) { 
+        *out = io->size; 
+        return E_OK; 
     }
-
-    if (pos >= io->size) {
-        *out = io->size;
-        return E_OK;
-    }
-
-    // Find next LF at or after pos
-    i64 search_end = pos + FW_WIN;
-    if (search_end > io->size) {
-        search_end = io->size;
-    }
-
-    if (fseeko(io->f, pos, SEEK_SET) != 0) {
-        return E_IO;
-    }
-
-    size_t read_size = search_end - pos;
-    size_t n = fread(io->buf, 1, read_size, io->f);
-    if (n == 0) {
-        *out = io->size;
-        return E_OK;
-    }
-
-    // Search forwards for LF
-    for (size_t i = 0; i < n; i++) {
-        if (io->buf[i] == '\n') {
-            *out = pos + i + 1;
-            return E_OK;
+    
+    i64 search_start = pos;
+    i64 block = FW_WIN;
+    while (search_start < io->size) {
+        i64 block_hi = search_start + block;
+        if (block_hi > io->size) block_hi = io->size;
+        if (fseeko(io->f, search_start, SEEK_SET) != 0) return E_IO;
+        size_t n = fread(io->buf, 1, (size_t)(block_hi - search_start), io->f);
+        for (size_t i = 0; i < n; ++i) {
+            if (io->buf[i] == '\n') { 
+                *out = search_start + (i64)i + 1; 
+                return E_OK; 
+            }
         }
+        if (block_hi == io->size) { 
+            *out = io->size; 
+            return E_OK; 
+        }
+        search_start = block_hi;
     }
-
-    *out = io->size;
+    *out = io->size; 
     return E_OK;
 }
 
@@ -266,30 +246,37 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
     }
 
     if (dir == DIR_FWD) {
-        // Forward search: read window and use Two-Way
-        i64 window_size = win_hi - win_lo;
-        if (window_size > io->buf_cap) {
-            window_size = io->buf_cap;
-        }
+        // Forward search: chunked scan with overlap
+        size_t overlap = nlen > 0 ? nlen - 1 : 0;
+        const size_t OVERLAP_MIN = 1024;  // 1KB minimum overlap
+        const size_t OVERLAP_MAX = 8192;   // 8KB maximum overlap
+        
+        if (overlap < OVERLAP_MIN) overlap = OVERLAP_MIN;
+        if (overlap > OVERLAP_MAX) overlap = OVERLAP_MAX;
 
-        if (fseeko(io->f, win_lo, SEEK_SET) != 0) {
-            return E_IO;
-        }
+        i64 pos = win_lo;
+        while (pos < win_hi) {
+            i64 block_lo = pos;
+            i64 block_hi = block_lo + io->buf_cap;
+            if (block_hi > win_hi) block_hi = win_hi;
 
-        size_t n = fread(io->buf, 1, window_size, io->f);
-        if (n == 0) {
-            return E_NO_MATCH;
-        }
+            if (fseeko(io->f, block_lo, SEEK_SET) != 0) return E_IO;
+            size_t n = fread(io->buf, 1, (size_t)(block_hi - block_lo), io->f);
+            if (n == 0) break;
 
-        i64 local_ms, local_me;
-        enum Err err = two_way_forward(io->buf, n, needle, nlen, &local_ms, &local_me);
-        if (err != E_OK) {
-            return err;
-        }
+            i64 local_ms, local_me;
+            enum Err err = naive_search_forward(io->buf, n, needle, nlen, &local_ms, &local_me);
+            if (err == E_OK) { 
+                *ms = block_lo + local_ms; 
+                *me = block_lo + local_me; 
+                return E_OK; 
+            }
 
-        *ms = win_lo + local_ms;
-        *me = win_lo + local_me;
-        return E_OK;
+            if (block_hi == win_hi) break;
+            pos = block_hi - (i64)overlap; // retain overlap for boundary matches
+            if (pos <= block_lo) pos = block_hi; // guard
+        }
+        return E_NO_MATCH;
 
     } else {
         // Backward search: scan blocks backwards
@@ -326,7 +313,7 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
             i64 search_pos = 0;
             while (search_pos < n) {
                 i64 local_ms, local_me;
-                enum Err err = two_way_forward(io->buf + search_pos, n - search_pos,
+                enum Err err = naive_search_forward(io->buf + search_pos, n - search_pos,
                     needle, nlen, &local_ms, &local_me);
                 if (err != E_OK)
                     break;
@@ -357,8 +344,8 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
     }
 }
 
-// Two-Way algorithm implementation (simplified)
-static enum Err two_way_forward(const unsigned char* text, size_t text_len,
+// Naive search algorithm implementation
+static enum Err naive_search_forward(const unsigned char* text, size_t text_len,
     const unsigned char* needle, size_t needle_len,
     i64* ms, i64* me)
 {
@@ -386,7 +373,7 @@ static enum Err two_way_forward(const unsigned char* text, size_t text_len,
     return E_NO_MATCH;
 }
 
-static enum Err two_way_backward(const unsigned char* text, size_t text_len,
+static enum Err naive_search_backward(const unsigned char* text, size_t text_len,
     const unsigned char* needle, size_t needle_len,
     i64* ms, i64* me)
 {
