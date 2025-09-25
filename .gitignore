@@ -46,3 +46,4 @@ coverage/
 gmon.out
 
 ignore/
+tests/fixtures/
