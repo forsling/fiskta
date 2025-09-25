@@ -1,0 +1,48 @@
+# Build artifacts
+build/
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+
+# Executables
+fiskta
+fiskta.exe
+
+# Temporary files
+*.tmp
+*.temp
+*~
+.DS_Store
+Thumbs.db
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Test files (keep tests/ directory structure)
+test*.txt
+debug*.txt
+simple*.txt
+lines*.txt
+test_search*.txt
+
+# Logs
+*.log
+
+# Coverage reports
+*.gcov
+*.gcda
+*.gcno
+coverage/
+
+# Profiling
+*.prof
+gmon.out
+
+ignore/
