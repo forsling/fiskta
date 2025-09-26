@@ -404,6 +404,9 @@ static enum Err parse_signed_number(const char* token, int* sign, u64* n, enum U
     } else if (*p == 'l') {
         *unit = UNIT_LINES;
         p++;
+    } else if (*p == 'c') {
+        *unit = UNIT_CHARS;
+        p++;
     } else {
         return E_PARSE;
     }

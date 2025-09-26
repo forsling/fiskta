@@ -1019,6 +1019,28 @@ def tests():
         dict(id="edge-112-cursor-at-newline-line-end",
              tokens=["find","L03","goto","line-end","take","+1l"], input_file="lines.txt",
              expect=dict(stdout="L04 dddd\n", exit=0)),
+
+        # ---------- UTF-8 character tests ----------
+        dict(id="utf8-001-take-c-vs-b",
+             tokens=["find","世界","take","to","match-start","take","+3c"], input_file="unicode-test.txt",
+             expect=dict(stdout=" 世界", exit=0)),
+
+        dict(id="utf8-002-negative-chars",
+             tokens=["find","Café","take","to","match-start","take","+3c"], input_file="unicode-test.txt",
+             expect=dict(stdout="\nCa", exit=0)),
+
+        dict(id="utf8-003-loc-expr-char-offset",
+             tokens=["find","Café","take","to","match-start+2c"], input_file="unicode-test.txt",
+             expect=dict(stdout="C", exit=0)),
+
+        dict(id="utf8-004-permissive-invalid",
+             tokens=["take","+3c"], input_file="binary-data.bin",
+             expect=dict(stdout="TEX", exit=0)),  # counts bytes T,E,X as 3 chars despite binary following
+
+        # Cursor law retained with chars
+        dict(id="utf8-005-empty-char-capture-no-move",
+             tokens=["skip","5b","take","to","cursor+0c","::","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="efgh", exit=0)),
     ]
 
 def main():

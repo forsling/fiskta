@@ -16,6 +16,16 @@
 static enum Err bmh_forward(const unsigned char* text, size_t text_len,
     const unsigned char* needle, size_t nlen, i64* ms, i64* me);
 
+// UTF-8 helper functions
+static inline int is_cont_byte(unsigned char b){ return (b & 0xC0) == 0x80; }
+static inline int utf8_len_from_lead(unsigned char b){
+    if ((b & 0x80) == 0x00) return 1;
+    if ((b & 0xE0) == 0xC0) return 2;
+    if ((b & 0xF0) == 0xE0) return 3;
+    if ((b & 0xF8) == 0xF0) return 4;
+    return 0; // invalid lead
+}
+
 enum Err io_open(File* io, const char* path)
 {
     memset(io, 0, sizeof(*io));
@@ -352,6 +362,90 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
         }
 
         return E_NO_MATCH;
+    }
+}
+
+// UTF-8 character boundary and stepping functions
+
+enum Err io_char_start(File* io, i64 pos, i64* out){
+    if (pos <= 0) { *out = 0; return E_OK; }
+    if (pos >= io->size){ *out = io->size; return E_OK; }
+
+    // Read up to 3 bytes before pos to find a non-continuation
+    i64 lo = pos - 3; if (lo < 0) lo = 0;
+    i64 hi = pos;
+    if (fseeko(io->f, lo, SEEK_SET) != 0) return E_IO;
+    size_t n = fread(io->buf, 1, (size_t)(hi - lo), io->f);
+
+    // Scan backward from pos-1 to lo for a non-cont byte
+    i64 rel = (i64)n - 1;
+    for (i64 k = 0; k < (i64)n; ++k){
+        unsigned char b = io->buf[rel - k];
+        if (!is_cont_byte(b)){
+            // Validate forward length; if malformed, treat that byte as a single-char
+            int len = utf8_len_from_lead(b);
+            i64 start = hi - 1 - k;
+            if (len == 0 || start + len > io->size){
+                *out = start;
+                return E_OK;
+            }
+            *out = start;
+            return E_OK;
+        }
+    }
+    // All were continuation bytes; treat lo as boundary (permissive)
+    *out = lo;
+    return E_OK;
+}
+
+enum Err io_step_chars_from(File* io, i64 start, int delta, i64* out){
+    if (start < 0) start = 0;
+    if (start > io->size) start = io->size;
+
+    i64 cur = start;
+
+    if (delta >= 0){
+        // forward
+        for (int i = 0; i < delta; ++i){
+            if (cur >= io->size){ *out = io->size; return E_OK; }
+            // Read a small window [cur, cur+4]
+            i64 hi = cur + 4; if (hi > io->size) hi = io->size;
+            if (fseeko(io->f, cur, SEEK_SET) != 0) return E_IO;
+            size_t n = fread(io->buf, 1, (size_t)(hi - cur), io->f);
+            if (n == 0){ *out = cur; return E_OK; }
+
+            unsigned char b0 = io->buf[0];
+            int len = utf8_len_from_lead(b0);
+            if (len == 0){
+                // malformed lead -> count as 1
+                cur += 1;
+            } else {
+                // ensure we have len bytes and continuations are well-formed; else permissive 1
+                if ((i64)len <= (i64)n){
+                    bool ok = true;
+                    for (int j=1;j<len;j++){ if (!is_cont_byte(io->buf[j])) { ok=false; break; } }
+                    cur += ok ? len : 1;
+                } else {
+                    // truncated at EOF -> accept partial as 1
+                    cur += 1;
+                }
+            }
+        }
+        *out = cur;
+        return E_OK;
+    } else {
+        // backward
+        int steps = -delta;
+        for (int i = 0; i < steps; ++i){
+            if (cur <= 0){ *out = 0; return E_OK; }
+            i64 start_char;
+            // snap to the start of the char immediately before cur
+            enum Err e = io_char_start(io, cur - 1, &start_char);
+            if (e != E_OK) return e;
+            cur = start_char;
+        }
+        *out = cur;
+        return E_OK;
     }
 }
 

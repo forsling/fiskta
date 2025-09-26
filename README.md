@@ -10,7 +10,9 @@ Minimal streaming text extractor with a cursor-first model and atomic clauses. Z
 
 ## Operations (exhaustive, quick to learn)
 
-All commands end with `<file|->`. Units: `b` = bytes, `l` = lines (LF `0x0A`; CR is just a byte).
+All commands end with `<file|->`. Units: `b` = bytes, `l` = lines (LF `0x0A`; CR is just a byte), `c` = UTF-8 code points.
+
+**UTF-8 character unit (`c`):** Counts Unicode code points in UTF-8. Slices never split a code point. Invalid UTF-8 bytes are treated permissively as single-byte 'chars', so operations always succeed on arbitrary data.
 
 ### `find [to <loc-expr>] <needle>`
 
@@ -197,9 +199,31 @@ LABEL-3l
 ## Lines (unit `l`)
 
 * Lines end at LF (`0x0A`) or EOF; CR (`0x0D`) is just a byte.
-* Line captures anchor at the **line start** of the cursor’s line.
+* Line captures anchor at the **line start** of the cursor's line.
 * `take +Nl` → from that line start forward by N complete lines.
   `take -Nl` → the previous N complete lines ending at that line start.
+
+---
+
+## UTF-8 Characters (unit `c`)
+
+* `c` counts Unicode code points in UTF-8 encoding.
+* Slices never split a UTF-8 sequence in half.
+* Invalid UTF-8 bytes are treated permissively as single-byte 'chars'.
+* Character operations work on arbitrary data (binary files, mixed encodings).
+
+**Examples**
+
+```bash
+# first 10 Unicode characters
+fiskta take 10c file.txt
+
+# previous 5 chars and next 20 chars around a point
+fiskta take -5c take 20c file.txt
+
+# to the start of the next line, then +3 chars
+fiskta take to line-start+1l take 3c file.txt
+```
 
 ---
 
@@ -249,8 +273,8 @@ clause    := { op }
 op        := find | skip | take | label | goto
 
 find      := "find" [ "to" loc-expr ] STRING
-skip      := "skip" N ("b"|"l")
-take      := "take" ( signedN ("b"|"l") | "to" loc-expr | "until" STRING [ "at" at-expr ] )
+skip      := "skip" N ("b"|"l"|"c")
+take      := "take" ( signedN ("b"|"l"|"c") | "to" loc-expr | "until" STRING [ "at" at-expr ] )
 label     := "label" NAME
 goto      := "goto"  loc-expr
 
@@ -260,7 +284,7 @@ loc       := "cursor" | "BOF" | "EOF" | NAME
 
 at-expr   := ("match-start"|"match-end"|"line-start"|"line-end") [ offset ]
 
-offset    := ("+"|"-") N ("b"|"l")
+offset    := ("+"|"-") N ("b"|"l"|"c")
 signedN   := ["+"|"-"] N
 
 # Lexical

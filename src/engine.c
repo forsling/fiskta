@@ -155,7 +155,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
     case OP_SKIP: {
         if (op->u.skip.unit == UNIT_BYTES) {
             *c_cursor = clamp64(*c_cursor + op->u.skip.n, 0, io_size(io));
-        } else {
+        } else if (op->u.skip.unit == UNIT_LINES) {
             // Skip by lines
             i64 current_line_start;
             enum Err err = io_line_start(io, *c_cursor, &current_line_start);
@@ -165,6 +165,12 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
             err = io_step_lines_from(io, current_line_start, op->u.skip.n, c_cursor);
             if (err != E_OK)
                 return err;
+        } else { // UNIT_CHARS
+            i64 char_start;
+            enum Err err = io_char_start(io, *c_cursor, &char_start);
+            if (err != E_OK) return err;
+            err = io_step_chars_from(io, char_start, (int)op->u.skip.n, c_cursor);
+            if (err != E_OK) return err;
         }
         break;
     }
@@ -180,7 +186,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
                 end = *c_cursor;
                 start = clamp64(end - op->u.take_len.n, 0, end);
             }
-        } else {
+        } else if (op->u.take_len.unit == UNIT_LINES) {
             // Take by lines
             i64 line_start;
             enum Err err = io_line_start(io, *c_cursor, &line_start);
@@ -197,6 +203,21 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
                 err = io_step_lines_from(io, line_start, -op->u.take_len.n, &start);
                 if (err != E_OK)
                     return err;
+            }
+        } else { // UNIT_CHARS
+            i64 cstart;
+            enum Err err = io_char_start(io, *c_cursor, &cstart);
+            if (err != E_OK) return err;
+            if (op->u.take_len.sign > 0) {
+                start = cstart;
+                err = io_step_chars_from(io, cstart, (int)op->u.take_len.n, &end);
+                if (err != E_OK) return err;
+            } else {
+                end = cstart;
+                i64 s;
+                err = io_step_chars_from(io, cstart, -(int)op->u.take_len.n, &s);
+                if (err != E_OK) return err;
+                start = s;
             }
         }
 
@@ -400,11 +421,18 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
     if (loc->has_off) {
         if (loc->unit == UNIT_BYTES) {
             base += loc->sign * loc->n;
-        } else {
+        } else if (loc->unit == UNIT_LINES) {
             // Line offset
             enum Err err = io_step_lines_from(io, base, loc->sign * loc->n, &base);
             if (err != E_OK)
                 return err;
+        } else { // UNIT_CHARS
+            i64 char_base;
+            enum Err err = io_char_start(io, base, &char_base);
+            if (err != E_OK) return err;
+            err = io_step_chars_from(io, char_base, loc->sign * (int)loc->n, &char_base);
+            if (err != E_OK) return err;
+            base = char_base;
         }
     }
 
@@ -444,11 +472,18 @@ static enum Err resolve_at_expr(const AtExpr* at, File* io, const Match* match, 
     if (at->has_off) {
         if (at->unit == UNIT_BYTES) {
             base += at->sign * at->n;
-        } else {
+        } else if (at->unit == UNIT_LINES) {
             // Line offset
             enum Err err = io_step_lines_from(io, base, at->sign * at->n, &base);
             if (err != E_OK)
                 return err;
+        } else { // UNIT_CHARS
+            i64 char_base;
+            enum Err err = io_char_start(io, base, &char_base);
+            if (err != E_OK) return err;
+            err = io_step_chars_from(io, char_base, at->sign * (int)at->n, &char_base);
+            if (err != E_OK) return err;
+            base = char_base;
         }
     }
 

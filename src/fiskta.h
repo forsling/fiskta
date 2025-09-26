@@ -11,7 +11,8 @@ typedef uint64_t u64;
 
 enum Unit {
     UNIT_BYTES,
-    UNIT_LINES
+    UNIT_LINES,
+    UNIT_CHARS   // NEW: UTF-8 code points
 };
 
 enum OpKind {
