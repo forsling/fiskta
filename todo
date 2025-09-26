@@ -1,0 +1,5 @@
+* Implement proper handling of CRLF line endings
+* Evaluate memory allocations (we should only allocation on startup unless there is an exceptionally good reason for runtime allocation)
+* UTF-8 support with new c unit (c for character)
+* Buffered mode (--buffered) where whole file is buffered in memory (should be faster if lots of operations are done back and forth)
+* Evalutate need for indexing line endings in pre-pass (perhaps for use in buffered mode)
