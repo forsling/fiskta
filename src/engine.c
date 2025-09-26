@@ -354,7 +354,7 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
         // If not found in staged labels, check committed labels
         if (!found) {
             for (int i = 0; i < 32; i++) {
-                if (vm->labels[i].in_use && strcmp(vm->labels[i].name, prg->names[loc->name_idx]) == 0) {
+                if (vm->labels[i].in_use && vm->labels[i].name_idx == loc->name_idx) {
                     base = vm->labels[i].pos;
                     found = true;
                     break;
@@ -382,7 +382,8 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
             if (err != E_OK)
                 return err;
         } else { // LOC_LINE_END
-            enum Err err = io_line_end(io, staged_match->end - 1, &base);
+            i64 ref = staged_match->end > 0 ? staged_match->end - 1 : 0;
+            enum Err err = io_line_end(io, ref, &base);
             if (err != E_OK)
                 return err;
         }
@@ -425,7 +426,8 @@ static enum Err resolve_at_expr(const AtExpr* at, File* io, const Match* match, 
         break;
     }
     case LOC_LINE_END: {
-        enum Err err = io_line_end(io, match->end - 1, &base);
+        i64 ref = match->end > 0 ? match->end - 1 : 0;
+        enum Err err = io_line_end(io, ref, &base);
         if (err != E_OK)
             return err;
         break;
@@ -459,7 +461,7 @@ static void commit_labels(VM* vm, const Program* prg, const LabelWrite* label_wr
         // Find existing label or free slot
         int slot = -1;
         for (int j = 0; j < 32; j++) {
-            if (vm->labels[j].in_use && strcmp(vm->labels[j].name, prg->names[name_idx]) == 0) {
+            if (vm->labels[j].in_use && vm->labels[j].name_idx == name_idx) {
                 slot = j;
                 break;
             }
@@ -486,7 +488,7 @@ static void commit_labels(VM* vm, const Program* prg, const LabelWrite* label_wr
         }
 
         // Update slot
-        strcpy(vm->labels[slot].name, prg->names[name_idx]);
+        vm->labels[slot].name_idx = name_idx;
         vm->labels[slot].pos = pos;
         vm->labels[slot].gen = ++vm->gen_counter;
         vm->labels[slot].in_use = true;

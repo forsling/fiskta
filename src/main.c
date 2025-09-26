@@ -30,7 +30,9 @@ static void print_usage(void)
     printf("OPERATIONS:\n");
     printf("  take <n><unit>              Extract n units from current position\n");
     printf("  skip <n><unit>              Move cursor n units forward (no output)\n");
-    printf("  find <string>               Search for string and update cursor\n");
+    printf("  find [to <location>] <string>\n");
+    printf("                              Search within [min(cursor,L), max(cursor,L)),\n");
+    printf("                              default L=EOF; picks match closest to cursor\n");
     printf("  take to <location>          Extract from cursor to location (half-open range)\n");
     printf("  take until <string>         Extract from cursor until string found\n");
     printf("  label <name>                Mark current position with label\n");
@@ -90,7 +92,7 @@ int main(int argc, char** argv)
             print_usage();
             return 0;
         } else if (strcmp(argv[1], "-v") == 0 || strcmp(argv[1], "--version") == 0) {
-            printf("fiskta (FInd SKip TAke) v2.0\n");
+            printf("fiskta (FInd SKip TAke) v2.2\n");
             return 0;
         }
     }

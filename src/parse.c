@@ -246,7 +246,9 @@ static enum Err parse_op(char** tokens, int* idx, int token_count, Op* op, Progr
         if (!is_valid_label_name(name))
             return E_LABEL_FMT;
 
-        op->u.label.name_idx = find_or_add_name(prg, name);
+        int idx_name = find_or_add_name(prg, name);
+        if (idx_name < 0) return E_OOM;
+        op->u.label.name_idx = idx_name;
 
     } else if (strcmp(cmd, "goto") == 0) {
         op->kind = OP_GOTO;
@@ -286,7 +288,9 @@ static enum Err parse_loc_expr(char** tokens, int* idx, int token_count, LocExpr
         loc->base = LOC_LINE_END;
     } else if (is_valid_label_name(base)) {
         loc->base = LOC_NAME;
-        loc->name_idx = find_or_add_name(prg, base);
+        int idx_name = find_or_add_name(prg, base);
+        if (idx_name < 0) return E_OOM;
+        loc->name_idx = idx_name;
     } else {
         return E_PARSE;
     }

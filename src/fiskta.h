@@ -124,7 +124,7 @@ typedef struct {
 
     // labels (LRU of 32)
     struct {
-        char name[17];
+        int name_idx;
         i64 pos;
         u64 gen;
         bool in_use;

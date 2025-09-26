@@ -40,8 +40,10 @@ enum Err io_open(File* io, const char* path)
 
         while (1) {
             size_t n = fread(buf, 1, sizeof(buf), stdin);
-            if (n == 0)
+            if (n == 0) {
+                if (ferror(stdin)) { fclose(io->f); return E_IO; }
                 break;
+            }
 
             size_t written = fwrite(buf, 1, n, io->f);
             if (written != n) {
@@ -51,7 +53,8 @@ enum Err io_open(File* io, const char* path)
             total_read += n;
         }
 
-        io->size = total_read;
+        io->size = (i64)total_read;
+        if (fflush(io->f) != 0) { fclose(io->f); return E_IO; }
         rewind(io->f);
     } else {
         io->f = fopen(path, "rb");
@@ -99,9 +102,8 @@ void io_close(File* io)
 
 enum Err io_emit(File* io, i64 start, i64 end, FILE* out)
 {
-    if (start >= end || start < 0 || end > io->size) {
-        return E_OK; // Empty or invalid range, nothing to emit
-    }
+    if (start >= end) return E_OK;          // empty OK (no-op)
+    if (start < 0 || end > io->size) return E_IO; // outside file is an error
 
     if (fseeko(io->f, start, SEEK_SET) != 0) {
         return E_IO;
@@ -111,13 +113,13 @@ enum Err io_emit(File* io, i64 start, i64 end, FILE* out)
     while (remaining > 0) {
         size_t chunk_size = remaining > io->buf_cap ? io->buf_cap : (size_t)remaining;
         size_t n = fread(io->buf, 1, chunk_size, io->f);
-        if (n == 0)
-            break;
+        if (n == 0) {
+            if (ferror(io->f)) return E_IO;
+            break; // shouldn't happen with bounded ranges, but be defensive
+        }
 
         size_t written = fwrite(io->buf, 1, n, out);
-        if (written != n) {
-            return E_IO;
-        }
+        if (written != n) return E_IO;
 
         remaining -= n;
     }
@@ -248,9 +250,6 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
     if (dir == DIR_FWD) {
         // Forward search: chunked scan with overlap
         size_t overlap = nlen > 0 ? nlen - 1 : 0;
-        const size_t OVERLAP_MIN = 1024;  // 1KB minimum overlap
-        const size_t OVERLAP_MAX = 8192;   // 8KB maximum overlap
-        
         if (overlap < OVERLAP_MIN) overlap = OVERLAP_MIN;
         if (overlap > OVERLAP_MAX) overlap = OVERLAP_MAX;
 
@@ -420,38 +419,3 @@ static enum Err two_way_forward(const unsigned char* text, size_t text_len,
     return E_NO_MATCH;
 }
 
-static enum Err two_way_backward(const unsigned char* text, size_t text_len,
-    const unsigned char* needle, size_t needle_len,
-    i64* ms, i64* me)
-{
-    if (needle_len == 0 || needle_len > text_len) {
-        return E_NO_MATCH;
-    }
-
-    // For backward search, we scan the text backwards and use forward Two-Way
-    // to find the rightmost match
-    i64 best_ms = -1;
-    i64 best_me = -1;
-
-    // Start from the end and work backwards
-    for (size_t i = text_len - needle_len; i < text_len; i--) {
-        // Use forward Two-Way to search from position i
-        i64 local_ms, local_me;
-        enum Err err = two_way_forward(text + i, text_len - i, needle, needle_len, &local_ms, &local_me);
-        
-        if (err == E_OK) {
-            // Found a match, record it as the rightmost
-            best_ms = i + local_ms;
-            best_me = i + local_me;
-            break; // This is the rightmost match
-        }
-    }
-
-    if (best_ms >= 0) {
-        *ms = best_ms;
-        *me = best_me;
-        return E_OK;
-    }
-
-    return E_NO_MATCH;
-}
