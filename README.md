@@ -1,4 +1,4 @@
-# Fiskta v2
+# Fiskta (FInd SKip TAke)
 
 ## Overview
 

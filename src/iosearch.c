@@ -16,9 +16,6 @@
 static enum Err two_way_forward(const unsigned char* text, size_t text_len,
     const unsigned char* needle, size_t needle_len,
     i64* ms, i64* me);
-static enum Err two_way_backward(const unsigned char* text, size_t text_len,
-    const unsigned char* needle, size_t needle_len,
-    i64* ms, i64* me);
 
 enum Err io_open(File* io, const char* path)
 {
