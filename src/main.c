@@ -12,12 +12,23 @@ enum Err parse_program(int, char**, Program*, const char**);
 void parse_free(Program*);
 enum Err engine_run(const Program*, const char*, FILE*);
 
-static void die(enum Err e, const char* msg)
-{
-    if (msg)
-        fprintf(stderr, "fiskta: %s\n", msg);
-    else
-        fprintf(stderr, "fiskta: error %d\n", e);
+static const char* err_str(enum Err e) {
+    switch (e) {
+    case E_OK: return "ok";
+    case E_PARSE: return "parse error";
+    case E_BAD_NEEDLE: return "empty needle";
+    case E_LOC_RESOLVE: return "location not resolvable";
+    case E_NO_MATCH: return "no match in window";
+    case E_LABEL_FMT: return "bad label (A-Z, _ or -, ≤16)";
+    case E_IO: return "I/O error";
+    case E_OOM: return "out of memory";
+    default: return "unknown error";
+    }
+}
+
+static void die(enum Err e, const char* msg) {
+    if (msg) fprintf(stderr, "fiskta: %s (%s)\n", msg, err_str(e));
+    else     fprintf(stderr, "fiskta: %s\n", err_str(e));
 }
 
 static void print_usage(void)
@@ -63,7 +74,7 @@ static void print_usage(void)
     printf("  fiskta take 10b file.txt                    # Extract first 10 bytes\n");
     printf("  fiskta take 3l file.txt                     # Extract first 3 lines\n");
     printf("  fiskta find \"ERROR\" take to match-start file.txt  # Extract to ERROR (excludes ERROR)\n");
-    printf("  fiskta take to BOF +100b file.txt          # Extract from BOF+100b\n");
+    printf("  fiskta take to BOF+100b file.txt          # Extract from BOF+100b\n");
     printf("  fiskta skip 5b take 10b file.txt           # Skip 5, take 10\n");
     printf("  fiskta take until \"---\" file.txt          # Extract until \"---\"\n");
     printf("  echo \"Hello\" | fiskta take 5b -          # Process stdin\n");

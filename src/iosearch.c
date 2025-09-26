@@ -12,10 +12,9 @@
 #include <io.h>
 #endif
 
-// Forward declarations for Two-Way algorithm
-static enum Err two_way_forward(const unsigned char* text, size_t text_len,
-    const unsigned char* needle, size_t needle_len,
-    i64* ms, i64* me);
+// Forward declarations for Boyer-Moore-Horspool algorithm
+static enum Err bmh_forward(const unsigned char* text, size_t text_len,
+    const unsigned char* needle, size_t nlen, i64* ms, i64* me);
 
 enum Err io_open(File* io, const char* path)
 {
@@ -126,11 +125,11 @@ enum Err io_emit(File* io, i64 start, i64 end, FILE* out)
 
 enum Err io_line_start(File* io, i64 pos, i64* out)
 {
-    if (pos <= 0) { 
-        *out = 0; 
-        return E_OK; 
+    if (pos <= 0) {
+        *out = 0;
+        return E_OK;
     }
-    
+
     i64 search_end = pos;
     i64 block = FW_WIN;
     while (search_end > 0) {
@@ -139,34 +138,34 @@ enum Err io_line_start(File* io, i64 pos, i64* out)
         if (fseeko(io->f, block_lo, SEEK_SET) != 0) return E_IO;
         size_t n = fread(io->buf, 1, (size_t)(search_end - block_lo), io->f);
         for (i64 i = (i64)n - 1; i >= 0; --i) {
-            if (io->buf[i] == '\n') { 
+            if (io->buf[i] == '\n') {
                 i64 line_start = block_lo + i + 1;
                 // Check if this is a CRLF line ending (previous char is \r)
                 if (i > 0 && io->buf[i - 1] == '\r') {
                     // This is a CRLF line ending, line starts after the \n
                     line_start = block_lo + i + 1;
                 }
-                *out = line_start; 
-                return E_OK; 
+                *out = line_start;
+                return E_OK;
             }
         }
-        if (block_lo == 0) { 
-            *out = 0; 
-            return E_OK; 
+        if (block_lo == 0) {
+            *out = 0;
+            return E_OK;
         }
         search_end = block_lo;
     }
-    *out = 0; 
+    *out = 0;
     return E_OK;
 }
 
 enum Err io_line_end(File* io, i64 pos, i64* out)
 {
-    if (pos >= io->size) { 
-        *out = io->size; 
-        return E_OK; 
+    if (pos >= io->size) {
+        *out = io->size;
+        return E_OK;
     }
-    
+
     i64 search_start = pos;
     i64 block = FW_WIN;
     while (search_start < io->size) {
@@ -175,24 +174,24 @@ enum Err io_line_end(File* io, i64 pos, i64* out)
         if (fseeko(io->f, search_start, SEEK_SET) != 0) return E_IO;
         size_t n = fread(io->buf, 1, (size_t)(block_hi - search_start), io->f);
         for (size_t i = 0; i < n; ++i) {
-            if (io->buf[i] == '\n') { 
+            if (io->buf[i] == '\n') {
                 i64 line_end = search_start + (i64)i + 1;
                 // Check if this is a CRLF line ending (previous char is \r)
                 if (i > 0 && io->buf[i - 1] == '\r') {
                     // This is a CRLF line ending, line ends after the \n
                     line_end = search_start + (i64)i + 1;
                 }
-                *out = line_end; 
-                return E_OK; 
+                *out = line_end;
+                return E_OK;
             }
         }
-        if (block_hi == io->size) { 
-            *out = io->size; 
-            return E_OK; 
+        if (block_hi == io->size) {
+            *out = io->size;
+            return E_OK;
         }
         search_start = block_hi;
     }
-    *out = io->size; 
+    *out = io->size;
     return E_OK;
 }
 
@@ -273,11 +272,11 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
             if (n == 0) break;
 
             i64 local_ms, local_me;
-            enum Err err = two_way_forward(io->buf, n, needle, nlen, &local_ms, &local_me);
-            if (err == E_OK) { 
-                *ms = block_lo + local_ms; 
-                *me = block_lo + local_me; 
-                return E_OK; 
+            enum Err err = bmh_forward(io->buf, n, needle, nlen, &local_ms, &local_me);
+            if (err == E_OK) {
+                *ms = block_lo + local_ms;
+                *me = block_lo + local_me;
+                return E_OK;
             }
 
             if (block_hi == win_hi) break;
@@ -321,7 +320,7 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
             i64 search_pos = 0;
             while (search_pos < n) {
                 i64 local_ms, local_me;
-                enum Err err = two_way_forward(io->buf + search_pos, n - search_pos,
+                enum Err err = bmh_forward(io->buf + search_pos, n - search_pos,
                     needle, nlen, &local_ms, &local_me);
                 if (err != E_OK)
                     break;
@@ -352,79 +351,24 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
     }
 }
 
-// Two-Way algorithm implementation (Crochemore–Perrin)
-static enum Err two_way_forward(const unsigned char* text, size_t text_len,
-    const unsigned char* needle, size_t needle_len,
-    i64* ms, i64* me)
+// Boyer-Moore-Horspool algorithm implementation
+static enum Err bmh_forward(const unsigned char* text, size_t text_len,
+    const unsigned char* needle, size_t nlen, i64* ms, i64* me)
 {
-    if (needle_len == 0 || needle_len > text_len) {
-        return E_NO_MATCH;
-    }
+    if (nlen == 0 || nlen > text_len) return E_NO_MATCH;
 
-    // Critical factorization: find the position that minimizes the local period
-    size_t critical_pos = 0;
-    size_t period = needle_len;
-    
-    // Find the critical factorization position
-    for (size_t i = 1; i < needle_len; i++) {
-        size_t j = 0;
-        while (j < needle_len - i && needle[j] == needle[i + j]) {
-            j++;
-        }
-        if (j == needle_len - i) {
-            // Found a period
-            size_t p = i;
-            if (p < period) {
-                period = p;
-                critical_pos = i;
-            }
-        }
-    }
+    size_t shift[256];
+    for (size_t i = 0; i < 256; ++i) shift[i] = nlen;
+    for (size_t i = 0; i + 1 < nlen; ++i) shift[needle[i]] = nlen - 1 - i;
 
-    // If no period found, use naive search
-    if (period == needle_len) {
-        for (size_t i = 0; i <= text_len - needle_len; i++) {
-            if (memcmp(text + i, needle, needle_len) == 0) {
-                *ms = i;
-                *me = i + needle_len;
-                return E_OK;
-            }
+    size_t pos = 0;
+    while (pos <= text_len - nlen) {
+        unsigned char last = text[pos + nlen - 1];
+        if (last == needle[nlen - 1] && memcmp(text + pos, needle, nlen) == 0) {
+            *ms = (i64)pos; *me = (i64)(pos + nlen); return E_OK;
         }
-        return E_NO_MATCH;
+        pos += shift[last];
     }
-
-    // Two-Way search
-    size_t text_pos = 0;
-    while (text_pos <= text_len - needle_len) {
-        // Compare right part first
-        size_t right_len = needle_len - critical_pos;
-        size_t i = critical_pos;
-        while (i < needle_len && text[text_pos + i] == needle[i]) {
-            i++;
-        }
-        
-        if (i == needle_len) {
-            // Right part matches, compare left part
-            i = critical_pos;
-            while (i > 0 && text[text_pos + i - 1] == needle[i - 1]) {
-                i--;
-            }
-            
-            if (i == 0) {
-                // Full match found
-                *ms = text_pos;
-                *me = text_pos + needle_len;
-                return E_OK;
-            }
-            
-            // Mismatch in left part, shift by 1
-            text_pos++;
-        } else {
-            // Mismatch in right part, shift by period
-            text_pos += period;
-        }
-    }
-
     return E_NO_MATCH;
 }
 

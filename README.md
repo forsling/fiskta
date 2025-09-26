@@ -86,6 +86,7 @@ Search **forward** from the cursor, then capture up to a derived point.
 * On match: compute base `B` from `<at-expr>` relative to the match (default `match-start`)
 * Emit `[cursor, B)`, set `cursor = B`
 * Empty needles invalid.
+* Cursor **does** move to the derived point (even if no bytes were emitted).
 
 **Examples**
 
@@ -153,6 +154,7 @@ All captures use half-open intervals `[start, end)`.
 
 * `take to <L>` always emits `[min(cursor,L), max(cursor,L))`
 * Cursor moves to the **high end** (`max(cursor,L)`)
+* All `take*` ops move the cursor to the **byte just after the emitted range**. If nothing was emitted (empty range), the cursor **does not move**.
 
 **Inverted example**
 
@@ -179,6 +181,7 @@ Empty captures (e.g., `take 0b`, `take to cursor`) **succeed** and do not move t
 
 * Bases: `cursor | BOF | EOF | <LABEL> | match-start | match-end | line-start | line-end`
 * Offsets can be in bytes or **lines** (line offsets step whole line boundaries)
+* `line-start` / `line-end` (in `loc-expr`) are computed from the **cursor**. In `at-expr`, they're computed from the **last match**.
 * `at-expr` (for `take until`) uses the same bases but **requires a valid last match**
 
 **Examples**

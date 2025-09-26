@@ -4,6 +4,16 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Helper function to find inline offset start
+static const char* find_inline_offset_start(const char* s) {
+    // Return pointer to first '+' or '-' that begins an offset suffix, else NULL.
+    // Skip the first char to avoid treating a leading sign as part of the base token.
+    for (const char* p = s + 1; *p; ++p) {
+        if (*p == '+' || *p == '-') return p;
+    }
+    return NULL;
+}
+
 // Forward declarations
 static enum Err parse_clause(char** tokens, int* idx, int token_count, Clause* clause, Program* prg);
 static enum Err parse_op(char** tokens, int* idx, int token_count, Op* op, Program* prg);
@@ -268,52 +278,44 @@ static enum Err parse_loc_expr(char** tokens, int* idx, int token_count, LocExpr
     if (*idx >= token_count)
         return E_PARSE;
 
-    const char* base = tokens[*idx];
+    const char* token = tokens[*idx]; // may be "BOF" or "BOF+100b" etc.
     (*idx)++;
 
-    // Parse base location
-    if (strcmp(base, "cursor") == 0) {
-        loc->base = LOC_CURSOR;
-    } else if (strcmp(base, "BOF") == 0) {
-        loc->base = LOC_BOF;
-    } else if (strcmp(base, "EOF") == 0) {
-        loc->base = LOC_EOF;
-    } else if (strcmp(base, "match-start") == 0) {
-        loc->base = LOC_MATCH_START;
-    } else if (strcmp(base, "match-end") == 0) {
-        loc->base = LOC_MATCH_END;
-    } else if (strcmp(base, "line-start") == 0) {
-        loc->base = LOC_LINE_START;
-    } else if (strcmp(base, "line-end") == 0) {
-        loc->base = LOC_LINE_END;
-    } else if (is_valid_label_name(base)) {
+    const char* off_inline = find_inline_offset_start(token);
+    size_t base_len = off_inline ? (size_t)(off_inline - token) : strlen(token);
+
+    // copy base into a small buffer to compare
+    char base_buf[32];
+    if (base_len >= sizeof(base_buf)) return E_PARSE;
+    memcpy(base_buf, token, base_len);
+    base_buf[base_len] = '\0';
+
+    // Parse base
+    if (strcmp(base_buf, "cursor") == 0)      loc->base = LOC_CURSOR;
+    else if (strcmp(base_buf, "BOF") == 0)    loc->base = LOC_BOF;
+    else if (strcmp(base_buf, "EOF") == 0)    loc->base = LOC_EOF;
+    else if (strcmp(base_buf, "match-start") == 0) loc->base = LOC_MATCH_START;
+    else if (strcmp(base_buf, "match-end") == 0)   loc->base = LOC_MATCH_END;
+    else if (strcmp(base_buf, "line-start") == 0)  loc->base = LOC_LINE_START;
+    else if (strcmp(base_buf, "line-end") == 0)    loc->base = LOC_LINE_END;
+    else if (is_valid_label_name(base_buf)) {
         loc->base = LOC_NAME;
-        int idx_name = find_or_add_name(prg, base);
+        int idx_name = find_or_add_name(prg, base_buf);
         if (idx_name < 0) return E_OOM;
         loc->name_idx = idx_name;
     } else {
         return E_PARSE;
     }
 
-    // Check for offset
-    if (*idx < token_count) {
-        const char* offset_token = tokens[*idx];
-        int sign;
-        u64 n;
-        enum Unit unit;
-
-        enum Err err = parse_signed_number(offset_token, &sign, &n, &unit);
-        if (err == E_OK) {
-            loc->has_off = true;
-            loc->sign = sign;
-            loc->n = n;
-            loc->unit = unit;
-            (*idx)++;
-        } else {
-            loc->has_off = false;
-        }
-    } else {
-        loc->has_off = false;
+    // Offsets: inline or next token
+    loc->has_off = false;
+    if (off_inline) {
+        enum Err err = parse_signed_number(off_inline, &loc->sign, &loc->n, &loc->unit);
+        if (err != E_OK) return err;
+        loc->has_off = true;
+    } else if (*idx < token_count) {
+        enum Err err = parse_signed_number(tokens[*idx], &loc->sign, &loc->n, &loc->unit);
+        if (err == E_OK) { loc->has_off = true; (*idx)++; }
     }
 
     return E_OK;
@@ -324,40 +326,31 @@ static enum Err parse_at_expr(char** tokens, int* idx, int token_count, AtExpr* 
     if (*idx >= token_count)
         return E_PARSE;
 
-    const char* base = tokens[*idx];
+    const char* token = tokens[*idx];
     (*idx)++;
 
-    if (strcmp(base, "match-start") == 0) {
-        at->at = LOC_MATCH_START;
-    } else if (strcmp(base, "match-end") == 0) {
-        at->at = LOC_MATCH_END;
-    } else if (strcmp(base, "line-start") == 0) {
-        at->at = LOC_LINE_START;
-    } else if (strcmp(base, "line-end") == 0) {
-        at->at = LOC_LINE_END;
-    } else {
-        return E_PARSE;
-    }
+    const char* off_inline = find_inline_offset_start(token);
+    size_t base_len = off_inline ? (size_t)(off_inline - token) : strlen(token);
 
-    // Check for offset
-    if (*idx < token_count) {
-        const char* offset_token = tokens[*idx];
-        int sign;
-        u64 n;
-        enum Unit unit;
+    char base_buf[32];
+    if (base_len >= sizeof(base_buf)) return E_PARSE;
+    memcpy(base_buf, token, base_len);
+    base_buf[base_len] = '\0';
 
-        enum Err err = parse_signed_number(offset_token, &sign, &n, &unit);
-        if (err == E_OK) {
-            at->has_off = true;
-            at->sign = sign;
-            at->n = n;
-            at->unit = unit;
-            (*idx)++;
-        } else {
-            at->has_off = false;
-        }
-    } else {
-        at->has_off = false;
+    if      (strcmp(base_buf, "match-start") == 0) at->at = LOC_MATCH_START;
+    else if (strcmp(base_buf, "match-end")   == 0) at->at = LOC_MATCH_END;
+    else if (strcmp(base_buf, "line-start")  == 0) at->at = LOC_LINE_START;
+    else if (strcmp(base_buf, "line-end")    == 0) at->at = LOC_LINE_END;
+    else return E_PARSE;
+
+    at->has_off = false;
+    if (off_inline) {
+        enum Err err = parse_signed_number(off_inline, &at->sign, &at->n, &at->unit);
+        if (err != E_OK) return err;
+        at->has_off = true;
+    } else if (*idx < token_count) {
+        enum Err err = parse_signed_number(tokens[*idx], &at->sign, &at->n, &at->unit);
+        if (err == E_OK) { at->has_off = true; (*idx)++; }
     }
 
     return E_OK;

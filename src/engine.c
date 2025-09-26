@@ -16,7 +16,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
     Range** ranges, int* range_count, int* range_cap,
     LabelWrite** label_writes, int* label_count, int* label_cap);
 static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* io,
-    const VM* vm, const Match* staged_match, i64 staged_cursor, 
+    const VM* vm, const Match* staged_match, i64 staged_cursor,
     const LabelWrite* staged_labels, int staged_label_count, i64* out);
 static enum Err resolve_at_expr(const AtExpr* at, File* io, const Match* match, i64* out);
 static void commit_labels(VM* vm, const Program* prg, const LabelWrite* label_writes, int label_count);
@@ -249,7 +249,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
         (*ranges)[*range_count].end = end;
         (*range_count)++;
 
-        *c_cursor = end;
+        *c_cursor = clamp64(end, 0, io_size(io));
         break;
     }
 
@@ -277,7 +277,10 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
             target = ms; // Default to match-start
         }
 
-        // Stage the range
+        // Stage the range and move cursor only to the far end of what was emitted.
+        // If the derived point is <= cursor, the capture is empty and the cursor must not move.
+        i64 dst = clamp64(target, 0, io_size(io));
+
         if (*range_count >= *range_cap) {
             *range_cap *= 2;
             Range* new_ranges = realloc(*ranges, *range_cap * sizeof(Range));
@@ -287,10 +290,13 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
         }
 
         (*ranges)[*range_count].start = *c_cursor;
-        (*ranges)[*range_count].end = clamp64(target, 0, io_size(io));
+        (*ranges)[*range_count].end = dst;
         (*range_count)++;
 
-        *c_cursor = target;
+        if (dst > *c_cursor) {
+            *c_cursor = dst; // move to far end (just after emitted range)
+        }
+        // else: empty capture -> cursor stays where it is
         break;
     }
 
@@ -325,7 +331,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
 }
 
 static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* io,
-    const VM* vm, const Match* staged_match, i64 staged_cursor, 
+    const VM* vm, const Match* staged_match, i64 staged_cursor,
     const LabelWrite* staged_labels, int staged_label_count, i64* out)
 {
     i64 base;
@@ -350,7 +356,7 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
                 break;
             }
         }
-        
+
         // If not found in staged labels, check committed labels
         if (!found) {
             for (int i = 0; i < 32; i++) {
@@ -361,33 +367,32 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
                 }
             }
         }
-        
+
         if (!found)
             return E_LOC_RESOLVE;
         break;
     }
     case LOC_MATCH_START:
-    case LOC_MATCH_END:
-    case LOC_LINE_START:
-    case LOC_LINE_END:
-        if (!staged_match->valid)
-            return E_LOC_RESOLVE;
-
-        if (loc->base == LOC_MATCH_START) {
-            base = staged_match->start;
-        } else if (loc->base == LOC_MATCH_END) {
-            base = staged_match->end;
-        } else if (loc->base == LOC_LINE_START) {
-            enum Err err = io_line_start(io, staged_match->start, &base);
-            if (err != E_OK)
-                return err;
-        } else { // LOC_LINE_END
-            i64 ref = staged_match->end > 0 ? staged_match->end - 1 : 0;
-            enum Err err = io_line_end(io, ref, &base);
-            if (err != E_OK)
-                return err;
-        }
+        if (!staged_match->valid) return E_LOC_RESOLVE;
+        base = staged_match->start;
         break;
+    case LOC_MATCH_END:
+        if (!staged_match->valid) return E_LOC_RESOLVE;
+        base = staged_match->end;
+        break;
+    case LOC_LINE_START: {
+        // relative to cursor
+        enum Err err = io_line_start(io, staged_cursor, &base);
+        if (err != E_OK) return err;
+        break;
+    }
+    case LOC_LINE_END: {
+        // relative to cursor; io_line_end expects a byte inside the line
+        i64 ref = staged_cursor > 0 ? staged_cursor - 1 : 0;
+        enum Err err = io_line_end(io, ref, &base);
+        if (err != E_OK) return err;
+        break;
+    }
     default:
         return E_PARSE;
     }
