@@ -47,7 +47,7 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     vm.last_match.valid = false;
     vm.gen_counter = 0;
 
-    // --- NEW: one-time preallocation of clause scratch ---
+    // Preallocate scratch buffers for each clause
     int cc = prg->clause_count;
 
     // small metadata on stack is fine; scratch buffers on heap (startup)
@@ -79,7 +79,7 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
         if (err == E_OK) {
             successful_clauses++;
         } else {
-            last_err = err; // Remember the last error
+            last_err = err;
         }
     }
 

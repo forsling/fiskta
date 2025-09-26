@@ -98,7 +98,7 @@ enum Err io_open(File* io, const char* path)
         io->line_idx[i].in_use = false;
         io->line_idx[i].gen = 0;
 
-        // NEW: allocate fixed-size counts buffer once per slot
+        // Allocate fixed-size counts buffer once per slot
         io->line_idx[i].lf_counts = (unsigned short*)
             malloc((size_t)IDX_SUB_MAX * sizeof(unsigned short));
         if (!io->line_idx[i].lf_counts) {
@@ -201,7 +201,7 @@ void io_close(File* io)
 
 enum Err io_emit(File* io, i64 start, i64 end, FILE* out)
 {
-    if (start >= end) return E_OK;          // empty OK (no-op)
+    if (start >= end) return E_OK;
     if (start < 0 || end > io->size) return E_IO; // outside file is an error
 
     if (fseeko(io->f, start, SEEK_SET) != 0) {

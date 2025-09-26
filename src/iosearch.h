@@ -30,7 +30,7 @@ typedef struct {
     unsigned char* buf;
     size_t buf_cap; // allocate once, e.g., max(FW_WIN, BK_BLK + OVERLAP_MAX)
 
-    // NEW: bounded LRU cache of line indices
+    // Bounded LRU cache of line indices
     LineBlockIdx line_idx[IDX_MAX_BLOCKS];
     u64 line_idx_gen;
 } File;

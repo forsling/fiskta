@@ -155,9 +155,9 @@ enum Err parse_preflight(int token_count, char** tokens, const char* in_path, Pa
             plan->total_ops++;
 
             if (strcmp(cmd, "find") == 0) {
-                idx++; // skip "find"
+                idx++;
                 if (idx < token_count && strcmp(tokens[idx], "to") == 0) {
-                    idx++; // skip "to"
+                    idx++;
                     // Skip location expression
                     if (idx < token_count) {
                         const char* loc_token = tokens[idx];
@@ -178,15 +178,15 @@ enum Err parse_preflight(int token_count, char** tokens, const char* in_path, Pa
                     idx++;
                 }
             } else if (strcmp(cmd, "skip") == 0) {
-                idx++; // skip "skip"
-                if (idx < token_count) idx++; // skip number+unit
+                idx++;
+                if (idx < token_count) idx++;
             } else if (strcmp(cmd, "take") == 0) {
-                idx++; // skip "take"
+                idx++;
                 if (idx < token_count) {
                     const char* next = tokens[idx];
                     if (strcmp(next, "to") == 0) {
                         plan->sum_take_ops++;
-                        idx++; // skip "to"
+                        idx++;
                         // Skip location expression
                         if (idx < token_count) {
                             const char* loc_token = tokens[idx];
@@ -201,7 +201,7 @@ enum Err parse_preflight(int token_count, char** tokens, const char* in_path, Pa
                         }
                     } else if (strcmp(next, "until") == 0) {
                         plan->sum_take_ops++;
-                        idx++; // skip "until"
+                        idx++;
                         // Skip needle
                         if (idx < token_count) {
                             plan->needle_count++;
@@ -210,7 +210,7 @@ enum Err parse_preflight(int token_count, char** tokens, const char* in_path, Pa
                         }
                         // Skip "at" expression if present
                         if (idx < token_count && strcmp(tokens[idx], "at") == 0) {
-                            idx++; // skip "at"
+                            idx++;
                             if (idx < token_count) {
                                 const char* at_token = tokens[idx];
                                 if (is_valid_label_name(at_token)) {
@@ -231,7 +231,7 @@ enum Err parse_preflight(int token_count, char** tokens, const char* in_path, Pa
                 }
             } else if (strcmp(cmd, "label") == 0) {
                 plan->sum_label_ops++;
-                idx++; // skip "label"
+                idx++;
                 if (idx < token_count) {
                     const char* name = tokens[idx];
                     if (is_valid_label_name(name)) {
@@ -240,7 +240,7 @@ enum Err parse_preflight(int token_count, char** tokens, const char* in_path, Pa
                     idx++;
                 }
             } else if (strcmp(cmd, "goto") == 0) {
-                idx++; // skip "goto"
+                idx++;
                 if (idx < token_count) {
                     const char* loc_token = tokens[idx];
                     if (is_valid_label_name(loc_token)) {
@@ -257,7 +257,6 @@ enum Err parse_preflight(int token_count, char** tokens, const char* in_path, Pa
             }
         }
 
-        // Skip semicolon if present
         if (idx < token_count && strcmp(tokens[idx], "::") == 0) {
             idx++;
         }
@@ -310,7 +309,7 @@ enum Err parse_build(int token_count, char** tokens, const char* in_path, Progra
             // Skip command-specific tokens
             if (strcmp(cmd, "find") == 0) {
                 if (idx < token_count && strcmp(tokens[idx], "to") == 0) {
-                    idx++; // skip "to"
+                    idx++;
                     if (idx < token_count) idx++; // skip location
                     if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
                         idx++; // skip offset
@@ -323,16 +322,16 @@ enum Err parse_build(int token_count, char** tokens, const char* in_path, Progra
                 if (idx < token_count) {
                     const char* next = tokens[idx];
                     if (strcmp(next, "to") == 0) {
-                        idx++; // skip "to"
+                        idx++;
                         if (idx < token_count) idx++; // skip location
                         if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
                             idx++; // skip offset
                         }
                     } else if (strcmp(next, "until") == 0) {
-                        idx++; // skip "until"
+                        idx++;
                         if (idx < token_count) idx++; // skip needle
                         if (idx < token_count && strcmp(tokens[idx], "at") == 0) {
-                            idx++; // skip "at"
+                            idx++;
                             if (idx < token_count) idx++; // skip location
                             if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
                                 idx++; // skip offset
@@ -366,7 +365,6 @@ enum Err parse_build(int token_count, char** tokens, const char* in_path, Progra
         prg->clause_count++;
         op_cursor += clause_op_count;
 
-        // Skip semicolon if present
         if (idx < token_count && strcmp(tokens[idx], "::") == 0) {
             idx++;
         }
@@ -406,7 +404,6 @@ static enum Err parse_op_build(char** tokens, int* idx, int token_count, Op* op,
     if (strcmp(cmd, "find") == 0) {
         op->kind = OP_FIND;
 
-        // Check for "to" keyword
         if (*idx < token_count && strcmp(tokens[*idx], "to") == 0) {
             (*idx)++;
             enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.find.to, prg, max_name_count);
@@ -538,7 +535,6 @@ static enum Err parse_loc_expr_build(char** tokens, int* idx, int token_count, L
     const char* token = tokens[*idx];
     (*idx)++;
 
-    // Check for inline offset
     const char* offset_start = find_inline_offset_start(token);
     if (offset_start) {
         // Parse base part
@@ -609,7 +605,6 @@ static enum Err parse_at_expr_build(char** tokens, int* idx, int token_count, At
     const char* token = tokens[*idx];
     (*idx)++;
 
-    // Check for inline offset
     const char* offset_start = find_inline_offset_start(token);
     if (offset_start) {
         // Parse base part
@@ -696,7 +691,6 @@ static enum Err parse_op(char** tokens, int* idx, int token_count, Op* op, Progr
     if (strcmp(cmd, "find") == 0) {
         op->kind = OP_FIND;
 
-        // Check for "to" keyword
         if (*idx < token_count && strcmp(tokens[*idx], "to") == 0) {
             (*idx)++;
             enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.find.to, prg);

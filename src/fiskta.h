@@ -13,7 +13,7 @@ typedef uint64_t u64;
 enum Unit {
     UNIT_BYTES,
     UNIT_LINES,
-    UNIT_CHARS   // NEW: UTF-8 code points
+    UNIT_CHARS   // UTF-8 code points
 };
 
 enum OpKind {
@@ -72,30 +72,30 @@ typedef struct {
         struct {
             LocExpr to;
             char* needle;
-        } find; // OP_FIND
+        } find;
         struct {
             u64 n;
             enum Unit unit;
-        } skip; // OP_SKIP
+        } skip;
         struct {
             int sign;
             u64 n;
             enum Unit unit;
-        } take_len; // OP_TAKE_LEN
+        } take_len;
         struct {
             LocExpr to;
-        } take_to; // OP_TAKE_TO
+        } take_to;
         struct {
             char* needle;
             bool has_at;
             AtExpr at;
-        } take_until; // OP_TAKE_UNTIL
+        } take_until;
         struct {
             int name_idx;
-        } label; // OP_LABEL
+        } label;
         struct {
             LocExpr to;
-        } go; // OP_GOTO
+        } go;
     } u;
 } Op;
 
