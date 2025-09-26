@@ -44,8 +44,8 @@ static bool is_valid_label_name(const char* name);
 // Function declarations
 enum Err parse_program(int argc, char** argv, Program* prg, const char** in_path_out);
 void parse_free(Program* prg);
-enum Err parse_preflight(int argc, char** argv, ParsePlan* plan, const char** in_path_out);
-enum Err parse_build(int argc, char** argv, Program* prg, const char** in_path_out,
+enum Err parse_preflight(int token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
+enum Err parse_build(int token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
                      Clause* clauses_buf, Op* ops_buf,
                      char (*names_buf)[17], int max_name_count,
                      char* str_pool, size_t str_pool_cap);
@@ -126,18 +126,16 @@ void parse_free(Program* prg)
     memset(prg, 0, sizeof(*prg));
 }
 
-enum Err parse_preflight(int argc, char** argv, ParsePlan* plan, const char** in_path_out)
+enum Err parse_preflight(int token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out)
 {
     memset(plan, 0, sizeof(*plan));
 
-    if (argc < 3) {
+    if (token_count < 1) {
         return E_PARSE;
     }
 
-    // Last argument is input path
-    *in_path_out = argv[argc - 1];
-    int token_count = argc - 2; // Exclude program name and input path
-    char** tokens = argv + 1;
+    // Input path is passed separately
+    *in_path_out = in_path;
 
     // Count clauses (number of "::" + 1)
     plan->clause_count = 1;
@@ -268,21 +266,20 @@ enum Err parse_preflight(int argc, char** argv, ParsePlan* plan, const char** in
     return E_OK;
 }
 
-enum Err parse_build(int argc, char** argv, Program* prg, const char** in_path_out,
+enum Err parse_build(int token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
                      Clause* clauses_buf, Op* ops_buf,
                      char (*names_buf)[17], int max_name_count,
                      char* str_pool, size_t str_pool_cap)
 {
     memset(prg, 0, sizeof(*prg));
 
-    if (argc < 3) {
+    if (token_count < 1) {
         return E_PARSE;
     }
 
-    // Last argument is input path
-    *in_path_out = argv[argc - 1];
-    int token_count = argc - 2; // Exclude program name and input path
-    char** tokens = argv + 1;
+    // Input path is passed separately
+    *in_path_out = in_path;
+
 
     // Initialize program with preallocated buffers
     prg->clauses = clauses_buf;
@@ -588,6 +585,19 @@ static enum Err parse_loc_expr_build(char** tokens, int* idx, int token_count, L
         return E_PARSE;
     }
 
+    // Support detached offset as next token (e.g., "BOF +100b")
+    if (*idx < token_count) {
+        int sign_tmp; u64 n_tmp; enum Unit unit_tmp;
+        enum Err off_err = parse_signed_number(tokens[*idx], &sign_tmp, &n_tmp, &unit_tmp);
+        if (off_err == E_OK) {
+            loc->has_off = true;
+            loc->sign   = sign_tmp;
+            loc->n      = n_tmp;
+            loc->unit   = unit_tmp;
+            (*idx)++; // consume detached offset token
+        }
+    }
+
     return E_OK;
 }
 
@@ -632,6 +642,19 @@ static enum Err parse_at_expr_build(char** tokens, int* idx, int token_count, At
         at->at = LOC_LINE_END;
     } else {
         return E_PARSE;
+    }
+
+    // Support detached offset as next token (e.g., "line-start -2l")
+    if (*idx < token_count) {
+        int sign_tmp; u64 n_tmp; enum Unit unit_tmp;
+        enum Err off_err = parse_signed_number(tokens[*idx], &sign_tmp, &n_tmp, &unit_tmp);
+        if (off_err == E_OK) {
+            at->has_off = true;
+            at->sign = sign_tmp;
+            at->n    = n_tmp;
+            at->unit = unit_tmp;
+            (*idx)++; // consume
+        }
     }
 
     return E_OK;

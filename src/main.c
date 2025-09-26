@@ -16,6 +16,38 @@ typedef struct {
     int max_name_count;
 } ParsePlan;
 
+// Minimal ops-string splitter for quoted CLI usage
+static int split_ops_string(const char* s, char** out, int max_tokens) {
+    static char buf[4096]; // one-shot scratch; fine for our CLI
+    int n = 0; size_t off = 0;
+
+    while (*s && n < max_tokens) {
+        while (*s==' ' || *s=='\t') s++;
+        if (!*s) break;
+
+        if (s[0]==':' && s[1]==':') {           // "::" token
+            out[n++] = (char*)"::";
+            s += 2;
+            continue;
+        }
+
+        const char* start = s;
+        while (*s && *s!=' ' && *s!='\t') {
+            if (s[0]==':' && s[1]==':') break;
+            s++;
+        }
+        size_t len = (size_t)(s - start);
+        if (len) {
+            if (off + len + 1 >= sizeof(buf)) break; // truncate defensively
+            memcpy(buf + off, start, len);
+            buf[off + len] = '\0';
+            out[n++] = buf + off;
+            off += len + 1;
+        }
+    }
+    return n;
+}
+
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
@@ -24,8 +56,8 @@ typedef struct {
 enum Err parse_program(int, char**, Program*, const char**);
 void parse_free(Program*);
 enum Err engine_run(const Program*, const char*, FILE*);
-enum Err parse_preflight(int argc, char** argv, ParsePlan* plan, const char** in_path_out);
-enum Err parse_build(int argc, char** argv, Program* prg, const char** in_path_out,
+enum Err parse_preflight(int token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
+enum Err parse_build(int token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
                      Clause* clauses_buf, Op* ops_buf,
                      char (*names_buf)[17], int max_name_count,
                      char* str_pool, size_t str_pool_cap);
@@ -146,12 +178,31 @@ int main(int argc, char** argv)
     // 1) Preflight
     ParsePlan plan = {0};
     const char* path = NULL;
-    enum Err e = parse_preflight(argc, argv, &plan, &path);
+
+    // Build the token view the parser expects: argv[1..argc-2]
+    char** tokens = argv + 1;
+    int token_count = argc - 2;
+    const char* in_path = argv[argc - 1];
+
+
+    // If user passed a single ops string, split it.
+    char* splitv[256];
+    if (token_count == 1 && strchr(tokens[0], ' ')) {
+        int n = split_ops_string(tokens[0], splitv, (int)(sizeof splitv / sizeof splitv[0]));
+        if (n > 0) {
+            tokens = splitv;
+            token_count = n;
+            // Don't add input path to tokens - it's passed separately
+        }
+    }
+
+    enum Err e = parse_preflight(token_count, tokens, in_path, &plan, &path);
     if (e != E_OK){ die(e, "parse preflight"); return 2; }
 
 
     // 2) Compute sizes
-    const size_t search_buf_cap = 256 * 1024; // Use a more reasonable 256KB buffer
+    const size_t search_buf_cap =
+        (FW_WIN > (BK_BLK + OVERLAP_MAX)) ? (size_t)FW_WIN : (size_t)(BK_BLK + OVERLAP_MAX);
     const size_t counts_total_u16 = (size_t)IDX_MAX_BLOCKS * (size_t)IDX_SUB_MAX;
     const size_t names_bytes = (size_t)plan.max_name_count * sizeof(char[17]);
     const size_t ops_bytes = (size_t)plan.total_ops * sizeof(Op);
@@ -191,7 +242,7 @@ int main(int argc, char** argv)
 
     // 5) Parse into preallocated storage
     Program prg = {0};
-    e = parse_build(argc, argv, &prg, &path, clauses_buf, ops_buf,
+    e = parse_build(token_count, tokens, in_path, &prg, &path, clauses_buf, ops_buf,
                     names_buf, plan.max_name_count, str_pool, str_pool_bytes);
     if (e != E_OK){ die(e, "parse build"); free(block); return 2; }
 
