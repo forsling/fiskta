@@ -7,7 +7,8 @@
 enum {
     IDX_BLOCK = 1 * 1024 * 1024,   // 1 MiB index block
     IDX_SUB   = 4 * 1024,          // 4 KiB subchunks
-    IDX_MAX_BLOCKS = 64            // LRU cache size (bounded memory)
+    IDX_MAX_BLOCKS = 64,            // LRU cache size (bounded memory)
+    IDX_SUB_MAX = IDX_BLOCK / IDX_SUB  // 256
 };
 
 // Line block index structure

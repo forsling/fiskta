@@ -96,8 +96,19 @@ enum Err io_open(File* io, const char* path)
     io->line_idx_gen = 0;
     for (int i = 0; i < IDX_MAX_BLOCKS; ++i) {
         io->line_idx[i].in_use = false;
-        io->line_idx[i].lf_counts = NULL;
         io->line_idx[i].gen = 0;
+
+        // NEW: allocate fixed-size counts buffer once per slot
+        io->line_idx[i].lf_counts = (unsigned short*)
+            malloc((size_t)IDX_SUB_MAX * sizeof(unsigned short));
+        if (!io->line_idx[i].lf_counts) {
+            // cleanup previously allocated
+            for (int j = 0; j < i; ++j) free(io->line_idx[j].lf_counts);
+            free(io->buf);
+            fclose(io->f);
+            return E_OOM;
+        }
+        io->line_idx[i].sub_count = 0; // will be set per block
     }
 
     return E_OK;
@@ -116,10 +127,8 @@ void io_close(File* io)
 
     // Free line index memory
     for (int i = 0; i < IDX_MAX_BLOCKS; ++i) {
-        if (io->line_idx[i].lf_counts) {
-            free(io->line_idx[i].lf_counts);
-            io->line_idx[i].lf_counts = NULL;
-        }
+        free(io->line_idx[i].lf_counts);
+        io->line_idx[i].lf_counts = NULL;
     }
 
     io->size = 0;
@@ -556,13 +565,8 @@ static enum Err get_line_block(File* io, i64 pos, LineBlockIdx** out) {
     // (re)allocate counts
     int sub_count = (int)((block_hi - block_lo + IDX_SUB - 1) / IDX_SUB);
     if (sub_count <= 0) sub_count = 1;
-
-    if (!e->lf_counts || e->sub_count != sub_count) {
-        free(e->lf_counts);
-        e->lf_counts = (unsigned short*)malloc((size_t)sub_count * sizeof(unsigned short));
-        if (!e->lf_counts) return E_OOM;
-        e->sub_count = sub_count;
-    }
+    if (sub_count > IDX_SUB_MAX) sub_count = IDX_SUB_MAX; // defensive
+    e->sub_count = sub_count;
 
     // compute counts
     for (int s = 0; s < sub_count; ++s) e->lf_counts[s] = 0;
