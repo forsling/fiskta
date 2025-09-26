@@ -298,10 +298,9 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
             target = ms; // Default to match-start
         }
 
-        // Stage the range and move cursor only to the far end of what was emitted.
-        // If the derived point is <= cursor, the capture is empty and the cursor must not move.
         i64 dst = clamp64(target, 0, io_size(io));
 
+        // Stage [cursor, dst) ONLY (no order-normalization)
         if (*range_count >= *range_cap) {
             *range_cap *= 2;
             Range* new_ranges = realloc(*ranges, *range_cap * sizeof(Range));
@@ -314,10 +313,10 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
         (*ranges)[*range_count].end = dst;
         (*range_count)++;
 
+        // Cursor law: move only if non-empty
         if (dst > *c_cursor) {
-            *c_cursor = dst; // move to far end (just after emitted range)
+            *c_cursor = dst;
         }
-        // else: empty capture -> cursor stays where it is
         break;
     }
 

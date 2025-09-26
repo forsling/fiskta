@@ -33,7 +33,7 @@ find to LABEL+1l "X"
 
 ---
 
-### `skip <N><b|l>`
+### `skip <N><b|l|c>`
 
 Move the cursor **forward** by bytes or whole lines (clamped to file bounds).
 
@@ -46,7 +46,7 @@ skip 2l
 
 ---
 
-### `take <±N><b|l>`
+### `take <±N><b|l|c>`
 
 Signed length capture anchored at the cursor.
 
@@ -69,7 +69,7 @@ take -3l                     # the 3 lines before the cursor’s line
 Capture the span between the cursor and a location. **Order-normalized** and **half-open**.
 
 * Emit `[min(cursor,L), max(cursor,L))`
-* Cursor moves to `max(cursor,L)`
+* Cursor moves to `max(cursor,L)` (if already at the high end, it doesn't move)
 
 **Examples**
 
@@ -86,9 +86,10 @@ take to LABEL-1l
 Search **forward** from the cursor, then capture up to a derived point.
 
 * On match: compute base `B` from `<at-expr>` relative to the match (default `match-start`)
-* Emit `[cursor, B)`, set `cursor = B`
+* **Emit** `[cursor, B)` only (no order normalization)
+* **Cursor law:** if `B > cursor` then `cursor = B`; otherwise (empty span) the cursor does **not** move
 * Empty needles invalid.
-* Cursor **does** move to the derived point (even if no bytes were emitted).
+* **Forward search only.**
 
 **Examples**
 
@@ -150,13 +151,15 @@ fiskta label HERE :: goto HERE take 20b file.txt
 
 ---
 
-## Range semantics (half-open) & “inverted” spans
+## Range semantics (half-open) & cursor law
 
 All captures use half-open intervals `[start, end)`.
 
-* `take to <L>` always emits `[min(cursor,L), max(cursor,L))`
-* Cursor moves to the **high end** (`max(cursor,L)`)
-* All `take*` ops move the cursor to the **byte just after the emitted range**. If nothing was emitted (empty range), the cursor **does not move**.
+**Cursor law:** every `take*` moves the cursor to the **far end** of what was emitted; if the span is empty, the cursor does **not** move.
+
+* **`take to <L>`** → emits `[min(cursor,L), max(cursor,L))`; cursor becomes `max(cursor,L)`. Swapping start/end yields **identical output and post-state**.
+* **`take ±N<b|l|c>`** → anchored at the cursor's line/byte/char start per unit; sign sets direction. No order normalization.
+* **`take until …`** → searches **forward**; emits `[cursor, B)`; no normalization; empty span = no move.
 
 **Inverted example**
 
@@ -179,10 +182,11 @@ Empty captures (e.g., `take 0b`, `take to cursor`) **succeed** and do not move t
 
 ## Locations & offsets
 
-`loc-expr := loc [ ±N<b|l> ]`
+`loc-expr := loc [ ±N<b|l|c> ]`
 
-* Bases: `cursor | BOF | EOF | <LABEL> | match-start | match-end | line-start | line-end`
-* Offsets can be in bytes or **lines** (line offsets step whole line boundaries)
+ * Bases: `cursor | BOF | EOF | <LABEL> | match-start | match-end | line-start | line-end`
+* Offsets can be in **bytes**, **lines** (line offsets step whole line boundaries), or **UTF-8 code points**.
+* Offsets may be written inline (`BOF+100b`, `line-start-2l`) or as a separate token (`BOF +100b`).
 * `line-start` / `line-end` (in `loc-expr`) are computed from the **cursor**. In `at-expr`, they're computed from the **last match**.
 * `at-expr` (for `take until`) uses the same bases but **requires a valid last match**
 
@@ -232,7 +236,7 @@ fiskta take to line-start+1l take 3c file.txt
 * **`find`**: direction is implied by the window (`cursor → L`); forward picks **first**, backward picks **rightmost**.
 * **`take ±N`**: sign sets direction relative to the cursor.
 * **`take to`**: order-normalized; you don’t need to know which side is earlier.
-* **`take until`**: always searches forward; the `at` target can land before/inside/after the match depending on offsets.
+* **`take until`**: always searches forward; emits `[cursor, B)` only; empty span does not move the cursor; the `at` target can land before/inside/after the match depending on offsets.
 
 ---
 
