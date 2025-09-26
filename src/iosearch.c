@@ -16,6 +16,9 @@
 static enum Err bmh_forward(const unsigned char* text, size_t text_len,
     const unsigned char* needle, size_t nlen, i64* ms, i64* me);
 
+// Forward declaration for line indexing
+static enum Err get_line_block(File* io, i64 pos, LineBlockIdx** out);
+
 // UTF-8 helper functions
 static inline int is_cont_byte(unsigned char b){ return (b & 0xC0) == 0x80; }
 static inline int utf8_len_from_lead(unsigned char b){
@@ -89,6 +92,14 @@ enum Err io_open(File* io, const char* path)
     }
     io->buf_cap = buf_size;
 
+    // Initialize line index cache
+    io->line_idx_gen = 0;
+    for (int i = 0; i < IDX_MAX_BLOCKS; ++i) {
+        io->line_idx[i].in_use = false;
+        io->line_idx[i].lf_counts = NULL;
+        io->line_idx[i].gen = 0;
+    }
+
     return E_OK;
 }
 
@@ -102,6 +113,15 @@ void io_close(File* io)
         free(io->buf);
         io->buf = NULL;
     }
+
+    // Free line index memory
+    for (int i = 0; i < IDX_MAX_BLOCKS; ++i) {
+        if (io->line_idx[i].lf_counts) {
+            free(io->line_idx[i].lf_counts);
+            io->line_idx[i].lf_counts = NULL;
+        }
+    }
+
     io->size = 0;
     io->buf_cap = 0;
 }
@@ -140,31 +160,59 @@ enum Err io_line_start(File* io, i64 pos, i64* out)
         return E_OK;
     }
 
-    i64 search_end = pos;
-    i64 block = FW_WIN;
-    while (search_end > 0) {
-        i64 block_lo = search_end - block;
-        if (block_lo < 0) block_lo = 0;
-        if (fseeko(io->f, block_lo, SEEK_SET) != 0) return E_IO;
-        size_t n = fread(io->buf, 1, (size_t)(search_end - block_lo), io->f);
-        for (i64 i = (i64)n - 1; i >= 0; --i) {
+    // Use line index for fast reverse block jumping
+    i64 cur_pos = pos - 1; // We want the previous LF before or at pos-1
+    while (cur_pos >= 0) {
+        LineBlockIdx* block;
+        enum Err err = get_line_block(io, cur_pos, &block);
+        if (err != E_OK) return err;
+
+        // If we're before this block, move to previous block
+        if (cur_pos < block->block_lo) {
+            cur_pos = block->block_lo - 1;
+            continue;
+        }
+
+        // Find subchunk and offset within subchunk
+        i64 sub_offset = cur_pos - block->block_lo;
+        int sub_idx = (int)(sub_offset / IDX_SUB);
+        i64 sub_start = block->block_lo + (i64)sub_idx * IDX_SUB;
+        i64 sub_end = sub_start + IDX_SUB;
+        if (sub_end > block->block_hi) sub_end = block->block_hi;
+
+        // Fast skip: if this subchunk has no LFs and we're at its end, skip it
+        if (block->lf_counts[sub_idx] == 0 && cur_pos == sub_end - 1) {
+            cur_pos = sub_start - 1;
+            continue;
+        }
+
+        // Check if previous subchunks in this block have any LFs
+        int previous_lfs = 0;
+        for (int s = 0; s <= sub_idx; ++s) {
+            previous_lfs += block->lf_counts[s];
+        }
+        if (previous_lfs == 0) {
+            cur_pos = block->block_lo - 1;
+            continue;
+        }
+
+        // Scan this subchunk for the last LF
+        if (fseeko(io->f, sub_start, SEEK_SET) != 0) return E_IO;
+        size_t n = fread(io->buf, 1, (size_t)(sub_end - sub_start), io->f);
+        if (n != (size_t)(sub_end - sub_start) && ferror(io->f)) return E_IO;
+
+        i64 scan_end = cur_pos - sub_start;
+        for (i64 i = scan_end; i >= 0; --i) {
             if (io->buf[i] == '\n') {
-                i64 line_start = block_lo + i + 1;
-                // Check if this is a CRLF line ending (previous char is \r)
-                if (i > 0 && io->buf[i - 1] == '\r') {
-                    // This is a CRLF line ending, line starts after the \n
-                    line_start = block_lo + i + 1;
-                }
-                *out = line_start;
+                *out = sub_start + i + 1;
                 return E_OK;
             }
         }
-        if (block_lo == 0) {
-            *out = 0;
-            return E_OK;
-        }
-        search_end = block_lo;
+
+        // No LF found in this subchunk, move to previous
+        cur_pos = sub_start - 1;
     }
+
     *out = 0;
     return E_OK;
 }
@@ -180,31 +228,59 @@ enum Err io_line_end(File* io, i64 pos, i64* out)
         return E_OK;
     }
 
-    i64 search_start = pos;
-    i64 block = FW_WIN;
-    while (search_start < io->size) {
-        i64 block_hi = search_start + block;
-        if (block_hi > io->size) block_hi = io->size;
-        if (fseeko(io->f, search_start, SEEK_SET) != 0) return E_IO;
-        size_t n = fread(io->buf, 1, (size_t)(block_hi - search_start), io->f);
-        for (size_t i = 0; i < n; ++i) {
+    // Use line index for fast block jumping
+    i64 cur_pos = pos;
+    while (cur_pos < io->size) {
+        LineBlockIdx* block;
+        enum Err err = get_line_block(io, cur_pos, &block);
+        if (err != E_OK) return err;
+
+        // If we're at the end of this block, move to next block
+        if (cur_pos >= block->block_hi) {
+            cur_pos = block->block_hi;
+            continue;
+        }
+
+        // Find subchunk and offset within subchunk
+        i64 sub_offset = cur_pos - block->block_lo;
+        int sub_idx = (int)(sub_offset / IDX_SUB);
+        i64 sub_start = block->block_lo + (i64)sub_idx * IDX_SUB;
+        i64 sub_end = sub_start + IDX_SUB;
+        if (sub_end > block->block_hi) sub_end = block->block_hi;
+
+        // Fast skip: if this subchunk has no LFs and we're at its start, skip it
+        if (block->lf_counts[sub_idx] == 0 && cur_pos == sub_start) {
+            cur_pos = sub_end;
+            continue;
+        }
+
+        // Check if remaining subchunks in this block have any LFs
+        int remaining_lfs = 0;
+        for (int s = sub_idx; s < block->sub_count; ++s) {
+            remaining_lfs += block->lf_counts[s];
+        }
+        if (remaining_lfs == 0) {
+            cur_pos = block->block_hi;
+            continue;
+        }
+
+        // Scan this subchunk for the first LF
+        if (fseeko(io->f, sub_start, SEEK_SET) != 0) return E_IO;
+        size_t n = fread(io->buf, 1, (size_t)(sub_end - sub_start), io->f);
+        if (n != (size_t)(sub_end - sub_start) && ferror(io->f)) return E_IO;
+
+        i64 scan_start = cur_pos - sub_start;
+        for (size_t i = scan_start; i < n; ++i) {
             if (io->buf[i] == '\n') {
-                i64 line_end = search_start + (i64)i + 1;
-                // Check if this is a CRLF line ending (previous char is \r)
-                if (i > 0 && io->buf[i - 1] == '\r') {
-                    // This is a CRLF line ending, line ends after the \n
-                    line_end = search_start + (i64)i + 1;
-                }
-                *out = line_end;
+                *out = sub_start + (i64)i + 1;
                 return E_OK;
             }
         }
-        if (block_hi == io->size) {
-            *out = io->size;
-            return E_OK;
-        }
-        search_start = block_hi;
+
+        // No LF found in this subchunk, move to next
+        cur_pos = sub_end;
     }
+
     *out = io->size;
     return E_OK;
 }
@@ -447,6 +523,75 @@ enum Err io_step_chars_from(File* io, i64 start, int delta, i64* out){
         *out = cur;
         return E_OK;
     }
+}
+
+// Line indexing implementation
+
+static enum Err get_line_block(File* io, i64 pos, LineBlockIdx** out) {
+    if (pos < 0) pos = 0;
+    if (pos > io->size) pos = io->size;
+
+    i64 block_lo = (pos / IDX_BLOCK) * (i64)IDX_BLOCK;
+    i64 block_hi = block_lo + IDX_BLOCK;
+    if (block_hi > io->size) block_hi = io->size;
+
+    // 1) hit?
+    int free_slot = -1, lru_slot = 0;
+    for (int i = 0; i < IDX_MAX_BLOCKS; ++i) {
+        LineBlockIdx* e = &io->line_idx[i];
+        if (!e->in_use) { if (free_slot < 0) free_slot = i; continue; }
+        if (e->block_lo == block_lo && e->block_hi == block_hi) {
+            e->gen = ++io->line_idx_gen;
+            *out = e;
+            return E_OK;
+        }
+        if (io->line_idx[i].gen < io->line_idx[lru_slot].gen) lru_slot = i;
+    }
+
+    int slot = (free_slot >= 0) ? free_slot : lru_slot;
+
+    // 2) (Re)build index in slot
+    LineBlockIdx* e = &io->line_idx[slot];
+
+    // (re)allocate counts
+    int sub_count = (int)((block_hi - block_lo + IDX_SUB - 1) / IDX_SUB);
+    if (sub_count <= 0) sub_count = 1;
+
+    if (!e->lf_counts || e->sub_count != sub_count) {
+        free(e->lf_counts);
+        e->lf_counts = (unsigned short*)malloc((size_t)sub_count * sizeof(unsigned short));
+        if (!e->lf_counts) return E_OOM;
+        e->sub_count = sub_count;
+    }
+
+    // compute counts
+    for (int s = 0; s < sub_count; ++s) e->lf_counts[s] = 0;
+
+    i64 pos_cur = block_lo;
+    for (int s = 0; s < sub_count; ++s) {
+        i64 sub_lo = pos_cur;
+        i64 sub_hi = sub_lo + IDX_SUB;
+        if (sub_hi > block_hi) sub_hi = block_hi;
+
+        if (fseeko(io->f, sub_lo, SEEK_SET) != 0) return E_IO;
+        size_t n = fread(io->buf, 1, (size_t)(sub_hi - sub_lo), io->f);
+        if (n != (size_t)(sub_hi - sub_lo) && ferror(io->f)) return E_IO;
+
+        unsigned short cnt = 0;
+        for (size_t i = 0; i < n; ++i) {
+            if (io->buf[i] == '\n') cnt++;
+        }
+        e->lf_counts[s] = cnt;
+        pos_cur = sub_hi;
+    }
+
+    e->block_lo = block_lo;
+    e->block_hi = block_hi;
+    e->gen = ++io->line_idx_gen;
+    e->in_use = true;
+
+    *out = e;
+    return E_OK;
 }
 
 // Boyer-Moore-Horspool algorithm implementation

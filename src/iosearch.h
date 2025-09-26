@@ -3,12 +3,35 @@
 #include "fiskta.h"
 #include <stdio.h>
 
+// Line indexing constants (tunable via environment variables)
+enum {
+    IDX_BLOCK = 1 * 1024 * 1024,   // 1 MiB index block
+    IDX_SUB   = 4 * 1024,          // 4 KiB subchunks
+    IDX_MAX_BLOCKS = 64            // LRU cache size (bounded memory)
+};
+
+// Line block index structure
+typedef struct {
+    i64 block_lo;     // file offset of block start (aligned to IDX_BLOCK)
+    i64 block_hi;     // file offset of block end   (<= block_lo + IDX_BLOCK, clipped at EOF)
+    int sub_count;    // number of subchunks = ceil((block_hi - block_lo)/IDX_SUB)
+    // For each subchunk, how many LF bytes are in that subchunk
+    // uint16 is enough: max 4096 LFs per 4 KiB
+    unsigned short *lf_counts; // length = sub_count
+    u64 gen;           // for LRU
+    bool in_use;
+} LineBlockIdx;
+
 typedef struct {
     FILE* f;
     i64 size;
     // one reusable buffer for searching
     unsigned char* buf;
     size_t buf_cap; // allocate once, e.g., max(FW_WIN, BK_BLK + OVERLAP_MAX)
+
+    // NEW: bounded LRU cache of line indices
+    LineBlockIdx line_idx[IDX_MAX_BLOCKS];
+    u64 line_idx_gen;
 } File;
 
 enum Dir { DIR_FWD = +1,
