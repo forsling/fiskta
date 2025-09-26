@@ -140,7 +140,13 @@ enum Err io_line_start(File* io, i64 pos, i64* out)
         size_t n = fread(io->buf, 1, (size_t)(search_end - block_lo), io->f);
         for (i64 i = (i64)n - 1; i >= 0; --i) {
             if (io->buf[i] == '\n') { 
-                *out = block_lo + i + 1; 
+                i64 line_start = block_lo + i + 1;
+                // Check if this is a CRLF line ending (previous char is \r)
+                if (i > 0 && io->buf[i - 1] == '\r') {
+                    // This is a CRLF line ending, line starts after the \n
+                    line_start = block_lo + i + 1;
+                }
+                *out = line_start; 
                 return E_OK; 
             }
         }
@@ -170,7 +176,13 @@ enum Err io_line_end(File* io, i64 pos, i64* out)
         size_t n = fread(io->buf, 1, (size_t)(block_hi - search_start), io->f);
         for (size_t i = 0; i < n; ++i) {
             if (io->buf[i] == '\n') { 
-                *out = search_start + (i64)i + 1; 
+                i64 line_end = search_start + (i64)i + 1;
+                // Check if this is a CRLF line ending (previous char is \r)
+                if (i > 0 && io->buf[i - 1] == '\r') {
+                    // This is a CRLF line ending, line ends after the \n
+                    line_end = search_start + (i64)i + 1;
+                }
+                *out = line_end; 
                 return E_OK; 
             }
         }
