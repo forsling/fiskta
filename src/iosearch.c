@@ -161,6 +161,10 @@ enum Err io_line_start(File* io, i64 pos, i64* out)
 
 enum Err io_line_end(File* io, i64 pos, i64* out)
 {
+    if (pos < 0) {
+        *out = 0;
+        return E_OK;
+    }
     if (pos >= io->size) {
         *out = io->size;
         return E_OK;

@@ -388,8 +388,7 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
     }
     case LOC_LINE_END: {
         // relative to cursor; io_line_end expects a byte inside the line
-        i64 ref = staged_cursor > 0 ? staged_cursor - 1 : 0;
-        enum Err err = io_line_end(io, ref, &base);
+        enum Err err = io_line_end(io, staged_cursor, &base);
         if (err != E_OK) return err;
         break;
     }

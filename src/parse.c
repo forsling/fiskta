@@ -8,8 +8,11 @@
 static const char* find_inline_offset_start(const char* s) {
     // Return pointer to first '+' or '-' that begins an offset suffix, else NULL.
     // Skip the first char to avoid treating a leading sign as part of the base token.
+    // Only treat +/- as offset if followed by a digit (not part of base token name).
     for (const char* p = s + 1; *p; ++p) {
-        if (*p == '+' || *p == '-') return p;
+        if ((*p == '+' || *p == '-') && isdigit(p[1])) {
+            return p;
+        }
     }
     return NULL;
 }

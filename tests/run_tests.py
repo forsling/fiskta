@@ -117,16 +117,19 @@ END_SECTION_B
     write(FIX / "nested-sections.txt", nested)
 
     # 18) edge-cases.txt - Various edge cases
-    edge_cases = b"""Line with spaces at end   \n"
-Line with tabs\t\t\n"
-Line with mixed\t spaces\n"
-Empty line above
-
-Line with only spaces:   \n"
-Line with only tabs:\t\t\n"
-Very long line: " + b"X" * 1000 + b"\n"
-Short line\n"
-"""
+    parts = []
+    parts.append(b"Line with spaces at end   \n")
+    parts.append(b"Line with tabs\t\t\n")
+    parts.append(b"Line with mixed\t spaces\n")
+    parts.append(b"Empty line above\n")
+    parts.append(b"\n")  # the empty line referenced above
+    parts.append(b"Line with only spaces:   \n")
+    parts.append(b"Line with only tabs:\t\t\n")
+    parts.append(b"Very long line: ")
+    parts.append(b"X" * 1000)
+    parts.append(b"\n")
+    parts.append(b"Short line\n")
+    edge_cases = b"".join(parts)
     write(FIX / "edge-cases.txt", edge_cases)
 
     # 19) crlf-comprehensive.txt - Comprehensive CRLF test file
@@ -266,7 +269,7 @@ def tests():
         dict(id="line-006-line-end-unbounded-forwardscan",
              tokens=["find","B","take","until","C","at","line-end"], input_file="longline-right.bin",
              # Expect many bytes; just assert the last 5 bytes are 'TAIL\n' by taking until line-end then ensure the total ends with LF before TAIL won't be included (we captured up to LF).
-             # To keep it strict but small, assert only the length is > 12MB - 1 and < 13MB.
+             # Assert exact length: 32 bytes of 'B' + 12MiB of 'C' + 1 byte LF = 32 + 12*1024*1024 + 1
              expect=dict(stdout_len=32 + 12*1024*1024 + 1, exit=0)),  # from 'B'*32 + 'C'*12MiB up to and including LF
 
         # ---------- find semantics ----------
@@ -807,7 +810,7 @@ def tests():
 
         dict(id="complex-110-edge-case-extraction",
              tokens=["find","Very long line","take","+1l"], input_file="edge-cases.txt",
-             expect=dict(stdout_len=37, exit=0)),  # "Very long line: " + 1000 X's + \n
+             expect=dict(stdout_len=1017, exit=0)),  # "Very long line: " + 1000 X's + \n = 16 + 1000 + 1 = 1017
 
         # ---------- CRLF Support Comprehensive Tests ----------
         dict(id="crlf-101-basic-crlf-lines",
@@ -971,6 +974,51 @@ def tests():
         # dict(id="crlf-140-crlf-stdin-backward",
         #      tokens=["find","to","BOF","Line1","take","+1l"], input_file="-", stdin=b"Line1\r\nLine2\r\nLine3\r\n",
         #      expect=dict(stdout="Line1\r\n", exit=0)),  # REMOVED: backward search from BOF is impossible
+
+        # ---------- Inverted takes & cursor law ----------
+        dict(id="inv-001-take-to-symmetric-output",
+             # Both programs must emit identical bytes: [min(A,B), max(A,B))
+             tokens=["label","A","skip","7b","label","B","goto","A","take","to","B","::",
+                     "goto","B","take","to","A"],
+             input_file="overlap.txt",
+             expect=dict(stdout="abcdefgabcdefg", exit=0)),
+             # 'overlap.txt' is "abcdefghij"; A=0, B=7 -> "abcdefg" twice.
+
+        dict(id="inv-002-until-empty-does-not-move",
+             # Test that take until works correctly with at expressions
+             tokens=["skip","5b",                 # cursor at 'f'
+                     "take","until","hij","at","match-start","-2b",  # target at match-start-2b
+                     "::",
+                     "take","+3b"],              # must emit 'fgh'
+             input_file="overlap.txt",
+             expect=dict(stdout="fgh", exit=0)),
+
+        # ---------- Inline offsets in loc/at expressions ----------
+        dict(id="gram-005-inline-loc-offset",
+             tokens=["take","to","BOF+3b"], input_file="overlap.txt",
+             expect=dict(stdout="abc", exit=0)),
+
+        dict(id="gram-006-inline-at-offset",
+             tokens=["take","until","ERROR","at","line-start+1l"], input_file="small.txt",
+             expect=dict(stdout="Header\nbody 1\nbody 2\nERROR hit\n", exit=0)),
+
+        dict(id="inv-003-symmetric-output-and-poststate",
+             tokens=["label","A","skip","4b","label","B",
+                     # branch 1
+                     "goto","A","take","to","B","take","+1b","::",
+                     # branch 2
+                     "goto","B","take","to","A","take","+1b"],
+             input_file="overlap.txt",
+             expect=dict(stdout="abcdeabcde", exit=0)),
+
+        # ---------- Additional edge cases ----------
+        dict(id="edge-111-label-with-hyphens",
+             tokens=["label","FOO-BAR","skip","3b","goto","FOO-BAR+1b","take","+2b"], input_file="overlap.txt",
+             expect=dict(stdout="bc", exit=0)),
+
+        dict(id="edge-112-cursor-at-newline-line-end",
+             tokens=["find","L03","goto","line-end","take","+1l"], input_file="lines.txt",
+             expect=dict(stdout="L04 dddd\n", exit=0)),
     ]
 
 def main():
