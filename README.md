@@ -1,259 +1,269 @@
-# Fiskta (FInd SKip TAke)
+# fiskta — FInd SKip TAke
 
-## Overview
+Minimal streaming text extractor with a cursor-first model and atomic clauses. Zero dependencies.
 
-Fiskta is a command-line tool for extracting text from files or stdin using an intuitive set of operations.
+* **Streaming:** bounded memory; works on files and stdin.
+* **Cursor-anchored:** every `take` starts or ends at the cursor.
+* **Clauses:** groups of ops that commit all-or-nothing, separated by `::`.
 
-## Key Features
+---
 
-- **Streaming Processing**: Handles files of any size with bounded memory usage
-- **Cursor-Anchored Operations**: All operations are relative to a current cursor position
-- **Clause Atomicity**: Operations within a clause execute all-or-nothing
+## Operations (exhaustive, quick to learn)
 
-## Installation
+All commands end with `<file|->`. Units: `b` = bytes, `l` = lines (LF `0x0A`; CR is just a byte).
+
+### `find [to <loc-expr>] <needle>`
+
+Search within a window from the **cursor** to `L` (default `L=EOF`).
+
+* **Window:** `[min(cursor,L), max(cursor,L))`
+* **Selection:** forward window → **first** match; backward window → **rightmost** match (closest to the cursor)
+* **Effect:** `cursor = match-start`; `last_match = {ms,me}`
+* Empty needles are invalid.
+
+**Examples**
 
 ```bash
-# Build from source
-make
-sudo make install
-
-# Or run directly
-./fiskta [options] <operations> [file]
+find "ERROR"
+find to BOF "HEADER"       # search backward window, pick rightmost
+find to LABEL+1l "X"
 ```
 
-## Quick Start
+---
+
+### `skip <N><b|l>`
+
+Move the cursor **forward** by bytes or whole lines (clamped to file bounds).
+
+**Examples**
 
 ```bash
-# Extract first 10 bytes
-fiskta take 10b file.txt
-
-# Extract first 3 lines
-fiskta take 3l file.txt
-
-# Find text and extract to that point
-fiskta find "pattern" take to match-end file.txt
-
-# Skip 5 bytes then take 10 bytes
-fiskta skip 5b take 10b file.txt
-
-# Process from stdin
-echo "Hello World" | fiskta take 5b -
+skip 100b
+skip 2l
 ```
 
-## Operations
+---
 
-### Basic Operations
+### `take <±N><b|l>`
 
-- **`take <n><unit>`** - Extract n units from current position
-- **`skip <n><unit>`** - Move cursor n units forward (no output)
-- **`find <string>`** - Search for string and update cursor to match position
+Signed length capture anchored at the cursor.
 
-### Advanced Operations
+* `+N`: emit `[cursor, cursor+N)`
+* `-N`: emit `[cursor-N, cursor)`  (i.e., “last N …”)
+* **Cursor law:** cursor moves to the **far end** (the first byte **after** what was emitted)
+* Empty spans succeed and don’t move.
 
-- **`take to <location>`** - Extract from cursor to specified location (half-open range, excludes far endpoint)
-- **`take until <string>`** - Extract from cursor until string is found
-- **`label <name>`** - Mark current position with a label
-- **`goto <location>`** - Jump to a labeled position
-
-### Units
-
-- **`b`** - Bytes
-- **`l`** - Lines (split only on LF `0x0A`, CR `0x0D` treated as regular bytes)
-
-### Locations
-
-- **`cursor`** - Current cursor position
-- **`BOF`** - Beginning of file
-- **`EOF`** - End of file
-- **`match-start`** - Start of last match
-- **`match-end`** - End of last match
-- **`line-start`** - Start of current line
-- **`line-end`** - End of current line
-- **`<label>`** - Named label position (UPPERCASE, ≤16 chars, `[A-Z_-]`)
-
-### Offsets
-
-Locations can be modified with offsets:
-- **`BOF +5b`** - 5 bytes after beginning of file
-- **`EOF -10b`** - 10 bytes before end of file
-- **`cursor +1l`** - 1 line after current cursor
-- **`match-end -3b`** - 3 bytes before end of last match
-
-### Range Semantics
-
-**`take to <location>`** operations use **half-open intervals** that exclude the far endpoint:
-
-- **Range**: `[min(cursor, location), max(cursor, location))`
-- **Cursor movement**: After `take to`, cursor moves to `max(cursor, location)`
-- **Inverted ranges**: Order doesn't matter - `skip 5b take to BOF` gives same result as `take to BOF +5b` (both give range [0, 5))
-
-#### Examples
+**Examples**
 
 ```bash
-# Skip 5 bytes, then take everything before cursor
+take 200b
+take -3l                     # the 3 lines before the cursor’s line
+```
+
+---
+
+### `take to <loc-expr>`
+
+Capture the span between the cursor and a location. **Order-normalized** and **half-open**.
+
+* Emit `[min(cursor,L), max(cursor,L))`
+* Cursor moves to `max(cursor,L)`
+
+**Examples**
+
+```bash
+take to EOF
+take to BOF+100b
+take to LABEL-1l
+```
+
+---
+
+### `take until <needle> [at <at-expr>]`
+
+Search **forward** from the cursor, then capture up to a derived point.
+
+* On match: compute base `B` from `<at-expr>` relative to the match (default `match-start`)
+* Emit `[cursor, B)`, set `cursor = B`
+* Empty needles invalid.
+
+**Examples**
+
+```bash
+take until "ERROR"                    # up to match-start
+take until "ERROR" at match-end       # up to 1 past match
+take until "ERROR" at line-start+1l   # up to start of the line after ERROR’s line
+```
+
+---
+
+### `label <NAME>` / `goto <loc-expr>`
+
+* `label` stages `NAME := cursor` (commits on clause success). Up to 32 labels; LRU eviction on overflow.
+* `goto` resolves a location and sets the cursor.
+
+**Examples**
+
+```bash
+label START
+goto START+2l
+```
+
+---
+
+## Usage
+
+```bash
+fiskta <tokens...> <file|->
+```
+
+**Examples**
+
+```bash
+fiskta take 100b file.txt
+fiskta find "HEADER" take to match-start file.txt
+echo "hello world" | fiskta take 5b -
+```
+
+---
+
+## Clauses (atomic execution)
+
+Separate clauses with `::`. Each clause stages captures, label writes, and cursor/match updates:
+
+* If **any op fails** → the **whole clause** is rolled back (no output, no state change).
+* On **success** → staged captures stream to stdout **in the order staged**, labels commit, then cursor/match update.
+* Program exit status is **success if any clause succeeds**.
+
+**Examples**
+
+```bash
+# Two independent attempts
+fiskta find "ERROR" take 80b :: find "WARNING" take 80b file.txt
+
+# Mark then use (two clauses)
+fiskta label HERE :: goto HERE take 20b file.txt
+```
+
+---
+
+## Range semantics (half-open) & “inverted” spans
+
+All captures use half-open intervals `[start, end)`.
+
+* `take to <L>` always emits `[min(cursor,L), max(cursor,L))`
+* Cursor moves to the **high end** (`max(cursor,L)`)
+
+**Inverted example**
+
+```bash
+# cursor=5
 fiskta skip 5b take to BOF file.txt
-# Emits: [0, 5) → bytes at indices 0,1,2,3,4 (5 bytes before cursor)
-# Cursor stays at 5
-
-# Take everything after cursor
-fiskta skip 5b take to EOF file.txt  
-# Emits: [5, EOF) → everything after cursor, excluding cursor byte
-# Cursor moves to EOF
-
-# Empty capture
-fiskta skip 5b take to cursor file.txt
-# Emits: [5, 5) → empty range
-# Cursor stays at 5
+# Emits [0,5): bytes 0..4; cursor stays 5
 ```
 
-#### Equivalent Operations
+**Equivalences**
 
 ```bash
-# These are equivalent (both give range [0, 5)):
-fiskta skip 5b take to BOF file.txt    # Inverted range [0, 5)
-fiskta take to BOF +5b file.txt         # Forward range [0, 5)
-```
-### Clauses and Error Handling
-
-**Clauses** are groups of operations separated by double colons (`::`). They are fundamental to how fiskta handles errors and operations:
-
-#### Clause Atomicity
-
-- **All-or-nothing execution**: If any operation in a clause fails, the entire clause is rolled back
-- **State preservation**: Failed clauses don't affect the cursor position or file state
-- **Independent execution**: Each clause executes independently; failure of one doesn't affect others
-- **Staging**: Each clause maintains staged state (cursor, captures, labels) until commit
-
-#### Single Clause
-
-```bash
-# Single clause - all operations must succeed
-fiskta find "ERROR" take to match-end file.txt
+skip 5b; take to BOF     # [0,5)
+take -5b                 # also [0,5)
 ```
 
-If `find "ERROR"` fails (no match found), the entire command fails and nothing is extracted.
+Empty captures (e.g., `take 0b`, `take to cursor`) **succeed** and do not move the cursor.
 
-#### Multiple Clauses
+---
+
+## Locations & offsets
+
+`loc-expr := loc [ ±N<b|l> ]`
+
+* Bases: `cursor | BOF | EOF | <LABEL> | match-start | match-end | line-start | line-end`
+* Offsets can be in bytes or **lines** (line offsets step whole line boundaries)
+* `at-expr` (for `take until`) uses the same bases but **requires a valid last match**
+
+**Examples**
 
 ```bash
-# Multiple clauses - each clause is independent
-fiskta find "ERROR" take to match-end "::" find "WARNING" take to match-end file.txt
+BOF+100b     EOF-2l
+match-end+1b line-start
+LABEL-3l
 ```
 
-- First clause: Find "ERROR" and extract to it
-- If "ERROR" not found, first clause fails but second clause still executes
-- Second clause: Find "WARNING" and extract to it
-- Independent execution: failure of one clause doesn't affect others
+---
 
-#### Error Handling Examples
+## Lines (unit `l`)
+
+* Lines end at LF (`0x0A`) or EOF; CR (`0x0D`) is just a byte.
+* Line captures anchor at the **line start** of the cursor’s line.
+* `take +Nl` → from that line start forward by N complete lines.
+  `take -Nl` → the previous N complete lines ending at that line start.
+
+---
+
+## Direction cheat sheet
+
+* **`find`**: direction is implied by the window (`cursor → L`); forward picks **first**, backward picks **rightmost**.
+* **`take ±N`**: sign sets direction relative to the cursor.
+* **`take to`**: order-normalized; you don’t need to know which side is earlier.
+* **`take until`**: always searches forward; the `at` target can land before/inside/after the match depending on offsets.
+
+---
+
+## Practical recipes
 
 ```bash
-# Clause 1 fails, Clause 2 succeeds
-fiskta find "MISSING" take 10b "::" find "FOUND" take 10b file.txt
-# Result: Extracts 10 bytes from "FOUND" (first clause ignored)
+# Nearest ERROR in the last MiB, then capture back to BOF
+fiskta find to cursor-1048576b "ERROR" take to BOF file.txt
 
-# All clauses fail
-fiskta find "A" take 5b "::" find "B" take 5b file.txt
-# Result: No output, command fails
+# Previous 5 lines, then next 20 bytes
+fiskta take -5l take 20b file.txt
 
-# All clauses succeed
-fiskta find "FIRST" take 5b "::" find "SECOND" take 5b file.txt
-# Result: Concatenated output from both matches
+# Everything between here and a label, order unknown
+fiskta take to HERE file.txt
+
+# Emit up to (but not including) the line that starts with 'END'
+fiskta take until "END" at line-start file.txt
+
+# Last 50 bytes of a file
+fiskta goto EOF take -50b file.txt
 ```
 
-#### Why Clauses Matter
+---
 
-1. **Robust extraction**: If one pattern fails, try another
-2. **Conditional processing**: Different extraction strategies
-3. **Error isolation**: One failure doesn't break everything
-4. **Complex workflows**: Chain multiple independent operations
+## Exit codes
 
-#### Important Behaviors
+* `0` — at least one clause succeeded
+* `2` — parse or execution error (all clauses failed)
 
-- **Half-open ranges**: `take to <location>` excludes the far endpoint (cursor or target location)
-- **Empty captures**: `take 0b` or `take to cursor` succeed but emit nothing
-- **Cursor movement**: After `take`, cursor moves to the end of captured range
-- **Inverted ranges**: `skip 5b take to BOF` ≡ `label HERE take to HERE` (both give [0, 5))
-- **Line semantics**: Lines split only on LF (`0x0A`), CR (`0x0D`) is just a byte
-- **Search direction**: Forward search finds first match, backward finds rightmost match
-- **Label limits**: Maximum 32 labels with LRU eviction policy
+---
 
-## Examples
+## Appendix — Grammar (BNF-ish)
 
-### Basic Text Extraction
-
-```bash
-# Extract first 20 characters
-fiskta take 20b file.txt
-
-# Extract first 5 lines
-fiskta take 5l file.txt
-
-# Extract from stdin
-cat file.txt | fiskta take 10b -
 ```
+program   := clause { "::" clause } input
+clause    := { op }
 
-### Search and Extract
+op        := find | skip | take | label | goto
 
-```bash
-# Find "ERROR" and extract everything up to it (excluding ERROR)
-fiskta find "ERROR" take to match-start file.txt
+find      := "find" [ "to" loc-expr ] STRING
+skip      := "skip" N ("b"|"l")
+take      := "take" ( signedN ("b"|"l") | "to" loc-expr | "until" STRING [ "at" at-expr ] )
+label     := "label" NAME
+goto      := "goto"  loc-expr
 
-# Find "END" and extract everything after it (excluding END)
-fiskta find "END" take to match-end file.txt
+loc-expr  := loc [ offset ]
+loc       := "cursor" | "BOF" | "EOF" | NAME
+          |  "match-start" | "match-end" | "line-start" | "line-end"
 
-# Extract until you find a string
-fiskta take until "---" file.txt
-```
+at-expr   := ("match-start"|"match-end"|"line-start"|"line-end") [ offset ]
 
-### Location-Based Extraction
+offset    := ("+"|"-") N ("b"|"l")
+signedN   := ["+"|"-"] N
 
-```bash
-# Extract first 100 bytes (from BOF to BOF+100b)
-fiskta take to BOF +100b file.txt
-
-# Extract last 50 bytes (from EOF-50b to EOF)
-fiskta take to EOF -50b file.txt
-
-# Skip 10 bytes, then take next 20 bytes (from cursor to cursor+20b)
-fiskta skip 10b take to cursor +20b file.txt
-```
-
-### Multi-Clause Operations
-
-```bash
-# Skip then extract (separate clauses)
-fiskta skip 5b "::" take 10b file.txt
-
-# Find then extract to end of line
-fiskta find "pattern" take to line-end file.txt
-
-# Complex extraction with labels
-fiskta label start take 5b "::" goto start take 5b file.txt
-```
-
-### Error Handling with Clauses
-
-```bash
-# Fallback extraction - try multiple patterns
-fiskta find "ERROR" take 10b "::" find "WARNING" take 10b "::" find "INFO" take 10b file.txt
-
-# Conditional extraction - different strategies
-fiskta find "header" take to match-end "::" find "body" take 100b file.txt
-
-# Robust processing - continue on failure
-fiskta find "section1" take 50b "::" find "section2" take 50b "::" find "section3" take 50b file.txt
-```
-
-### Advanced Patterns
-
-```bash
-# Extract with line-based offsets
-fiskta take to BOF +2l file.txt
-
-# Extract with match-based locations
-fiskta find "header" take to match-end +1l file.txt
-
-# Extract until string at specific location
-fiskta take until "footer" at line-start file.txt
+# Lexical
+N         := DIGIT { DIGIT }
+NAME      := UPPER { UPPER | "_" | "-" } ; length ≤ 16
+STRING    := shell-quoted non-empty byte string
+UPPER     := "A"…"Z"
+DIGIT     := "0"…"9"
 ```
