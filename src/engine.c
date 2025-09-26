@@ -6,13 +6,10 @@
 #include <alloca.h>
 
 // Forward declarations
-typedef struct {
-    int name_idx;
-    i64 pos;
-} LabelWrite;
+// LabelWrite typedef moved to fiskta.h
 
 // Count capacity needs for a clause
-static void clause_caps(const Clause* c, int* out_ranges_cap, int* out_labels_cap) {
+void clause_caps(const Clause* c, int* out_ranges_cap, int* out_labels_cap) {
     int rc = 0, lc = 0;
     for (int i = 0; i < c->op_count; i++) {
         switch (c->ops[i].kind) {
@@ -28,10 +25,6 @@ static void clause_caps(const Clause* c, int* out_ranges_cap, int* out_labels_ca
 }
 
 static enum Err execute_clause(const Clause* clause, const Program* prg, File* io, VM* vm, FILE* out);
-static enum Err execute_clause_with_scratch(const Clause* clause, const Program* prg,
-    File* io, VM* vm, FILE* out,
-    Range* ranges, int ranges_cap,
-    LabelWrite* label_writes, int label_cap);
 static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
     i64* c_cursor, Match* c_last_match,
     Range** ranges, int* range_count, int* range_cap,
@@ -160,11 +153,12 @@ static enum Err execute_clause(const Clause* clause, const Program* prg, File* i
 }
 
 // NEW signature: no allocations inside
-static enum Err execute_clause_with_scratch(const Clause* clause, const Program* prg,
-    File* io, VM* vm, FILE* out,
+enum Err execute_clause_with_scratch(const Clause* clause, const Program* prg,
+    void* io_ptr, VM* vm, FILE* out,
     Range* ranges, int ranges_cap,
     LabelWrite* label_writes, int label_cap)
 {
+    File* io = (File*)io_ptr;
     i64 c_cursor = vm->cursor;
     Match c_last_match = vm->last_match;
 

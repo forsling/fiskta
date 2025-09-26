@@ -39,6 +39,9 @@ enum Dir { DIR_FWD = +1,
     DIR_BWD = -1 };
 
 enum Err io_open(File* io, const char* path); // path or "-"
+enum Err io_open_arena2(File* io, const char* path,
+                        unsigned char* search_buf, size_t search_buf_cap,
+                        unsigned short* counts_slab /* IDX_MAX_BLOCKS*IDX_SUB_MAX */);
 void io_close(File* io);
 enum Err io_emit(File* io, i64 start, i64 end, FILE* out);
 

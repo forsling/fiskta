@@ -114,22 +114,86 @@ enum Err io_open(File* io, const char* path)
     return E_OK;
 }
 
+enum Err io_open_arena2(File* io, const char* path,
+                        unsigned char* search_buf, size_t search_buf_cap,
+                        unsigned short* counts_slab)
+{
+    memset(io, 0, sizeof(*io));
+
+    if (strcmp(path, "-") == 0) {
+        // Spool stdin to temp file
+        io->f = tmpfile();
+        if (!io->f)
+            return E_IO;
+
+#ifdef _WIN32
+        _setmode(_fileno(stdin), _O_BINARY);
+#endif
+
+        // Copy stdin to temp file in chunks
+        unsigned char buf[256 * 1024]; // 256 KiB chunks
+        size_t total_read = 0;
+
+        while (1) {
+            size_t n = fread(buf, 1, sizeof(buf), stdin);
+            if (n == 0) {
+                if (ferror(stdin)) { fclose(io->f); return E_IO; }
+                break;
+            }
+
+            size_t written = fwrite(buf, 1, n, io->f);
+            if (written != n) {
+                fclose(io->f);
+                return E_IO;
+            }
+            total_read += n;
+        }
+
+        io->size = (i64)total_read;
+        if (fflush(io->f) != 0) { fclose(io->f); return E_IO; }
+        rewind(io->f);
+    } else {
+        io->f = fopen(path, "rb");
+        if (!io->f)
+            return E_IO;
+
+        // Get file size
+        if (fseeko(io->f, 0, SEEK_END) != 0) {
+            fclose(io->f);
+            return E_IO;
+        }
+        io->size = ftello(io->f);
+        if (io->size < 0) {
+            fclose(io->f);
+            return E_IO;
+        }
+        rewind(io->f);
+    }
+
+    // Wire arena-backed buffers
+    io->buf = search_buf;
+    io->buf_cap = search_buf_cap;
+
+    // Initialize line index cache with arena-backed counts
+    io->line_idx_gen = 0;
+    for (int i = 0; i < IDX_MAX_BLOCKS; ++i) {
+        io->line_idx[i].in_use = false;
+        io->line_idx[i].gen = 0;
+        io->line_idx[i].lf_counts = counts_slab + (size_t)i * (size_t)IDX_SUB_MAX;
+        io->line_idx[i].sub_count = 0;
+    }
+
+    return E_OK;
+}
+
 void io_close(File* io)
 {
     if (io->f) {
         fclose(io->f);
         io->f = NULL;
     }
-    if (io->buf) {
-        free(io->buf);
-        io->buf = NULL;
-    }
-
-    // Free line index memory
-    for (int i = 0; i < IDX_MAX_BLOCKS; ++i) {
-        free(io->line_idx[i].lf_counts);
-        io->line_idx[i].lf_counts = NULL;
-    }
+    // Note: io->buf and io->line_idx[].lf_counts may be arena-backed
+    // Don't free them here - they're owned by the arena
 
     io->size = 0;
     io->buf_cap = 0;

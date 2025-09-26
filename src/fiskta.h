@@ -5,6 +5,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 
 typedef int64_t i64;
 typedef uint64_t u64;
@@ -145,3 +146,15 @@ enum { FW_WIN = 8 * 1024 * 1024,
     OVERLAP_MAX = 64 * 1024 };
 
 static inline i64 clamp64(i64 x, i64 lo, i64 hi) { return x < lo ? lo : (x > hi ? hi : x); }
+
+// Forward declarations for engine functions
+typedef struct {
+    int name_idx;
+    i64 pos;
+} LabelWrite;
+
+void clause_caps(const Clause* c, int* out_ranges_cap, int* out_labels_cap);
+enum Err execute_clause_with_scratch(const Clause* clause, const Program* prg,
+    void* io, VM* vm, FILE* out,
+    Range* ranges, int ranges_cap,
+    LabelWrite* label_writes, int label_cap);
