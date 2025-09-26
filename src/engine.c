@@ -178,7 +178,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
                 end = clamp64(start + op->u.take_len.n, 0, io_size(io));
             } else {
                 end = *c_cursor;
-                start = clamp64(end - op->u.take_len.n, 0, io_size(io));
+                start = clamp64(end - op->u.take_len.n, 0, end);
             }
         } else {
             // Take by lines

@@ -50,7 +50,7 @@ echo "Hello World" | fiskta take 5b -
 
 ### Advanced Operations
 
-- **`take to <location>`** - Extract from cursor to specified location
+- **`take to <location>`** - Extract from cursor to specified location (half-open range, excludes far endpoint)
 - **`take until <string>`** - Extract from cursor until string is found
 - **`label <name>`** - Mark current position with a label
 - **`goto <location>`** - Jump to a labeled position
@@ -79,6 +79,40 @@ Locations can be modified with offsets:
 - **`cursor +1l`** - 1 line after current cursor
 - **`match-end -3b`** - 3 bytes before end of last match
 
+### Range Semantics
+
+**`take to <location>`** operations use **half-open intervals** that exclude the far endpoint:
+
+- **Range**: `[min(cursor, location), max(cursor, location))`
+- **Cursor movement**: After `take to`, cursor moves to `max(cursor, location)`
+- **Inverted ranges**: Order doesn't matter - `skip 5b take to BOF` gives same result as `take to BOF +5b` (both give range [0, 5))
+
+#### Examples
+
+```bash
+# Skip 5 bytes, then take everything before cursor
+fiskta skip 5b take to BOF file.txt
+# Emits: [0, 5) → bytes at indices 0,1,2,3,4 (5 bytes before cursor)
+# Cursor stays at 5
+
+# Take everything after cursor
+fiskta skip 5b take to EOF file.txt  
+# Emits: [5, EOF) → everything after cursor, excluding cursor byte
+# Cursor moves to EOF
+
+# Empty capture
+fiskta skip 5b take to cursor file.txt
+# Emits: [5, 5) → empty range
+# Cursor stays at 5
+```
+
+#### Equivalent Operations
+
+```bash
+# These are equivalent (both give range [0, 5)):
+fiskta skip 5b take to BOF file.txt    # Inverted range [0, 5)
+fiskta take to BOF +5b file.txt         # Forward range [0, 5)
+```
 ### Clauses and Error Handling
 
 **Clauses** are groups of operations separated by double colons (`::`). They are fundamental to how fiskta handles errors and operations:
@@ -136,8 +170,10 @@ fiskta find "FIRST" take 5b "::" find "SECOND" take 5b file.txt
 
 #### Important Behaviors
 
+- **Half-open ranges**: `take to <location>` excludes the far endpoint (cursor or target location)
 - **Empty captures**: `take 0b` or `take to cursor` succeed but emit nothing
 - **Cursor movement**: After `take`, cursor moves to the end of captured range
+- **Inverted ranges**: `skip 5b take to BOF` ≡ `label HERE take to HERE` (both give [0, 5))
 - **Line semantics**: Lines split only on LF (`0x0A`), CR (`0x0D`) is just a byte
 - **Search direction**: Forward search finds first match, backward finds rightmost match
 - **Label limits**: Maximum 32 labels with LRU eviction policy
@@ -160,10 +196,10 @@ cat file.txt | fiskta take 10b -
 ### Search and Extract
 
 ```bash
-# Find "ERROR" and extract everything up to it
+# Find "ERROR" and extract everything up to it (excluding ERROR)
 fiskta find "ERROR" take to match-start file.txt
 
-# Find "END" and extract everything after it
+# Find "END" and extract everything after it (excluding END)
 fiskta find "END" take to match-end file.txt
 
 # Extract until you find a string
@@ -173,13 +209,13 @@ fiskta take until "---" file.txt
 ### Location-Based Extraction
 
 ```bash
-# Extract from beginning of file
+# Extract first 100 bytes (from BOF to BOF+100b)
 fiskta take to BOF +100b file.txt
 
-# Extract last 50 bytes
+# Extract last 50 bytes (from EOF-50b to EOF)
 fiskta take to EOF -50b file.txt
 
-# Extract from cursor position
+# Skip 10 bytes, then take next 20 bytes (from cursor to cursor+20b)
 fiskta skip 10b take to cursor +20b file.txt
 ```
 

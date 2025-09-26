@@ -31,7 +31,7 @@ static void print_usage(void)
     printf("  take <n><unit>              Extract n units from current position\n");
     printf("  skip <n><unit>              Move cursor n units forward (no output)\n");
     printf("  find <string>               Search for string and update cursor\n");
-    printf("  take to <location>          Extract from cursor to location\n");
+    printf("  take to <location>          Extract from cursor to location (half-open range)\n");
     printf("  take until <string>         Extract from cursor until string found\n");
     printf("  label <name>                Mark current position with label\n");
     printf("  goto <location>             Jump to labeled position\n");
@@ -60,7 +60,7 @@ static void print_usage(void)
     printf("EXAMPLES:\n");
     printf("  fiskta take 10b file.txt                    # Extract first 10 bytes\n");
     printf("  fiskta take 3l file.txt                     # Extract first 3 lines\n");
-    printf("  fiskta find \"ERROR\" take to match-start file.txt  # Extract to ERROR\n");
+    printf("  fiskta find \"ERROR\" take to match-start file.txt  # Extract to ERROR (excludes ERROR)\n");
     printf("  fiskta take to BOF +100b file.txt          # Extract from BOF+100b\n");
     printf("  fiskta skip 5b take 10b file.txt           # Skip 5, take 10\n");
     printf("  fiskta take until \"---\" file.txt          # Extract until \"---\"\n");

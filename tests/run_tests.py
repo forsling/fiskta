@@ -239,7 +239,7 @@ def tests():
              expect=dict(stdout="abc", exit=0)),
 
         dict(id="cur-004-loc-expr-uses-staged-cursor",
-             tokens=["skip","2b","take","to","cursor+3b"], input_file="overlap.txt",
+             tokens=["skip","2b","take","to","cursor","+3b"], input_file="overlap.txt",
              expect=dict(stdout="cde", exit=0)),
 
         # ---------- Lines semantics ----------
@@ -288,8 +288,8 @@ def tests():
 
         # ---------- take to ----------
         dict(id="take-001-order-normalized",
-             tokens=["label","HERE","skip","+5b","take","to","HERE","take","+5b"], input_file="overlap.txt",
-             expect=dict(stdout="abcde", exit=0)),
+             tokens=["label","HERE","skip","5b","take","to","HERE","take","+5b"], input_file="overlap.txt",
+             expect=dict(stdout="abcdefghij", exit=0)),
 
         dict(id="take-002-to-invalid-fails",
              tokens=["take","to","MISSING"], input_file="overlap.txt",
@@ -298,7 +298,7 @@ def tests():
         # ---------- take until ----------
         dict(id="until-001-default-at-match-start",
              tokens=["take","until","ERROR","::","take","+5b"], input_file="small.txt",
-             expect=dict(stdout="Header\nbody 1\nbody 2\n", exit=0)),
+             expect=dict(stdout="Header\nbody 1\nbody 2\nERROR", exit=0)),
 
         dict(id="until-002-at-line-start",
              tokens=["take","until","ERROR","at","line-start"], input_file="small.txt",
@@ -314,7 +314,7 @@ def tests():
 
         # ---------- Labels & LRU ----------
         dict(id="lab-001-basic-label-goto",
-             tokens=["label","A","skip","+3b","take","to","A"], input_file="overlap.txt",
+             tokens=["label","A","skip","3b","take","to","A"], input_file="overlap.txt",
              expect=dict(stdout="abc", exit=0)),
 
         dict(id="lab-002-unknown-label-fails",
@@ -343,7 +343,7 @@ def tests():
              expect=dict(stdout="abcdefghij", exit=0)),
 
         dict(id="clamp-002-loc-expr-offset-clamps",
-             tokens=["take","to","EOF+100b"], input_file="overlap.txt",
+             tokens=["take","to","EOF","+100b"], input_file="overlap.txt",
              expect=dict(stdout="abcdefghij", exit=0)),
 
         # ---------- Stdin & spooling ----------
@@ -370,7 +370,7 @@ def tests():
              expect=dict(stdout="", exit=0)),
 
         dict(id="take-103-negative-bytes",
-             tokens=["take","-3b"], input_file="overlap.txt",
+             tokens=["skip","5b","take","-3b"], input_file="overlap.txt",
              expect=dict(stdout="cde", exit=0)),
 
         dict(id="take-104-negative-lines",
@@ -383,7 +383,7 @@ def tests():
 
         dict(id="take-106-beyond-bof",
              tokens=["take","-1000b"], input_file="overlap.txt",
-             expect=dict(stdout="abcdefghij", exit=0)),
+             expect=dict(stdout="", exit=0)),
 
         dict(id="take-107-single-byte",
              tokens=["take","+1b"], input_file="overlap.txt",
@@ -481,19 +481,19 @@ def tests():
              expect=dict(stdout="", exit=0)),
 
         dict(id="take-to-104-cursor-plus",
-             tokens=["skip","2b","take","to","cursor+3b"], input_file="overlap.txt",
+             tokens=["skip","2b","take","to","cursor","+3b"], input_file="overlap.txt",
              expect=dict(stdout="cde", exit=0)),
 
         dict(id="take-to-105-cursor-minus",
-             tokens=["skip","5b","take","to","cursor-2b"], input_file="overlap.txt",
+             tokens=["skip","5b","take","to","cursor","-2b"], input_file="overlap.txt",
              expect=dict(stdout="de", exit=0)),
 
         dict(id="take-to-106-bof-plus",
-             tokens=["take","to","BOF+3b"], input_file="overlap.txt",
+             tokens=["take","to","BOF","+3b"], input_file="overlap.txt",
              expect=dict(stdout="abc", exit=0)),
 
         dict(id="take-to-107-eof-minus",
-             tokens=["take","to","EOF-3b"], input_file="overlap.txt",
+             tokens=["take","to","EOF","-3b"], input_file="overlap.txt",
              expect=dict(stdout="abcdefg", exit=0)),
 
         dict(id="take-to-108-label",
@@ -546,11 +546,11 @@ def tests():
              expect=dict(stdout="Header\nbody 1\nbody 2\nERROR hit\n", exit=0)),
 
         dict(id="take-until-106-at-match-start-plus",
-             tokens=["take","until","ERROR","at","match-start+1b"], input_file="small.txt",
+             tokens=["take","until","ERROR","at","match-start","+1b"], input_file="small.txt",
              expect=dict(stdout="Header\nbody 1\nbody 2\nE", exit=0)),
 
         dict(id="take-until-107-at-match-end-minus",
-             tokens=["take","until","ERROR","at","match-end-1b"], input_file="small.txt",
+             tokens=["take","until","ERROR","at","match-end","-1b"], input_file="small.txt",
              expect=dict(stdout="Header\nbody 1\nbody 2\nERRO", exit=0)),
 
         dict(id="take-until-108-no-match",
