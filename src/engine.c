@@ -16,7 +16,8 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
     Range** ranges, int* range_count, int* range_cap,
     LabelWrite** label_writes, int* label_count, int* label_cap);
 static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* io,
-    const VM* vm, const Match* staged_match, i64 staged_cursor, i64* out);
+    const VM* vm, const Match* staged_match, i64 staged_cursor, 
+    const LabelWrite* staged_labels, int staged_label_count, i64* out);
 static enum Err resolve_at_expr(const AtExpr* at, File* io, const Match* match, i64* out);
 static void commit_labels(VM* vm, const Program* prg, const LabelWrite* label_writes, int label_count);
 
@@ -121,7 +122,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
         if (op->u.find.to.base == LOC_EOF && !op->u.find.to.has_off) {
             win_hi = io_size(io);
         } else {
-            enum Err err = resolve_loc_expr(&op->u.find.to, prg, io, vm, c_last_match, *c_cursor, &win_hi);
+            enum Err err = resolve_loc_expr(&op->u.find.to, prg, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, &win_hi);
             if (err != E_OK)
                 return err;
         }
@@ -221,7 +222,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
 
     case OP_TAKE_TO: {
         i64 target;
-        enum Err err = resolve_loc_expr(&op->u.take_to.to, prg, io, vm, c_last_match, *c_cursor, &target);
+        enum Err err = resolve_loc_expr(&op->u.take_to.to, prg, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, &target);
         if (err != E_OK)
             return err;
 
@@ -310,7 +311,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
     }
 
     case OP_GOTO: {
-        enum Err err = resolve_loc_expr(&op->u.go.to, prg, io, vm, c_last_match, *c_cursor, c_cursor);
+        enum Err err = resolve_loc_expr(&op->u.go.to, prg, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_cursor);
         if (err != E_OK)
             return err;
         break;
@@ -324,7 +325,8 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
 }
 
 static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* io,
-    const VM* vm, const Match* staged_match, i64 staged_cursor, i64* out)
+    const VM* vm, const Match* staged_match, i64 staged_cursor, 
+    const LabelWrite* staged_labels, int staged_label_count, i64* out)
 {
     i64 base;
 
@@ -339,15 +341,27 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
         base = io_size(io);
         break;
     case LOC_NAME: {
-        // Look up label
+        // Look up label in staged labels first (staged labels override committed ones)
         bool found = false;
-        for (int i = 0; i < 32; i++) {
-            if (vm->labels[i].in_use && strcmp(vm->labels[i].name, prg->names[loc->name_idx]) == 0) {
-                base = vm->labels[i].pos;
+        for (int i = 0; i < staged_label_count; i++) {
+            if (staged_labels[i].name_idx == loc->name_idx) {
+                base = staged_labels[i].pos;
                 found = true;
                 break;
             }
         }
+        
+        // If not found in staged labels, check committed labels
+        if (!found) {
+            for (int i = 0; i < 32; i++) {
+                if (vm->labels[i].in_use && strcmp(vm->labels[i].name, prg->names[loc->name_idx]) == 0) {
+                    base = vm->labels[i].pos;
+                    found = true;
+                    break;
+                }
+            }
+        }
+        
         if (!found)
             return E_LOC_RESOLVE;
         break;
