@@ -7,7 +7,7 @@ BUILDDIR = build
 SOURCES = $(SRCDIR)/main.c $(SRCDIR)/parse.c $(SRCDIR)/engine.c $(SRCDIR)/iosearch.c
 OBJECTS = $(SOURCES:$(SRCDIR)/%.c=$(BUILDDIR)/%.o)
 
-.PHONY: all clean test
+.PHONY: all clean test test-full debug
 
 all: $(TARGET)
 
@@ -24,15 +24,11 @@ clean:
 	rm -rf $(BUILDDIR) $(TARGET)
 
 test: $(TARGET)
-	@echo "Testing basic functionality..."
-	@echo "Hello World" | ./$(TARGET) take 11b -
-	@echo "Testing find operation..."
-	./$(TARGET) find "SEARCH" tests/search.txt
-	@echo "Testing take until..."
-	./$(TARGET) take until "SEARCH" tests/search.txt
-	@echo "Testing multi-clause..."
-	./$(TARGET) take 5b ";" take 5b tests/basic.txt
-	@echo "All tests passed!"
+	@echo "Running comprehensive test suite..."
+	python3 tests/run_tests.py
+
+debug: CFLAGS = -std=c11 -g -O0 -Wall -Wextra -Wconversion -Wshadow -DDEBUG
+debug: $(TARGET)
 
 install: $(TARGET)
 	cp $(TARGET) /usr/local/bin/
