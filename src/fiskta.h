@@ -53,23 +53,21 @@ enum Err {
 typedef struct {
     enum LocBase base; // LOC_NAME uses name_idx
     i32 name_idx; // index into program->names[], -1 otherwise
-    // optional offset:
-    bool has_off;
     i32 sign; // +1 or -1
-    u64 n; // count
     enum Unit unit;
+    bool has_off;
+    u64 n; // count
 } LocExpr;
 
 typedef struct { // at-expr used only by TAKE_UNTIL
     enum LocBase at; // match-start/end or line-start/end
-    bool has_off;
     i32 sign;
-    u64 n;
     enum Unit unit;
+    bool has_off;
+    u64 n;
 } AtExpr;
 
 typedef struct {
-    enum OpKind kind;
     union {
         struct {
             LocExpr to;
@@ -99,6 +97,7 @@ typedef struct {
             LocExpr to;
         } go;
     } u;
+    enum OpKind kind;
 } Op;
 
 typedef struct {
@@ -151,8 +150,8 @@ static inline i64 clamp64(i64 x, i64 lo, i64 hi) { return x < lo ? lo : (x > hi 
 
 // Forward declarations for engine functions
 typedef struct {
-    i32 name_idx;
     i64 pos;
+    i32 name_idx;
 } LabelWrite;
 
 void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap);
