@@ -53,8 +53,7 @@ static int split_ops_string(const char* s, char** out, int max_tokens) {
 #include <io.h>
 #endif
 
-enum Err parse_program(int, char**, Program*, const char**);
-void parse_free(Program*);
+// parse_program and parse_free removed - use parse_build with arena allocation instead
 enum Err engine_run(const Program*, const char*, FILE*);
 enum Err parse_preflight(int token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
 enum Err parse_build(int token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
@@ -179,10 +178,26 @@ int main(int argc, char** argv)
     ParsePlan plan = {0};
     const char* path = NULL;
 
-    // Build the token view the parser expects: argv[1..argc-2]
+    // Build the token view the parser expects: argv[1..argc-1] if no file specified, argv[1..argc-2] if file specified
     char** tokens = argv + 1;
-    int token_count = argc - 2;
-    const char* in_path = argv[argc - 1];
+    int token_count = argc - 1;
+    const char* in_path = "-"; // Default to stdin
+
+    // Check if last argument is a file path (not an operation)
+    // This is a simple heuristic: if it doesn't start with a known operation keyword, treat it as a file
+    if (argc > 2) {
+        const char* last_arg = argv[argc - 1];
+        if (strcmp(last_arg, "find") != 0 &&
+            strcmp(last_arg, "skip") != 0 &&
+            strcmp(last_arg, "take") != 0 &&
+            strcmp(last_arg, "label") != 0 &&
+            strcmp(last_arg, "goto") != 0 &&
+            strcmp(last_arg, "::") != 0) {
+            // Last argument looks like a file path
+            in_path = last_arg;
+            token_count = argc - 2;
+        }
+    }
 
 
     // If user passed a single ops string, split it.

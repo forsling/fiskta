@@ -459,7 +459,14 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
     // Apply offset if present
     if (loc->has_off) {
         if (loc->unit == UNIT_BYTES) {
-            base += loc->sign * loc->n;
+            // clamp u64 -> i64 delta safely
+            if (loc->n > (u64)INT64_MAX) {
+                // saturate at extremes
+                base = (loc->sign > 0) ? io_size(io) : 0;
+            } else {
+                i64 delta = loc->sign > 0 ? (i64)loc->n : -(i64)loc->n;
+                base += delta;
+            }
         } else if (loc->unit == UNIT_LINES) {
             if (loc->n > (u64)INT_MAX) return E_PARSE;
             int delta = loc->sign > 0 ? (int)loc->n : -(int)loc->n;
@@ -513,7 +520,12 @@ static enum Err resolve_at_expr(const AtExpr* at, File* io, const Match* match, 
     // Apply offset if present
     if (at->has_off) {
         if (at->unit == UNIT_BYTES) {
-            base += at->sign * at->n;
+            if (at->n > (u64)INT64_MAX) {
+                base = (at->sign > 0) ? io_size(io) : 0;
+            } else {
+                i64 delta = at->sign > 0 ? (i64)at->n : -(i64)at->n;
+                base += delta;
+            }
         } else if (at->unit == UNIT_LINES) {
             if (at->n > (u64)INT_MAX) return E_PARSE;
             int delta = at->sign > 0 ? (int)at->n : -(int)at->n;
