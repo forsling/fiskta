@@ -55,11 +55,16 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
 
     // Calculate total memory needed
     const size_t search_buf_cap = (FW_WIN > (BK_BLK + OVERLAP_MAX)) ? (size_t)FW_WIN : (size_t)(BK_BLK + OVERLAP_MAX);
-    const size_t counts_size = (size_t)IDX_MAX_BLOCKS * (size_t)IDX_SUB_MAX * sizeof(unsigned short);
-    const size_t ranges_size = total_ranges * sizeof(Range);
-    const size_t labels_size = total_labels * sizeof(LabelWrite);
+    const size_t counts_bytes = (size_t)IDX_MAX_BLOCKS * (size_t)IDX_SUB_MAX * sizeof(unsigned short);
+    const size_t ranges_bytes = total_ranges * sizeof(Range);
+    const size_t labels_bytes = total_labels * sizeof(LabelWrite);
 
-    size_t total = search_buf_cap + counts_size + ranges_size + labels_size;
+    // Account for alignment padding between slices
+    size_t total = a_align(search_buf_cap, 1)
+                 + a_align(counts_bytes, alignof(unsigned short))
+                 + a_align(ranges_bytes, alignof(Range))
+                 + a_align(labels_bytes, alignof(LabelWrite))
+                 + 64; // small cushion like main.c
 
     // Allocate single block
     void* block = malloc(total);
@@ -71,9 +76,9 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
 
     // Carve out slices
     unsigned char* search_buf = (unsigned char*)arena_alloc(&arena, search_buf_cap, 1);
-    unsigned short* counts_slab = (unsigned short*)arena_alloc(&arena, counts_size, alignof(unsigned short));
-    Range* ranges_pool = (Range*)arena_alloc(&arena, ranges_size, alignof(Range));
-    LabelWrite* labels_pool = (LabelWrite*)arena_alloc(&arena, labels_size, alignof(LabelWrite));
+    unsigned short* counts_slab = (unsigned short*)arena_alloc(&arena, counts_bytes, alignof(unsigned short));
+    Range* ranges_pool = (Range*)arena_alloc(&arena, ranges_bytes, alignof(Range));
+    LabelWrite* labels_pool = (LabelWrite*)arena_alloc(&arena, labels_bytes, alignof(LabelWrite));
 
     if (!search_buf || !counts_slab || !ranges_pool || !labels_pool) {
         free(block);
@@ -441,8 +446,9 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
         break;
     }
     case LOC_LINE_END: {
-        // relative to cursor; io_line_end expects a byte inside the line
-        enum Err err = io_line_end(io, staged_cursor, &base);
+        // io_line_end expects a byte inside the line
+        i64 ref = staged_cursor > 0 ? staged_cursor - 1 : 0;
+        enum Err err = io_line_end(io, ref, &base);
         if (err != E_OK) return err;
         break;
     }
@@ -455,15 +461,18 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
         if (loc->unit == UNIT_BYTES) {
             base += loc->sign * loc->n;
         } else if (loc->unit == UNIT_LINES) {
-            // Line offset
-            enum Err err = io_step_lines_from(io, base, loc->sign * loc->n, &base);
+            if (loc->n > (u64)INT_MAX) return E_PARSE;
+            int delta = loc->sign > 0 ? (int)loc->n : -(int)loc->n;
+            enum Err err = io_step_lines_from(io, base, delta, &base);
             if (err != E_OK)
                 return err;
         } else { // UNIT_CHARS
+            if (loc->n > (u64)INT_MAX) return E_PARSE;
             i64 char_base;
             enum Err err = io_char_start(io, base, &char_base);
             if (err != E_OK) return err;
-            err = io_step_chars_from(io, char_base, loc->sign * (int)loc->n, &char_base);
+            int delta = loc->sign > 0 ? (int)loc->n : -(int)loc->n;
+            err = io_step_chars_from(io, char_base, delta, &char_base);
             if (err != E_OK) return err;
             base = char_base;
         }
@@ -506,15 +515,18 @@ static enum Err resolve_at_expr(const AtExpr* at, File* io, const Match* match, 
         if (at->unit == UNIT_BYTES) {
             base += at->sign * at->n;
         } else if (at->unit == UNIT_LINES) {
-            // Line offset
-            enum Err err = io_step_lines_from(io, base, at->sign * at->n, &base);
+            if (at->n > (u64)INT_MAX) return E_PARSE;
+            int delta = at->sign > 0 ? (int)at->n : -(int)at->n;
+            enum Err err = io_step_lines_from(io, base, delta, &base);
             if (err != E_OK)
                 return err;
         } else { // UNIT_CHARS
+            if (at->n > (u64)INT_MAX) return E_PARSE;
             i64 char_base;
             enum Err err = io_char_start(io, base, &char_base);
             if (err != E_OK) return err;
-            err = io_step_chars_from(io, char_base, at->sign * (int)at->n, &char_base);
+            int delta = at->sign > 0 ? (int)at->n : -(int)at->n;
+            err = io_step_chars_from(io, char_base, delta, &char_base);
             if (err != E_OK) return err;
             base = char_base;
         }

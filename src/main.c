@@ -236,8 +236,11 @@ int main(int argc, char** argv)
     char* str_pool              = arena_alloc(&A, str_pool_bytes, alignof(char));
     Range* ranges_pool          = arena_alloc(&A, ranges_bytes, alignof(Range));
     LabelWrite* labels_pool     = arena_alloc(&A, labels_bytes, alignof(LabelWrite));
-    if (!labels_pool){
-        die(E_OOM, "arena carve"); free(block); return 2;
+    if (!search_buf || !counts_slab || !clauses_buf || !ops_buf ||
+        !names_buf || !str_pool || !ranges_pool || !labels_pool) {
+        die(E_OOM, "arena carve");
+        free(block);
+        return 2;
     }
 
     // 5) Parse into preallocated storage

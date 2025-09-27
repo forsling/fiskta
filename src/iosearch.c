@@ -31,6 +31,7 @@ static inline int utf8_len_from_lead(unsigned char b){
 enum Err io_open(File* io, const char* path)
 {
     memset(io, 0, sizeof(*io));
+    io->arena_backed = false;
 
     if (strcmp(path, "-") == 0) {
         // Spool stdin to temp file
@@ -118,6 +119,7 @@ enum Err io_open_arena2(File* io, const char* path,
                         unsigned short* counts_slab)
 {
     memset(io, 0, sizeof(*io));
+    io->arena_backed = true;
 
     if (strcmp(path, "-") == 0) {
         // Spool stdin to temp file
@@ -191,8 +193,13 @@ void io_close(File* io)
         fclose(io->f);
         io->f = NULL;
     }
-    // Note: io->buf and io->line_idx[].lf_counts may be arena-backed
-    // Don't free them here - they're owned by the arena
+    if (!io->arena_backed) {
+        if (io->buf) { free(io->buf); io->buf = NULL; }
+        for (int i = 0; i < IDX_MAX_BLOCKS; ++i) {
+            free(io->line_idx[i].lf_counts);
+            io->line_idx[i].lf_counts = NULL;
+        }
+    }
 
     io->size = 0;
     io->buf_cap = 0;
@@ -420,7 +427,6 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
     if (dir == DIR_FWD) {
         // Forward search: chunked scan with overlap
         size_t overlap = nlen > 0 ? nlen - 1 : 0;
-        if (overlap < OVERLAP_MIN) overlap = OVERLAP_MIN;
         if (overlap > OVERLAP_MAX) overlap = OVERLAP_MAX;
 
         i64 pos = win_lo;
@@ -452,12 +458,9 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
         i64 best_ms = -1;
         i64 best_me = -1;
 
-        // Calculate overlap
+        // Calculate overlap (enough to catch boundary-spanning matches)
         size_t overlap = nlen > 0 ? nlen - 1 : 0;
-        if (overlap < OVERLAP_MIN)
-            overlap = OVERLAP_MIN;
-        if (overlap > OVERLAP_MAX)
-            overlap = OVERLAP_MAX;
+        if (overlap > OVERLAP_MAX) overlap = OVERLAP_MAX;
 
         // Scan backwards in blocks
         for (i64 pos = win_hi; pos > win_lo; pos -= (BK_BLK - overlap)) {

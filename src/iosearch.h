@@ -29,6 +29,7 @@ typedef struct {
     // one reusable buffer for searching
     unsigned char* buf;
     size_t buf_cap; // allocate once, e.g., max(FW_WIN, BK_BLK + OVERLAP_MAX)
+    bool arena_backed; // if true, buf/lf_counts are arena-owned and must not be freed
 
     // Bounded LRU cache of line indices
     LineBlockIdx line_idx[IDX_MAX_BLOCKS];
