@@ -9,6 +9,8 @@
 
 typedef int64_t i64;
 typedef uint64_t u64;
+typedef int32_t i32;
+typedef uint32_t u32;
 
 enum Unit {
     UNIT_BYTES,
@@ -50,10 +52,10 @@ enum Err {
 
 typedef struct {
     enum LocBase base; // LOC_NAME uses name_idx
-    int name_idx; // index into program->names[], -1 otherwise
+    i32 name_idx; // index into program->names[], -1 otherwise
     // optional offset:
     bool has_off;
-    int sign; // +1 or -1
+    i32 sign; // +1 or -1
     u64 n; // count
     enum Unit unit;
 } LocExpr;
@@ -61,7 +63,7 @@ typedef struct {
 typedef struct { // at-expr used only by TAKE_UNTIL
     enum LocBase at; // match-start/end or line-start/end
     bool has_off;
-    int sign;
+    i32 sign;
     u64 n;
     enum Unit unit;
 } AtExpr;
@@ -78,7 +80,7 @@ typedef struct {
             enum Unit unit;
         } skip;
         struct {
-            int sign;
+            i32 sign;
             u64 n;
             enum Unit unit;
         } take_len;
@@ -91,7 +93,7 @@ typedef struct {
             AtExpr at;
         } take_until;
         struct {
-            int name_idx;
+            i32 name_idx;
         } label;
         struct {
             LocExpr to;
@@ -101,17 +103,17 @@ typedef struct {
 
 typedef struct {
     Op* ops;
-    int op_count;
-    int op_cap;
+    i32 op_count;
+    i32 op_cap;
 } Clause;
 
 typedef struct {
     Clause* clauses;
-    int clause_count;
-    int clause_cap;
+    i32 clause_count;
+    i32 clause_cap;
     char (*names)[17];
-    int name_count;
-    int name_cap; // dedupbed label names
+    i32 name_count;
+    i32 name_cap; // dedupbed label names
 } Program;
 
 typedef struct {
@@ -126,7 +128,7 @@ typedef struct {
 
     // labels (LRU of 32)
     struct {
-        int name_idx;
+        i32 name_idx;
         i64 pos;
         u64 gen;
         bool in_use;
@@ -149,12 +151,12 @@ static inline i64 clamp64(i64 x, i64 lo, i64 hi) { return x < lo ? lo : (x > hi 
 
 // Forward declarations for engine functions
 typedef struct {
-    int name_idx;
+    i32 name_idx;
     i64 pos;
 } LabelWrite;
 
-void clause_caps(const Clause* c, int* out_ranges_cap, int* out_labels_cap);
+void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap);
 enum Err execute_clause_with_scratch(const Clause* clause, const Program* prg,
     void* io, VM* vm, FILE* out,
-    Range* ranges, int ranges_cap,
-    LabelWrite* label_writes, int label_cap);
+    Range* ranges, i32 ranges_cap,
+    LabelWrite* label_writes, i32 label_cap);
