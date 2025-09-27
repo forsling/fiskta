@@ -503,7 +503,7 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
     }
     case LOC_LINE_END: {
         // io_line_end expects a byte inside the line
-        i64 ref = staged_cursor > 0 ? staged_cursor - 1 : 0;
+        i64 ref = staged_cursor;
         enum Err err = io_line_end(io, ref, &base);
         if (err != E_OK)
             return err;
@@ -568,7 +568,7 @@ static enum Err resolve_at_expr(const AtExpr* at, File* io, const Match* match, 
         break;
     }
     case LOC_LINE_END: {
-        i64 ref = match->end > 0 ? match->end - 1 : 0;
+        i64 ref = match->end;
         enum Err err = io_line_end(io, ref, &base);
         if (err != E_OK)
             return err;

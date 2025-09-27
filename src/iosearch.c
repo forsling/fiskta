@@ -786,6 +786,9 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
     i64 pos = win_lo;
     i64 block_lo = win_lo, block_hi = win_lo;
     size_t n = 0;
+    // carry previous byte across block boundaries
+    unsigned char prev_c = 0;
+    int have_prev = 0;
 
     for (;;){
         // Refill buffer if needed for consumption step
@@ -798,28 +801,30 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
             if (n == 0 && ferror(io->f)) return E_IO;
         }
 
+        // current/previous chars at position pos
+        unsigned char curr_c = (pos < win_hi) ? io->buf[pos - block_lo] : 0;
+        unsigned char prev_char = have_prev ? prev_c : 0;
+
         // If no active threads, start a new leftmost attempt at pos
         if (curr.n == 0){
             have_min = 1; min_start = pos;
             seen_clear(seen_curr, nins);
             int match_found = 0;
-            unsigned char curr_char = (pos < win_hi) ? io->buf[pos - block_lo] : 0;
-            unsigned char prev_char = (pos > win_lo) ? io->buf[pos - 1 - block_lo] : 0;
-            add_thread_ordered(re, &curr, 0, pos, pos, win_lo, win_hi, seen_curr, &match_found, min_start, curr_char, prev_char);
+            add_thread_ordered(re, &curr, 0, pos, pos, win_lo, win_hi,
+                               seen_curr, &match_found, min_start, curr_c, prev_char);
             if (match_found){
                 if (dir == DIR_FWD){ *ms = min_start; *me = pos; return E_OK; }
                 else { best_ms = min_start; best_me = pos; /* reset for later starts */ curr.n = 0; have_min = 0; }
             }
         } else {
-            // Check for zero-length accept at this pos
+            // Re-run epsilon to discover MATCH at this pos (no consumption)
             int match_found = 0;
-            // We need to re-run closure check for existing threads? Already closed when inserted.
-            // add a no-op that only discovers RI_MATCH through epsilon from existing PCs:
-            unsigned char curr_char = (pos < win_hi) ? io->buf[pos - block_lo] : 0;
-            unsigned char prev_char = (pos > win_lo) ? io->buf[pos - 1 - block_lo] : 0;
+            unsigned char curr_char = curr_c;
+            // prev_char already computed above
             for (int k=0;k<curr.n;k++){
-                // revisit epsilon from pc to catch trailing BOL/EOL/MATCH
-                add_thread_ordered(re, &curr, curr.v[k].pc, curr.v[k].start, pos, win_lo, win_hi, seen_curr, &match_found, curr.v[k].start, curr_char, prev_char);
+                // IMPORTANT: keep global min_start
+                add_thread_ordered(re, &curr, curr.v[k].pc, curr.v[k].start, pos, win_lo, win_hi,
+                                   seen_curr, &match_found, min_start, curr_char, prev_char);
             }
             if (match_found){
                 if (dir == DIR_FWD){ *ms = min_start; *me = pos; return E_OK; }
@@ -829,19 +834,10 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
 
         if (pos == win_hi) break; // nothing to consume
 
-        unsigned char c = io->buf[pos - block_lo];
+        unsigned char c = curr_c;
         // Build next from curr by consuming c
         rlist_clear(&next);
         seen_clear(seen_next, nins);
-
-        // Get previous character for line boundary detection
-        unsigned char prev_char = 0;
-        if (pos > win_lo) {
-            // Make sure we're within the current buffer
-            if (pos - 1 >= block_lo) {
-                prev_char = io->buf[pos - 1 - block_lo];
-            }
-        }
 
         for (int i=0;i<curr.n;i++){
             int pc = curr.v[i].pc;
@@ -891,6 +887,9 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
         ReThread* tmp = next_buf; next_buf = curr_buf; curr_buf = tmp;
         seen_clear(seen_curr, nins);
         unsigned char* tmpb = seen_next; seen_next = seen_curr; seen_curr = tmpb;
+        // advance and carry previous char
+        prev_c = curr_c;
+        have_prev = (pos < win_hi);
         pos++;
     }
 
