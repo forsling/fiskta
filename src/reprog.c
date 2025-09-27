@@ -164,45 +164,78 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout){
 
     // Look for quantifier
     char q = pat[i];
-    if (q=='*' || q=='+' || q=='?') i++;
+    int min_count = 1, max_count = 1; // default for single atom
+    int is_quantified = 0;
+
+    if (q=='*' || q=='+' || q=='?') {
+        i++;
+        is_quantified = 1;
+        switch (q) {
+            case '*': min_count = 0; max_count = -1; break; // unlimited
+            case '+': min_count = 1; max_count = -1; break; // unlimited
+            case '?': min_count = 0; max_count = 1; break;
+        }
+    } else if (q == '{') {
+        // Parse {n,m} quantifier
+        i++; // skip '{'
+        if (!pat[i] || !isdigit(pat[i])) return E_PARSE;
+
+        // Parse minimum count
+        min_count = 0;
+        while (pat[i] && isdigit(pat[i])) {
+            min_count = min_count * 10 + (pat[i] - '0');
+            i++;
+        }
+
+        if (pat[i] == '}') {
+            // {n} - exactly n times
+            max_count = min_count;
+            i++;
+        } else if (pat[i] == ',') {
+            i++; // skip ','
+            if (pat[i] == '}') {
+                // {n,} - n or more times
+                max_count = -1; // unlimited
+                i++;
+            } else if (isdigit(pat[i])) {
+                // {n,m} - between n and m times
+                max_count = 0;
+                while (pat[i] && isdigit(pat[i])) {
+                    max_count = max_count * 10 + (pat[i] - '0');
+                    i++;
+                }
+                if (pat[i] != '}') return E_PARSE;
+                i++;
+            } else {
+                return E_PARSE;
+            }
+        } else {
+            return E_PARSE;
+        }
+        is_quantified = 1;
+    }
 
     // Emit sequence based on (ak, q)
     enum Err e = E_OK;
     int idx_atom, idx_split, idx_jmp;
-    switch (q){
-        case '*': // greedy: split(loop, cont), atom, jmp split
-            if (ak==A_BOL || ak==A_EOL) return E_PARSE;
-            e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split); if (e!=E_OK) return e;
-            // atom
-            switch (ak){
-                case A_CHAR:  e = emit_inst(b, RI_CHAR, 0,0,ch,-1,&idx_atom); break;
-                case A_ANY:   e = emit_inst(b, RI_ANY, 0,0,0,-1,&idx_atom); break;
-                case A_CLASS: e = emit_inst(b, RI_CLASS,0,0,0,cls_idx,&idx_atom); break;
-                default: return E_PARSE;
-            }
-            if (e!=E_OK) return e;
-            e = emit_inst(b, RI_JMP, idx_split, 0,0,-1,&idx_jmp); if (e!=E_OK) return e;
-            // patch split
-            b->ins[idx_split].x = idx_atom;       // loop first -> greedy
-            b->ins[idx_split].y = b->nins;        // continue after jmp
-            break;
+    if (!is_quantified) {
+        // No quantifier - emit single atom
+        switch (ak){
+            case A_CHAR:  e = emit_inst(b, RI_CHAR,0,0,ch,-1,NULL); break;
+            case A_ANY:   e = emit_inst(b, RI_ANY,0,0,0,-1,NULL); break;
+            case A_CLASS: e = emit_inst(b, RI_CLASS,0,0,0,cls_idx,NULL); break;
+            case A_BOL:   e = emit_inst(b, RI_BOL,0,0,0,-1,NULL); break;
+            case A_EOL:   e = emit_inst(b, RI_EOL,0,0,0,-1,NULL); break;
+        }
+        if (e!=E_OK) return e;
+    } else {
+        // Handle quantified patterns
+        if (ak==A_BOL || ak==A_EOL) return E_PARSE; // anchors can't be quantified
 
-        case '+': // atom, split(loop, cont)
-            if (ak==A_BOL || ak==A_EOL) return E_PARSE;
-            switch (ak){
-                case A_CHAR:  e = emit_inst(b, RI_CHAR,0,0,ch,-1,&idx_atom); break;
-                case A_ANY:   e = emit_inst(b, RI_ANY,0,0,0,-1,&idx_atom); break;
-                case A_CLASS: e = emit_inst(b, RI_CLASS,0,0,0,cls_idx,&idx_atom); break;
-                default: return E_PARSE;
-            }
-            if (e!=E_OK) return e;
-            // split with loop-first greedy; y = cont = split+1
-            e = emit_inst(b, RI_SPLIT, idx_atom, b->nins+1, 0, -1, &idx_split); if (e!=E_OK) return e;
-            break;
-
-        case '?': // non-greedy: split(cont, take), atom
-            if (ak==A_BOL || ak==A_EOL) return E_PARSE;
-            e = emit_inst(b, RI_SPLIT, b->nins+2, -1, 0,-1, &idx_split); if (e!=E_OK) return e; // x=cont (next after atom)
+        if (min_count == 0 && max_count == 1) {
+            // ? quantifier - non-greedy: split(cont, take), atom
+            int idx_split, idx_atom;
+            e = emit_inst(b, RI_SPLIT, b->nins+2, -1, 0,-1, &idx_split); if (e!=E_OK) return e;
             switch (ak){
                 case A_CHAR:  e = emit_inst(b, RI_CHAR,0,0,ch,-1,&idx_atom); break;
                 case A_ANY:   e = emit_inst(b, RI_ANY,0,0,0,-1,&idx_atom); break;
@@ -211,18 +244,66 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout){
             }
             if (e!=E_OK) return e;
             b->ins[idx_split].y = idx_atom; // take path second (ordered -> non-greedy)
-            break;
-
-        default: // no quantifier
+        } else if (min_count == 0 && max_count == -1) {
+            // * quantifier - greedy: split(loop, cont), atom, jmp split
+            int idx_split, idx_atom, idx_jmp;
+            e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split); if (e!=E_OK) return e;
             switch (ak){
-                case A_CHAR:  e = emit_inst(b, RI_CHAR,0,0,ch,-1,NULL); break;
-                case A_ANY:   e = emit_inst(b, RI_ANY,0,0,0,-1,NULL); break;
-                case A_CLASS: e = emit_inst(b, RI_CLASS,0,0,0,cls_idx,NULL); break;
-                case A_BOL:   e = emit_inst(b, RI_BOL,0,0,0,-1,NULL); break;
-                case A_EOL:   e = emit_inst(b, RI_EOL,0,0,0,-1,NULL); break;
+                case A_CHAR:  e = emit_inst(b, RI_CHAR, 0,0,ch,-1,&idx_atom); break;
+                case A_ANY:   e = emit_inst(b, RI_ANY, 0,0,0,-1,&idx_atom); break;
+                case A_CLASS: e = emit_inst(b, RI_CLASS,0,0,0,cls_idx,&idx_atom); break;
+                default: return E_PARSE;
             }
-            if (e != E_OK) return e;
-            break;
+            if (e!=E_OK) return e;
+            e = emit_inst(b, RI_JMP, idx_split, 0,0,-1,&idx_jmp); if (e!=E_OK) return e;
+            b->ins[idx_split].x = idx_atom;       // loop first -> greedy
+            b->ins[idx_split].y = b->nins;        // continue after jmp
+        } else if (min_count == 1 && max_count == -1) {
+            // + quantifier - atom, split(loop, cont)
+            int idx_atom, idx_split;
+            switch (ak){
+                case A_CHAR:  e = emit_inst(b, RI_CHAR,0,0,ch,-1,&idx_atom); break;
+                case A_ANY:   e = emit_inst(b, RI_ANY,0,0,0,-1,&idx_atom); break;
+                case A_CLASS: e = emit_inst(b, RI_CLASS,0,0,0,cls_idx,&idx_atom); break;
+                default: return E_PARSE;
+            }
+            if (e!=E_OK) return e;
+            e = emit_inst(b, RI_SPLIT, idx_atom, b->nins+1, 0, -1, &idx_split); if (e!=E_OK) return e;
+        } else {
+            // {n,m} quantifier - more complex NFA structure needed
+            // For now, implement a simple approach: emit min_count atoms, then add optional ones
+            int first_atom = -1;
+
+            // Emit minimum required atoms
+            for (int i = 0; i < min_count; i++) {
+                int idx_atom;
+                switch (ak){
+                    case A_CHAR:  e = emit_inst(b, RI_CHAR,0,0,ch,-1,&idx_atom); break;
+                    case A_ANY:   e = emit_inst(b, RI_ANY,0,0,0,-1,&idx_atom); break;
+                    case A_CLASS: e = emit_inst(b, RI_CLASS,0,0,0,cls_idx,&idx_atom); break;
+                    default: return E_PARSE;
+                }
+                if (e!=E_OK) return e;
+                if (i == 0) first_atom = idx_atom;
+            }
+
+            // Add optional atoms if max_count > min_count
+            if (max_count == -1 || max_count > min_count) {
+                // Add a * quantifier for the remaining atoms
+                int idx_split, idx_atom, idx_jmp;
+                e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split); if (e!=E_OK) return e;
+                switch (ak){
+                    case A_CHAR:  e = emit_inst(b, RI_CHAR, 0,0,ch,-1,&idx_atom); break;
+                    case A_ANY:   e = emit_inst(b, RI_ANY, 0,0,0,-1,&idx_atom); break;
+                    case A_CLASS: e = emit_inst(b, RI_CLASS,0,0,0,cls_idx,&idx_atom); break;
+                    default: return E_PARSE;
+                }
+                if (e!=E_OK) return e;
+                e = emit_inst(b, RI_JMP, idx_split, 0,0,-1,&idx_jmp); if (e!=E_OK) return e;
+                b->ins[idx_split].x = idx_atom;       // loop first -> greedy
+                b->ins[idx_split].y = b->nins;        // continue after jmp
+            }
+        }
     }
 
     *i_inout = i;

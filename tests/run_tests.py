@@ -1204,7 +1204,7 @@ def tests():
 
         dict(id="regex-034-phone-pattern",
              tokens=["findr","\\d{3}-\\d{3}-\\d{4}","take","+12b"], input_file="-", stdin=b"Call 555-123-4567 now",
-             expect=dict(stdout="", exit=2)),  # {n} quantifiers not implemented yet
+             expect=dict(stdout="555-123-4567", exit=0)),  # {n} quantifiers now implemented!
 
         dict(id="regex-035-mixed-quantifiers",
              tokens=["findr","a+b*c?","take","+4b"], input_file="-", stdin=b"aaabcc",
@@ -1349,7 +1349,7 @@ def tests():
         # Edge case: very long pattern
         dict(id="regex-065-long-pattern",
              tokens=["findr","X{1000}","take","+1000b"], input_file="large-lines.txt",
-             expect=dict(stdout="", exit=2)),  # {n} quantifiers not implemented yet
+             expect=dict(stdout="", exit=2)),  # Large quantifiers cause memory issues (1000 individual instructions)
 
         # Regex with CRLF
         dict(id="regex-066-crlf-pattern",
