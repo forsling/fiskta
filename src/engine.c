@@ -269,7 +269,9 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
             if (err != E_OK)
                 return err;
 
-            err = io_step_lines_from(io, current_line_start, op->u.skip.n, c_cursor);
+            if (op->u.skip.n > (u64)INT_MAX) return E_PARSE;
+            err = io_step_lines_from(io, current_line_start,
+                                     (i32)op->u.skip.n, c_cursor);
             if (err != E_OK)
                 return err;
         } else { // UNIT_CHARS
@@ -306,12 +308,16 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
 
             if (op->u.take_len.sign > 0) {
                 start = line_start;
-                err = io_step_lines_from(io, line_start, op->u.take_len.n, &end);
+                if (op->u.take_len.n > (u64)INT_MAX) return E_PARSE;
+                err = io_step_lines_from(io, line_start,
+                                         (i32)op->u.take_len.n, &end);
                 if (err != E_OK)
                     return err;
             } else {
                 end = line_start;
-                err = io_step_lines_from(io, line_start, -op->u.take_len.n, &start);
+                if (op->u.take_len.n > (u64)INT_MAX) return E_PARSE;
+                err = io_step_lines_from(io, line_start,
+                                         -(i32)op->u.take_len.n, &start);
                 if (err != E_OK)
                     return err;
             }

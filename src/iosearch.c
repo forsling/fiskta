@@ -764,7 +764,9 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
     const ReProg* re, enum Dir dir, i64* ms, i64* me)
 {
     if (!re || re->nins <= 0) return E_PARSE;
-    if (win_lo >= win_hi || win_lo < 0 || win_hi > io->size) return E_NO_MATCH;
+    if (win_lo < 0) win_lo = 0;
+    if (win_hi > io->size) win_hi = io->size;
+    if (win_lo >= win_hi) return E_NO_MATCH;
 
     // Forward scan only; for DIR_BWD, remember rightmost match
     int nins = re->nins;
@@ -852,7 +854,9 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
                     }
                     break;
                 case RI_ANY:
-                    add_thread_ordered(re, &next, pc+1, st, pos+1, win_lo, win_hi, seen_next, &(int){0}, min_start, c, prev_char);
+                    if (c != '\n') { // dot ≠ newline
+                        add_thread_ordered(re, &next, pc+1, st, pos+1, win_lo, win_hi, seen_next, &(int){0}, min_start, c, prev_char);
+                    }
                     break;
                 case RI_CLASS:
                     if (I->cls_idx >= 0 && I->cls_idx < re->nclasses && cls_has(&re->classes[I->cls_idx], c)) {
