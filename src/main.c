@@ -119,6 +119,10 @@ static void print_usage(void)
     printf("  find [to <location>] <string>\n");
     printf("                              Search within [min(cursor,L), max(cursor,L)),\n");
     printf("                              default L=EOF; picks match closest to cursor\n");
+    printf("  findr [to <location>] <regex>\n");
+    printf("                              Search using regular expressions within\n");
+    printf("                              [min(cursor,L), max(cursor,L)); supports\n");
+    printf("                              character classes, quantifiers, anchors\n");
     printf("  take to <location>          Order-normalized: emits [min(cursor,L), max(cursor,L));\n");
     printf("                              cursor moves to the high end\n");
     printf("  take until <string> [at <location>]\n");
@@ -131,6 +135,14 @@ static void print_usage(void)
     printf("  b                           Bytes\n");
     printf("  l                           Lines (LF only, CR treated as bytes)\n");
     printf("  c                           UTF-8 code points (never splits sequences)\n");
+    printf("\n");
+    printf("REGEX SYNTAX:\n");
+    printf("  Character Classes: \\d (digits), \\w (word), \\s (space), [a-z], [^0-9]\n");
+    printf("  Quantifiers: * (0+), + (1+), ? (0-1), {n} (exactly n), {n,m} (n to m)\n");
+    printf("  Anchors: ^ (line start), $ (line end)\n");
+    printf("  Alternation: | (OR)\n");
+    printf("  Escape: \\n, \\t, \\r, \\f, \\v, \\0\n");
+    printf("  Special: . (any char except newline)\n");
     printf("\n");
     printf("LABELS:\n");
     printf("  NAME                        UPPERCASE, ≤16 chars, [A-Z_-]\n");
@@ -156,6 +168,8 @@ static void print_usage(void)
     printf("  fiskta take 10b file.txt                    # Extract first 10 bytes\n");
     printf("  fiskta take 3l file.txt                     # Extract first 3 lines\n");
     printf("  fiskta find \"ERROR\" take to match-start file.txt  # Extract to ERROR (excludes ERROR)\n");
+    printf("  fiskta findr \"\\\\d{3}-\\\\d{3}-\\\\d{4}\" take +12b file.txt  # Find phone numbers\n");
+    printf("  fiskta findr \"^ERROR\" take to line-end file.txt  # Find ERROR at line start\n");
     printf("  fiskta take to BOF+100b file.txt          # Extract from BOF+100b\n");
     printf("  fiskta skip 5b take 10b file.txt           # Skip 5, take 10\n");
     printf("  fiskta take until \"---\" file.txt          # Extract until \"---\"\n");
