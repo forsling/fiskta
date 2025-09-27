@@ -45,6 +45,7 @@ enum Err io_open_arena2(File* io, const char* path,
     unsigned char* search_buf, size_t search_buf_cap,
     unsigned short* counts_slab /* IDX_MAX_BLOCKS*IDX_SUB_MAX */);
 void io_close(File* io);
+void io_reset_full(File* io);
 enum Err io_emit(File* io, i64 start, i64 end, FILE* out);
 
 static inline i64 io_size(const File* io) { return io->size; }

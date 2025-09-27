@@ -109,7 +109,6 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                     idx++;
                 }
             } else if (strcmp(cmd, "findr") == 0) {
-                plan->total_ops++;
                 idx++;
                 if (idx < token_count && strcmp(tokens[idx], "to") == 0) {
                     idx++;
@@ -400,28 +399,28 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         *str_pool_off += needle_len;
 
     } else if (strcmp(cmd, "findr") == 0) {
-        op->kind = OP_FINDR;
+            op->kind = OP_FINDR;
 
-        if (*idx < token_count && strcmp(tokens[*idx], "to") == 0) {
+            if (*idx < token_count && strcmp(tokens[*idx], "to") == 0) {
+                (*idx)++;
+                enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.findr.to, prg, max_name_count);
+                if (err != E_OK)
+                    return err;
+            } else {
+                op->u.findr.to.base = LOC_EOF;
+                op->u.findr.to.name_idx = -1;
+                op->u.findr.to.has_off = false;
+            }
+            if (*idx >= token_count) return E_PARSE;
+            const char* pat = tokens[*idx];
             (*idx)++;
-            enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.findr.to, prg, max_name_count);
-            if (err != E_OK)
-                return err;
-        } else {
-            op->u.findr.to.base = LOC_EOF;
-            op->u.findr.to.name_idx = -1;
-            op->u.findr.to.has_off = false;
-        }
-        if (*idx >= token_count) return E_PARSE;
-        const char* pat = tokens[*idx];
-        (*idx)++;
-        if (strlen(pat) == 0) return E_BAD_NEEDLE;
-        size_t plen = strlen(pat) + 1;
-        if (*str_pool_off + plen > str_pool_cap) return E_OOM;
-        op->u.findr.pattern = str_pool + *str_pool_off;
-        strcpy(op->u.findr.pattern, pat);
-        *str_pool_off += plen;
-        op->u.findr.prog = NULL;
+            if (strlen(pat) == 0) return E_BAD_NEEDLE;
+            size_t plen = strlen(pat) + 1;
+            if (*str_pool_off + plen > str_pool_cap) return E_OOM;
+            op->u.findr.pattern = str_pool + *str_pool_off;
+            strcpy(op->u.findr.pattern, pat);
+            *str_pool_off += plen;
+            op->u.findr.prog = NULL;
 
     } else if (strcmp(cmd, "skip") == 0) {
         op->kind = OP_SKIP;

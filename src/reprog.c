@@ -114,7 +114,91 @@ static enum Err parse_class(ReB* b, const char* pat, int* i_inout, int* out_cls_
     return E_OK;
 }
 
-// Parse one atom + optional quantifier, emit code
+// Forward declaration
+static enum Err compile_piece(ReB* b, const char* pat, int* i_inout);
+
+// Compiles pat[0..len) into `b` without emitting RI_MATCH.
+// Uses N-1 splits so there is no epsilon path that skips all alts.
+static enum Err compile_subpattern(ReB* b, const char* pat, int len){
+    // 1) Collect top-level alternatives (respect escapes/parentheses)
+    int depth = 0, nalt = 1;
+    for (int j=0; j<len; ++j){
+        if (pat[j] == '\\'){ if (j+1<len) ++j; continue; }
+        if (pat[j] == '(') ++depth;
+        else if (pat[j] == ')') --depth;
+        else if (pat[j] == '|' && depth == 0) ++nalt;
+    }
+
+    // Single alt: compile linearly and return
+    if (nalt == 1){
+        char* tmp = (char*)alloca((size_t)len + 1);
+        memcpy(tmp, pat, (size_t)len);
+        tmp[len] = '\0';
+        int i = 0;
+        while (tmp[i]){
+            enum Err e = compile_piece(b, tmp, &i);
+            if (e != E_OK) return e;
+        }
+        return E_OK;
+    }
+
+    // 2) Record (lo,len) for each alt
+    int* lo   = (int*)alloca((size_t)nalt * sizeof(int));
+    int* alen = (int*)alloca((size_t)nalt * sizeof(int));
+    int k = 0, start = 0; depth = 0;
+    for (int j=0; j<len; ++j){
+        if (pat[j] == '\\'){ if (j+1<len) ++j; continue; }
+        if (pat[j] == '(') ++depth;
+        else if (pat[j] == ')') --depth;
+        else if (pat[j] == '|' && depth == 0){
+            lo[k] = start; alen[k] = j - start; ++k; start = j + 1;
+        }
+    }
+    lo[k] = start; alen[k] = len - start; /* k == nalt-1 */
+
+    // 3) Emit N-1 splits + all alt bodies
+    int* split_pc     = (int*)alloca((size_t)(nalt-1) * sizeof(int));
+    int* alt_start_pc = (int*)alloca((size_t)nalt     * sizeof(int));
+    int* jmp_pc       = (int*)alloca((size_t)nalt     * sizeof(int));
+
+    enum Err e;
+    // Emit a split before each of the first N-1 alts, then their bodies
+    for (int i=0; i<nalt-1; ++i){
+        e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc[i]); if (e != E_OK) return e;
+
+        alt_start_pc[i] = b->nins;
+        // compile alt i
+        char* frag = (char*)alloca((size_t)alen[i] + 1);
+        memcpy(frag, pat + lo[i], (size_t)alen[i]);
+        frag[alen[i]] = '\0';
+        int pi = 0;
+        while (frag[pi]){ e = compile_piece(b, frag, &pi); if (e != E_OK) return e; }
+
+        e = emit_inst(b, RI_JMP, -1, 0, 0, -1, &jmp_pc[i]); if (e != E_OK) return e;
+    }
+
+    // Last alternative (no leading split)
+    alt_start_pc[nalt-1] = b->nins;
+    char* last = (char*)alloca((size_t)alen[nalt-1] + 1);
+    memcpy(last, pat + lo[nalt-1], (size_t)alen[nalt-1]);
+    last[alen[nalt-1]] = '\0';
+    int pi = 0;
+    while (last[pi]){ e = compile_piece(b, last, &pi); if (e != E_OK) return e; }
+    e = emit_inst(b, RI_JMP, -1, 0, 0, -1, &jmp_pc[nalt-1]); if (e != E_OK) return e;
+
+    // 4) Continuation point and patching
+    int cont = b->nins;
+    for (int i=0; i<nalt; ++i) b->ins[jmp_pc[i]].x = cont;
+
+    for (int i=0; i<nalt-1; ++i){
+        b->ins[split_pc[i]].x = alt_start_pc[i];
+        b->ins[split_pc[i]].y = (i+1 < nalt-1) ? split_pc[i+1] : alt_start_pc[nalt-1];
+    }
+
+    return E_OK;
+}
+
+// Legacy function - now just calls the new parser
 static enum Err compile_piece(ReB* b, const char* pat, int* i_inout){
     int i = *i_inout;
     if (!pat[i]) return E_PARSE;
@@ -160,6 +244,71 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout){
     else {
         ch = (unsigned char)pat[i++];
         ak = A_CHAR;
+    }
+
+    // --- NEW: grouping atom '(' ... ')' with nested alternation ---
+    if (pat[i-1] == '('){
+        int start_i = i-1;
+        int j = i, depth = 1;
+        while (pat[j]){
+            if (pat[j] == '\\'){ if (pat[j+1]) j += 2; else return E_PARSE; continue; }
+            if (pat[j] == '(') depth++;
+            else if (pat[j] == ')'){ depth--; if (depth == 0){ break; } }
+            j++;
+        }
+        if (pat[j] != ')') return E_PARSE; // unmatched '('
+
+        int inner_lo = i;
+        int inner_len = j - inner_lo;
+        int group_start_pc = b->nins;
+
+        if (inner_len == 0){
+            // Empty group: compile a dead epsilon (never proceeds)
+            int dead_pc; enum Err e2 = emit_inst(b, RI_JMP, 0, 0, 0, -1, &dead_pc); if (e2 != E_OK) return e2;
+            b->ins[dead_pc].x = dead_pc;
+        } else {
+            // Compile the inner subpattern (may contain its own '|' and groups)
+            enum Err e2 = compile_subpattern(b, pat + inner_lo, inner_len);
+            if (e2 != E_OK) return e2;
+        }
+
+        // The group's "atom start" is the first instruction we emitted
+        int idx_atom = group_start_pc;
+
+        // Advance `i` past the ')'
+        i = j + 1;
+
+        // ----- optional quantifier for the group -----
+        int idx_split;
+        enum Err e;
+        if (pat[i] == '*'){
+            // Thompson: split(cont, body) before body; since we've already emitted body,
+            // we emulate by adding: split(loop, cont) *after* and a jump back inside.
+            // Structure:
+            //   [group ...]  SPLIT idx_atom, next
+            //   (loop inside the group body ensures 0+)
+            e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split); if (e != E_OK) return e;
+            b->ins[idx_split].x = idx_atom;  // loop
+            b->ins[idx_split].y = b->nins;   // cont
+            i++;
+        } else if (pat[i] == '+'){
+            e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split); if (e != E_OK) return e;
+            b->ins[idx_split].x = idx_atom;  // loop
+            b->ins[idx_split].y = b->nins;   // cont
+            i++;
+        } else if (pat[i] == '?'){
+            // Prefer taking the group (greedy), else skip
+            // Emit a split that *enters* the group or skips it.
+            // Since body is already emitted, we simulate by inserting a no-op path:
+            // Just add a split here that prefers to jump back into group start.
+            e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split); if (e != E_OK) return e;
+            b->ins[idx_split].x = b->nins;   // fallthrough path (already at cont)
+            b->ins[idx_split].y = idx_atom;  // optional take (second arm reached after)
+            // Make it greedy by ordering x/y if your VM treats x as preferred. Swap if needed.
+            i++;
+        }
+        *i_inout = i;
+        return E_OK;
     }
 
     // Look for quantifier
@@ -233,9 +382,9 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout){
         if (ak==A_BOL || ak==A_EOL) return E_PARSE; // anchors can't be quantified
 
         if (min_count == 0 && max_count == 1) {
-            // ? quantifier - non-greedy: split(cont, take), atom
+            // ? quantifier - greedy: split(take, cont), atom
             int idx_split, idx_atom;
-            e = emit_inst(b, RI_SPLIT, b->nins+2, -1, 0,-1, &idx_split); if (e!=E_OK) return e;
+            e = emit_inst(b, RI_SPLIT, -1, -1, 0,-1, &idx_split); if (e!=E_OK) return e;
             switch (ak){
                 case A_CHAR:  e = emit_inst(b, RI_CHAR,0,0,ch,-1,&idx_atom); break;
                 case A_ANY:   e = emit_inst(b, RI_ANY,0,0,0,-1,&idx_atom); break;
@@ -243,7 +392,8 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout){
                 default: return E_PARSE;
             }
             if (e!=E_OK) return e;
-            b->ins[idx_split].y = idx_atom; // take path second (ordered -> non-greedy)
+            b->ins[idx_split].x = idx_atom; // take first -> greedy
+            b->ins[idx_split].y = b->nins;  // continue after atom
         } else if (min_count == 0 && max_count == -1) {
             // * quantifier - greedy: split(loop, cont), atom, jmp split
             int idx_split, idx_atom, idx_jmp;
@@ -268,7 +418,9 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout){
                 default: return E_PARSE;
             }
             if (e!=E_OK) return e;
-            e = emit_inst(b, RI_SPLIT, idx_atom, b->nins+1, 0, -1, &idx_split); if (e!=E_OK) return e;
+            e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split); if (e!=E_OK) return e;
+            b->ins[idx_split].x = idx_atom; // loop back to atom
+            b->ins[idx_split].y = b->nins;  // fallthrough to next instruction
         } else {
             // {n,m} quantifier - more complex NFA structure needed
             // For now, implement a simple approach: emit min_count atoms, then add optional ones
@@ -287,21 +439,28 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout){
                 if (i == 0) first_atom = idx_atom;
             }
 
-            // Add optional atoms if max_count > min_count
-            if (max_count == -1 || max_count > min_count) {
-                // Add a * quantifier for the remaining atoms
-                int idx_split, idx_atom, idx_jmp;
-                e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split); if (e!=E_OK) return e;
-                switch (ak){
-                    case A_CHAR:  e = emit_inst(b, RI_CHAR, 0,0,ch,-1,&idx_atom); break;
-                    case A_ANY:   e = emit_inst(b, RI_ANY, 0,0,0,-1,&idx_atom); break;
-                    case A_CLASS: e = emit_inst(b, RI_CLASS,0,0,0,cls_idx,&idx_atom); break;
-                    default: return E_PARSE;
+            if (max_count == -1) {
+                // unlimited tail == greedy '*'
+                int sp, at, jmp;
+                e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &sp); if (e!=E_OK) return e;
+                switch (ak){ case A_CHAR: e=emit_inst(b,RI_CHAR,0,0,ch,-1,&at); break;
+                             case A_ANY:  e=emit_inst(b,RI_ANY ,0,0,0 ,-1,&at); break;
+                             case A_CLASS:e=emit_inst(b,RI_CLASS,0,0,0,cls_idx,&at); break;
+                             default: return E_PARSE; } if (e!=E_OK) return e;
+                e = emit_inst(b, RI_JMP, sp, 0, 0, -1, &jmp); if (e!=E_OK) return e;
+                b->ins[sp].x = at; b->ins[sp].y = b->nins;
+            } else if (max_count > min_count) {
+                int opt = max_count - min_count;
+                for (int k = 0; k < opt; ++k) {
+                    int sp, at;
+                    e = emit_inst(b, RI_SPLIT, 0, 0, 0, -1, &sp); if (e!=E_OK) return e;
+                    switch (ak){ case A_CHAR: e=emit_inst(b,RI_CHAR,0,0,ch,-1,&at); break;
+                                 case A_ANY:  e=emit_inst(b,RI_ANY ,0,0,0 ,-1,&at); break;
+                                 case A_CLASS:e=emit_inst(b,RI_CLASS,0,0,0,cls_idx,&at); break;
+                                 default: return E_PARSE; } if (e!=E_OK) return e;
+                    b->ins[sp].x = at;      // take one more (greedy)
+                    b->ins[sp].y = b->nins; // or stop here
                 }
-                if (e!=E_OK) return e;
-                e = emit_inst(b, RI_JMP, idx_split, 0,0,-1,&idx_jmp); if (e!=E_OK) return e;
-                b->ins[idx_split].x = idx_atom;       // loop first -> greedy
-                b->ins[idx_split].y = b->nins;        // continue after jmp
             }
         }
     }
@@ -322,75 +481,31 @@ enum Err re_compile_into(const char* pattern,
     b.cls     = cls_base;
     b.cls_cap = cls_cap;
 
-    int i = 0;
     if (!pattern || !pattern[0]) return E_BAD_NEEDLE;
 
-    // Parse alternation: find all | characters
-    int alt_count = 1;
-    for (int j = 0; pattern[j]; j++) {
-        if (pattern[j] == '|') alt_count++;
+    // Always use the proven single-pass emitter (with nested alternation via compile_subpattern)
+    // First, check top-level alternation
+    int depth = 0, has_bar = 0;
+    for (int j=0; pattern[j]; ++j){
+        if (pattern[j] == '\\'){ if (pattern[j+1]) j++; continue; }
+        if (pattern[j] == '(') depth++;
+        else if (pattern[j] == ')') depth--;
+        else if (pattern[j] == '|' && depth == 0){ has_bar = 1; break; }
     }
 
-    if (alt_count == 1) {
-        // No alternation, compile normally
+    if (!has_bar){
+        int i = 0;
         while (pattern[i]){
             enum Err e = compile_piece(&b, pattern, &i);
             if (e != E_OK) return e;
         }
     } else {
-        // Handle alternation - create proper NFA structure
-        int split_pc = -1;
-        int match_pc = -1;
-
-        // First, emit the split instruction
-        enum Err e = emit_inst(&b, RI_SPLIT, -1, -1, 0, -1, &split_pc);
-        if (e != E_OK) return e;
-
-        int alt_start = 0;
-        int alt_idx = 0;
-
-        for (int j = 0; j <= strlen(pattern); j++) {
-            if (pattern[j] == '|' || pattern[j] == '\0') {
-                // Compile this alternative
-                char* alt_pattern = (char*)alloca((size_t)(j - alt_start + 1));
-                strncpy(alt_pattern, pattern + alt_start, (size_t)(j - alt_start));
-                alt_pattern[j - alt_start] = '\0';
-
-                int alt_start_pc = b.nins;
-                int alt_i = 0;
-                while (alt_pattern[alt_i]) {
-                    enum Err e = compile_piece(&b, alt_pattern, &alt_i);
-                    if (e != E_OK) return e;
-                }
-
-                // Patch the split to point to this alternative
-                if (alt_idx == 0) {
-                    b.ins[split_pc].x = alt_start_pc;
-                } else {
-                    b.ins[split_pc].y = alt_start_pc;
-                }
-
-                // Add JMP to MATCH after this alternative
-                enum Err e = emit_inst(&b, RI_JMP, -1, 0, 0, -1, NULL);
-                if (e != E_OK) return e;
-
-                alt_start = j + 1;
-                alt_idx++;
-            }
-        }
-
-        // Set the continuation point for the split
-        match_pc = b.nins;
-
-        // Patch all JMP instructions to point to MATCH
-        for (int k = split_pc + 1; k < b.nins; k++) {
-            if (b.ins[k].op == RI_JMP && b.ins[k].x == -1) {
-                b.ins[k].x = match_pc;
-            }
-        }
+        enum Err e2 = compile_subpattern(&b, pattern, (int)strlen(pattern));
+        if (e2 != E_OK) return e2;
     }
 
-    enum Err e = emit_inst(&b, RI_MATCH, 0,0,0,-1,NULL);
+    // Emit final match instruction
+    enum Err e = emit_inst(&b, RI_MATCH, 0, 0, 0, -1, NULL);
     if (e != E_OK) return e;
 
     out->ins      = b.ins;

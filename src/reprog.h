@@ -8,8 +8,8 @@ typedef enum {
     RI_CHAR,
     RI_ANY,
     RI_CLASS,
-    RI_BOL,    // '^'  (true iff pos == win_lo)
-    RI_EOL,    // '$'  (true iff pos == win_hi)
+    RI_BOL,    // '^'  (true at win_lo or after \n)
+    RI_EOL,    // '$'  (true at win_hi or before \n)
     RI_SPLIT,  // ordered epsilon: x then y (order encodes greediness)
     RI_JMP,
     RI_MATCH

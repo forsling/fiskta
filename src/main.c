@@ -106,6 +106,45 @@ static void die(enum Err e, const char* msg)
         fprintf(stderr, "fiskta: %s\n", err_str(e));
 }
 
+// Normalize "no match" into one code
+static inline enum Err normalize_no_match(enum Err e){
+    switch (e){
+        case E_NO_MATCH:
+        /* Add any aliases your engine might use for "no match": */
+        #ifdef E_REGEX_NO_MATCH
+        case E_REGEX_NO_MATCH:
+        #endif
+        #ifdef E_WINDOW_NO_MATCH
+        case E_WINDOW_NO_MATCH:
+        #endif
+        #ifdef E_SEARCH_NOT_FOUND
+        case E_SEARCH_NOT_FOUND:
+        #endif
+            return E_NO_MATCH;
+        default:
+            return e;
+    }
+}
+
+// Complete VM state reset for clause execution
+static void vm_reset_full(VM* vm)
+{
+    if (!vm) return;
+    vm->cursor = 0;
+    vm->last_match.valid = false;
+    vm->last_match.start = 0;
+    vm->last_match.end = 0;
+    vm->gen_counter = 0;
+
+    // Reset all labels
+    for (int i = 0; i < 32; i++) {
+        vm->labels[i].in_use = false;
+        vm->labels[i].name_idx = 0;
+        vm->labels[i].pos = 0;
+        vm->labels[i].gen = 0;
+    }
+}
+
 static void print_usage(void)
 {
     printf("fiskta (FInd SKip TAke) Text Extraction Tool\n");
@@ -269,15 +308,15 @@ int main(int argc, char** argv)
     size_t clauses_size = a_align(clauses_bytes, alignof(Clause));
     size_t ops_size = a_align(ops_bytes, alignof(Op));
     size_t names_size = a_align(names_bytes, alignof(char));
-    size_t str_pool_size = a_align(str_pool_bytes, alignof(char));
     size_t ranges_size = a_align(ranges_bytes, alignof(Range));
     size_t labels_size = a_align(labels_bytes, alignof(LabelWrite));
     size_t re_prog_size = a_align(re_prog_bytes, alignof(ReProg));
     size_t re_ins_size  = a_align(re_ins_bytes,  alignof(ReInst));
     size_t re_cls_size  = a_align(re_cls_bytes,  alignof(ReClass));
+    size_t str_pool_size = a_align(str_pool_bytes, alignof(char));
 
-    size_t total = search_buf_size + counts_size + clauses_size + ops_size + names_size + str_pool_size + ranges_size + labels_size
-                 + re_prog_size + re_ins_size + re_cls_size + 64; // small cushion
+    size_t total = search_buf_size + counts_size + clauses_size + ops_size + names_size + ranges_size + labels_size
+                 + re_prog_size + re_ins_size + re_cls_size + str_pool_size + 64; // small cushion
 
     void* block = malloc(total);
     if (!block) {
@@ -293,13 +332,13 @@ int main(int argc, char** argv)
     Clause* clauses_buf = arena_alloc(&A, clauses_bytes, alignof(Clause));
     Op* ops_buf = arena_alloc(&A, ops_bytes, alignof(Op));
     char(*names_buf)[17] = arena_alloc(&A, names_bytes, alignof(char));
-    char* str_pool = arena_alloc(&A, str_pool_bytes, alignof(char));
     Range* ranges_pool = arena_alloc(&A, ranges_bytes, alignof(Range));
     LabelWrite* labels_pool = arena_alloc(&A, labels_bytes, alignof(LabelWrite));
     ReProg* re_progs = arena_alloc(&A, re_prog_bytes, alignof(ReProg));
     ReInst*  re_ins  = arena_alloc(&A, re_ins_bytes,  alignof(ReInst));
     ReClass* re_cls  = arena_alloc(&A, re_cls_bytes,  alignof(ReClass));
-    if (!search_buf || !counts_slab || !clauses_buf || !ops_buf || !names_buf || !str_pool || !ranges_pool || !labels_pool || !re_progs || !re_ins || !re_cls) {
+    char* str_pool = arena_alloc(&A, str_pool_bytes, alignof(char));
+    if (!search_buf || !counts_slab || !clauses_buf || !ops_buf || !names_buf || !ranges_pool || !labels_pool || !re_progs || !re_ins || !re_cls || !str_pool) {
         die(E_OOM, "arena carve");
         free(block);
         return 2;
@@ -345,7 +384,7 @@ int main(int argc, char** argv)
         return 2;
     }
 
-    // 7) Run engine using precomputed scratch pools
+    // 7) Run engine using precomputed scratch pools with short-circuit behavior
     VM vm = { 0 };
     vm.cursor = 0;
     vm.last_match.valid = false;
@@ -354,6 +393,7 @@ int main(int argc, char** argv)
     size_t r_off = 0, l_off = 0;
     i32 ok = 0;
     enum Err last_err = E_OK;
+
     for (i32 ci = 0; ci < prg.clause_count; ++ci) {
         i32 rc, lc;
         clause_caps(&prg.clauses[ci], &rc, &lc);
