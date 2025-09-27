@@ -801,6 +801,7 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
             if (fseeko(io->f, block_lo, SEEK_SET) != 0) return E_IO;
             n = fread(io->buf, 1, (size_t)(block_hi - block_lo), io->f);
             if (n == 0 && ferror(io->f)) return E_IO;
+            block_hi = block_lo + (i64)n; // clamp to bytes actually in buf
         }
 
         // current/previous chars at position pos
@@ -819,6 +820,7 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
                 else { best_ms = min_start; best_me = pos; /* reset for later starts */ curr.n = 0; have_min = 0; }
             }
         } else {
+            seen_clear(seen_curr, nins);
             // Re-run epsilon to discover MATCH at this pos (no consumption)
             int match_found = 0;
             unsigned char curr_char = curr_c;
@@ -880,16 +882,19 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
         }
 
         if (match_found) {
-            *ms = min_start;
-            *me = pos + 1;
-            return E_OK;
+            if (dir == DIR_FWD) {
+                *ms = min_start;
+                *me = pos + 1;
+                return E_OK;
+            } else {
+                best_ms = min_start; best_me = pos + 1;
+                curr.n = 0; have_min = 0; // reset for later leftmost starts
+            }
         }
 
         // Advance
         curr = next;
-        // Swap buffers pointers to keep storage valid
         ReThread* tmp = next_buf; next_buf = curr_buf; curr_buf = tmp;
-        seen_clear(seen_curr, nins);
         unsigned char* tmpb = seen_next; seen_next = seen_curr; seen_curr = tmpb;
         // advance and carry previous char
         prev_c = curr_c;

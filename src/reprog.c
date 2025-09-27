@@ -233,9 +233,9 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout){
         if (ak==A_BOL || ak==A_EOL) return E_PARSE; // anchors can't be quantified
 
         if (min_count == 0 && max_count == 1) {
-            // ? quantifier - non-greedy: split(cont, take), atom
+            // ? quantifier - greedy: split(take, cont), atom
             int idx_split, idx_atom;
-            e = emit_inst(b, RI_SPLIT, b->nins+2, -1, 0,-1, &idx_split); if (e!=E_OK) return e;
+            e = emit_inst(b, RI_SPLIT, -1, -1, 0,-1, &idx_split); if (e!=E_OK) return e;
             switch (ak){
                 case A_CHAR:  e = emit_inst(b, RI_CHAR,0,0,ch,-1,&idx_atom); break;
                 case A_ANY:   e = emit_inst(b, RI_ANY,0,0,0,-1,&idx_atom); break;
@@ -243,7 +243,8 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout){
                 default: return E_PARSE;
             }
             if (e!=E_OK) return e;
-            b->ins[idx_split].y = idx_atom; // take path second (ordered -> non-greedy)
+            b->ins[idx_split].x = idx_atom; // take first -> greedy
+            b->ins[idx_split].y = b->nins;  // continue after atom
         } else if (min_count == 0 && max_count == -1) {
             // * quantifier - greedy: split(loop, cont), atom, jmp split
             int idx_split, idx_atom, idx_jmp;
@@ -287,21 +288,28 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout){
                 if (i == 0) first_atom = idx_atom;
             }
 
-            // Add optional atoms if max_count > min_count
-            if (max_count == -1 || max_count > min_count) {
-                // Add a * quantifier for the remaining atoms
-                int idx_split, idx_atom, idx_jmp;
-                e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split); if (e!=E_OK) return e;
-                switch (ak){
-                    case A_CHAR:  e = emit_inst(b, RI_CHAR, 0,0,ch,-1,&idx_atom); break;
-                    case A_ANY:   e = emit_inst(b, RI_ANY, 0,0,0,-1,&idx_atom); break;
-                    case A_CLASS: e = emit_inst(b, RI_CLASS,0,0,0,cls_idx,&idx_atom); break;
-                    default: return E_PARSE;
+            if (max_count == -1) {
+                // unlimited tail == greedy '*'
+                int sp, at, jmp;
+                e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &sp); if (e!=E_OK) return e;
+                switch (ak){ case A_CHAR: e=emit_inst(b,RI_CHAR,0,0,ch,-1,&at); break;
+                             case A_ANY:  e=emit_inst(b,RI_ANY ,0,0,0 ,-1,&at); break;
+                             case A_CLASS:e=emit_inst(b,RI_CLASS,0,0,0,cls_idx,&at); break;
+                             default: return E_PARSE; } if (e!=E_OK) return e;
+                e = emit_inst(b, RI_JMP, sp, 0, 0, -1, &jmp); if (e!=E_OK) return e;
+                b->ins[sp].x = at; b->ins[sp].y = b->nins;
+            } else if (max_count > min_count) {
+                int opt = max_count - min_count;
+                for (int k = 0; k < opt; ++k) {
+                    int sp, at;
+                    e = emit_inst(b, RI_SPLIT, 0, 0, 0, -1, &sp); if (e!=E_OK) return e;
+                    switch (ak){ case A_CHAR: e=emit_inst(b,RI_CHAR,0,0,ch,-1,&at); break;
+                                 case A_ANY:  e=emit_inst(b,RI_ANY ,0,0,0 ,-1,&at); break;
+                                 case A_CLASS:e=emit_inst(b,RI_CLASS,0,0,0,cls_idx,&at); break;
+                                 default: return E_PARSE; } if (e!=E_OK) return e;
+                    b->ins[sp].x = at;      // take one more (greedy)
+                    b->ins[sp].y = b->nins; // or stop here
                 }
-                if (e!=E_OK) return e;
-                e = emit_inst(b, RI_JMP, idx_split, 0,0,-1,&idx_jmp); if (e!=E_OK) return e;
-                b->ins[idx_split].x = idx_atom;       // loop first -> greedy
-                b->ins[idx_split].y = b->nins;        // continue after jmp
             }
         }
     }
@@ -338,56 +346,29 @@ enum Err re_compile_into(const char* pattern,
             if (e != E_OK) return e;
         }
     } else {
-        // Handle alternation - create proper NFA structure
-        int split_pc = -1;
-        int match_pc = -1;
-
-        // First, emit the split instruction
-        enum Err e = emit_inst(&b, RI_SPLIT, -1, -1, 0, -1, &split_pc);
-        if (e != E_OK) return e;
-
+        int jlen = (int)strlen(pattern);
         int alt_start = 0;
-        int alt_idx = 0;
-
-        for (int j = 0; j <= strlen(pattern); j++) {
+        int jmp_stack_cap = 16, jmp_n = 0;
+        int* jmp_from = (int*)alloca((size_t)jmp_stack_cap * sizeof(int));
+        for (int j = 0; j <= jlen; ++j) {
             if (pattern[j] == '|' || pattern[j] == '\0') {
-                // Compile this alternative
-                char* alt_pattern = (char*)alloca((size_t)(j - alt_start + 1));
-                strncpy(alt_pattern, pattern + alt_start, (size_t)(j - alt_start));
-                alt_pattern[j - alt_start] = '\0';
-
-                int alt_start_pc = b.nins;
+                // split: prefer taking this alternative (x), else fallthrough (y)
+                int split_pc; enum Err e = emit_inst(&b, RI_SPLIT, 0, 0, 0, -1, &split_pc); if (e!=E_OK) return e;
                 int alt_i = 0;
-                while (alt_pattern[alt_i]) {
-                    enum Err e = compile_piece(&b, alt_pattern, &alt_i);
-                    if (e != E_OK) return e;
-                }
-
-                // Patch the split to point to this alternative
-                if (alt_idx == 0) {
-                    b.ins[split_pc].x = alt_start_pc;
-                } else {
-                    b.ins[split_pc].y = alt_start_pc;
-                }
-
-                // Add JMP to MATCH after this alternative
-                enum Err e = emit_inst(&b, RI_JMP, -1, 0, 0, -1, NULL);
-                if (e != E_OK) return e;
-
+                char* alt = (char*)alloca((size_t)(j - alt_start + 1));
+                memcpy(alt, pattern + alt_start, (size_t)(j - alt_start));
+                alt[j - alt_start] = '\0';
+                while (alt[alt_i]) { e = compile_piece(&b, alt, &alt_i); if (e!=E_OK) return e; }
+                int jmp_pc; e = emit_inst(&b, RI_JMP, -1, 0, 0, -1, &jmp_pc); if (e!=E_OK) return e;
+                if (jmp_n == jmp_stack_cap) { /* simple grow */ jmp_stack_cap *= 2; jmp_from = (int*)alloca((size_t)jmp_stack_cap * sizeof(int)); }
+                jmp_from[jmp_n++] = jmp_pc;
+                b.ins[split_pc].x = split_pc + 1; // into alt body
+                b.ins[split_pc].y = b.nins;       // fall through to next split/alt
                 alt_start = j + 1;
-                alt_idx++;
             }
         }
-
-        // Set the continuation point for the split
-        match_pc = b.nins;
-
-        // Patch all JMP instructions to point to MATCH
-        for (int k = split_pc + 1; k < b.nins; k++) {
-            if (b.ins[k].op == RI_JMP && b.ins[k].x == -1) {
-                b.ins[k].x = match_pc;
-            }
-        }
+        int cont = b.nins;
+        for (int t = 0; t < jmp_n; ++t) b.ins[jmp_from[t]].x = cont;
     }
 
     enum Err e = emit_inst(&b, RI_MATCH, 0,0,0,-1,NULL);
