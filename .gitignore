@@ -47,3 +47,4 @@ gmon.out
 
 ignore/
 tests/fixtures/
+bench/
