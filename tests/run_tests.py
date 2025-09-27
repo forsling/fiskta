@@ -1037,10 +1037,29 @@ def tests():
              tokens=["take","+3c"], input_file="binary-data.bin",
              expect=dict(stdout="TEX", exit=0)),  # counts bytes T,E,X as 3 chars despite binary following
 
-        # Cursor law retained with chars
         dict(id="utf8-005-empty-char-capture-no-move",
              tokens=["skip","5b","take","to","cursor+0c","::","take","+3b"], input_file="overlap.txt",
              expect=dict(stdout="efgh", exit=0)),
+
+        dict(id="edge-feedback-001-inline-offset-label-resolution",
+             tokens=["label","HERE","::","goto","HERE+1l","take","1l"], input_file="-", stdin=b"a\nb\nX\n",
+             expect=dict(stdout="b\n", exit=0)),
+
+        dict(id="edge-feedback-002-backward-window-find-rightmost",
+             tokens=["skip","15b","find","to","BOF","ERROR","take","5b"], input_file="-", stdin=b"aaa ERROR aaa ERROR aaa",
+             expect=dict(stdout="ERROR", exit=0)),
+
+        dict(id="edge-feedback-003-take-until-empty-span-no-move",
+             tokens=["take","until","HEAD","::","take","4b"], input_file="-", stdin=b"HEAD\nM1\nM2\n",
+             expect=dict(stdout="HEAD", exit=0)),
+
+        dict(id="edge-feedback-004-utf8-chopped-boundary",
+             tokens=["take","1c","take","1c"], input_file="-", stdin=b"\xF0\x9F\x98\x80X",
+             expect=dict(stdout_len=5, exit=0)),  # 4 bytes for 😀 + 1 byte for X
+
+        dict(id="edge-feedback-005-lines-anchor-negative",
+             tokens=["skip","7b","take","-2l"], input_file="-", stdin=b"L1\nL2\nL3\nL4\n",
+             expect=dict(stdout="L1\nL2\n", exit=0)),
     ]
 
 def main():

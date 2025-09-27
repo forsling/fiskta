@@ -29,6 +29,7 @@ typedef struct {
     // one reusable buffer for searching
     unsigned char* buf;
     size_t buf_cap; // allocate once, e.g., max(FW_WIN, BK_BLK + OVERLAP_MAX)
+    bool arena_backed; // if true, buf/lf_counts are arena-owned and must not be freed
 
     // Bounded LRU cache of line indices
     LineBlockIdx line_idx[IDX_MAX_BLOCKS];
@@ -38,7 +39,7 @@ typedef struct {
 enum Dir { DIR_FWD = +1,
     DIR_BWD = -1 };
 
-enum Err io_open(File* io, const char* path); // path or "-"
+// io_open removed - use io_open_arena2 with arena allocation instead
 enum Err io_open_arena2(File* io, const char* path,
                         unsigned char* search_buf, size_t search_buf_cap,
                         unsigned short* counts_slab /* IDX_MAX_BLOCKS*IDX_SUB_MAX */);

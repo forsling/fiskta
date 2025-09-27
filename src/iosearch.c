@@ -1,11 +1,10 @@
 // iosearch.c
-#include "iosearch.h"
-#include <stdlib.h>
-#include <string.h>
-
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+#include "iosearch.h"
+#include <stdlib.h>
+#include <string.h>
 
 #ifdef _WIN32
 #include <fcntl.h>
@@ -29,96 +28,14 @@ static inline int utf8_len_from_lead(unsigned char b){
     return 0; // invalid lead
 }
 
-enum Err io_open(File* io, const char* path)
-{
-    memset(io, 0, sizeof(*io));
-
-    if (strcmp(path, "-") == 0) {
-        // Spool stdin to temp file
-        io->f = tmpfile();
-        if (!io->f)
-            return E_IO;
-
-#ifdef _WIN32
-        _setmode(_fileno(stdin), _O_BINARY);
-#endif
-
-        // Copy stdin to temp file in chunks
-        unsigned char buf[256 * 1024]; // 256 KiB chunks
-        size_t total_read = 0;
-
-        while (1) {
-            size_t n = fread(buf, 1, sizeof(buf), stdin);
-            if (n == 0) {
-                if (ferror(stdin)) { fclose(io->f); return E_IO; }
-                break;
-            }
-
-            size_t written = fwrite(buf, 1, n, io->f);
-            if (written != n) {
-                fclose(io->f);
-                return E_IO;
-            }
-            total_read += n;
-        }
-
-        io->size = (i64)total_read;
-        if (fflush(io->f) != 0) { fclose(io->f); return E_IO; }
-        rewind(io->f);
-    } else {
-        io->f = fopen(path, "rb");
-        if (!io->f)
-            return E_IO;
-
-        // Get file size
-        if (fseeko(io->f, 0, SEEK_END) != 0) {
-            fclose(io->f);
-            return E_IO;
-        }
-        io->size = ftello(io->f);
-        if (io->size < 0) {
-            fclose(io->f);
-            return E_IO;
-        }
-        rewind(io->f);
-    }
-
-    // Allocate search buffer
-    size_t buf_size = FW_WIN > (BK_BLK + OVERLAP_MAX) ? FW_WIN : (BK_BLK + OVERLAP_MAX);
-    io->buf = malloc(buf_size);
-    if (!io->buf) {
-        fclose(io->f);
-        return E_OOM;
-    }
-    io->buf_cap = buf_size;
-
-    // Initialize line index cache
-    io->line_idx_gen = 0;
-    for (int i = 0; i < IDX_MAX_BLOCKS; ++i) {
-        io->line_idx[i].in_use = false;
-        io->line_idx[i].gen = 0;
-
-        // Allocate fixed-size counts buffer once per slot
-        io->line_idx[i].lf_counts = (unsigned short*)
-            malloc((size_t)IDX_SUB_MAX * sizeof(unsigned short));
-        if (!io->line_idx[i].lf_counts) {
-            // cleanup previously allocated
-            for (int j = 0; j < i; ++j) free(io->line_idx[j].lf_counts);
-            free(io->buf);
-            fclose(io->f);
-            return E_OOM;
-        }
-        io->line_idx[i].sub_count = 0; // will be set per block
-    }
-
-    return E_OK;
-}
+// io_open removed - use io_open_arena2 with arena allocation instead
 
 enum Err io_open_arena2(File* io, const char* path,
                         unsigned char* search_buf, size_t search_buf_cap,
                         unsigned short* counts_slab)
 {
     memset(io, 0, sizeof(*io));
+    io->arena_backed = true;
 
     if (strcmp(path, "-") == 0) {
         // Spool stdin to temp file
@@ -192,8 +109,13 @@ void io_close(File* io)
         fclose(io->f);
         io->f = NULL;
     }
-    // Note: io->buf and io->line_idx[].lf_counts may be arena-backed
-    // Don't free them here - they're owned by the arena
+    if (!io->arena_backed) {
+        if (io->buf) { free(io->buf); io->buf = NULL; }
+        for (int i = 0; i < IDX_MAX_BLOCKS; ++i) {
+            free(io->line_idx[i].lf_counts);
+            io->line_idx[i].lf_counts = NULL;
+        }
+    }
 
     io->size = 0;
     io->buf_cap = 0;
@@ -421,7 +343,6 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
     if (dir == DIR_FWD) {
         // Forward search: chunked scan with overlap
         size_t overlap = nlen > 0 ? nlen - 1 : 0;
-        if (overlap < OVERLAP_MIN) overlap = OVERLAP_MIN;
         if (overlap > OVERLAP_MAX) overlap = OVERLAP_MAX;
 
         i64 pos = win_lo;
@@ -453,12 +374,9 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
         i64 best_ms = -1;
         i64 best_me = -1;
 
-        // Calculate overlap
+        // Calculate overlap (enough to catch boundary-spanning matches)
         size_t overlap = nlen > 0 ? nlen - 1 : 0;
-        if (overlap < OVERLAP_MIN)
-            overlap = OVERLAP_MIN;
-        if (overlap > OVERLAP_MAX)
-            overlap = OVERLAP_MAX;
+        if (overlap > OVERLAP_MAX) overlap = OVERLAP_MAX;
 
         // Scan backwards in blocks
         for (i64 pos = win_hi; pos > win_lo; pos -= (BK_BLK - overlap)) {
