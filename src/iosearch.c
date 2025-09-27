@@ -685,3 +685,216 @@ static enum Err bmh_forward(const unsigned char* text, size_t text_len,
     }
     return E_NO_MATCH;
 }
+
+// --------------------------
+// Regex streaming NFA engine
+// --------------------------
+typedef struct { int pc; i64 start; } ReThread;
+typedef struct { ReThread* v; int n, cap; } ReList;
+
+static inline int cls_has(const ReClass* c, unsigned char ch){
+    return (c->bits[ch>>3] >> (ch & 7)) & 1;
+}
+
+static void rlist_init(ReList* L, ReThread* buf, int cap){ L->v = buf; L->n = 0; L->cap = cap; }
+static inline void rlist_clear(ReList* L){ L->n = 0; }
+static inline void seen_clear(unsigned char* seen, int n){ memset(seen, 0, (size_t)n); }
+
+// Ordered epsilon-closure push. Sets *match_found if RI_MATCH reachable for current pos and min_start.
+static void add_thread_ordered(const ReProg* P, ReList* L, int pc, i64 start,
+                               i64 pos, i64 win_lo, i64 win_hi,
+                               unsigned char* seen, int* match_found, i64 min_start,
+                               unsigned char curr_char, unsigned char prev_char)
+{
+    while (1){
+        if (pc < 0 || pc >= P->nins) return;
+        if (seen[pc]) return;
+        ReInst* I = &P->ins[pc];
+        switch (I->op){
+            case RI_SPLIT:
+                // Preserve order: x then y
+                add_thread_ordered(P, L, I->x, start, pos, win_lo, win_hi, seen, match_found, min_start, curr_char, prev_char);
+                pc = I->y; // continue tail-call
+                continue;
+            case RI_JMP:
+                pc = I->x; continue;
+            case RI_BOL:
+                // ^ matches at beginning of string or after a newline
+                if (pos == win_lo || prev_char == '\n') {
+                    pc++; continue;
+                }
+                return;
+            case RI_EOL:
+                // $ matches at end of string or before a newline
+                if (pos == win_hi) {
+                    pc++; continue; // match at end of string
+                }
+                // Check if next character is a newline
+                if (pos < win_hi && curr_char == '\n') {
+                    pc++; continue; // match before newline
+                }
+                return;
+            case RI_MATCH:
+                if (start == min_start) *match_found = 1;
+                // Add the thread to the list so consumption step can detect it
+                if (L->n < L->cap){
+                    L->v[L->n].pc = pc;
+                    L->v[L->n].start = start;
+                    L->n++;
+                    seen[pc] = 1;
+                }
+                return;
+            case RI_CHAR:
+            case RI_ANY:
+            case RI_CLASS:
+                // consuming; add once
+                if (L->n < L->cap){
+                    L->v[L->n].pc = pc;
+                    L->v[L->n].start = start;
+                    L->n++;
+                    seen[pc] = 1;
+                }
+                return;
+            default: return;
+        }
+    }
+}
+
+enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
+    const ReProg* re, enum Dir dir, i64* ms, i64* me)
+{
+    if (!re || re->nins <= 0) return E_PARSE;
+    if (win_lo >= win_hi || win_lo < 0 || win_hi > io->size) return E_NO_MATCH;
+
+    // Forward scan only; for DIR_BWD, remember rightmost match
+    int nins = re->nins;
+    int cap  = nins * 4;
+    if (cap < 32) cap = 32;
+    ReThread* curr_buf = (ReThread*)alloca((size_t)cap * sizeof(ReThread));
+    ReThread* next_buf = (ReThread*)alloca((size_t)cap * sizeof(ReThread));
+    unsigned char* seen_curr = (unsigned char*)alloca((size_t)nins);
+    unsigned char* seen_next = (unsigned char*)alloca((size_t)nins);
+    ReList curr, next;
+    rlist_init(&curr, curr_buf, cap);
+    rlist_init(&next, next_buf, cap);
+    seen_clear(seen_curr, nins);
+    seen_clear(seen_next, nins);
+
+    i64 best_ms = -1, best_me = -1;
+    i64 min_start = 0; int have_min = 0;
+
+    i64 pos = win_lo;
+    i64 block_lo = win_lo, block_hi = win_lo;
+    size_t n = 0;
+    // carry previous byte across block boundaries
+    unsigned char prev_c = 0;
+    int have_prev = 0;
+
+    for (;;){
+        // Refill buffer if needed for consumption step
+        if (pos == block_hi && pos < win_hi){
+            block_lo = pos;
+            block_hi = block_lo + (i64)io->buf_cap;
+            if (block_hi > win_hi) block_hi = win_hi;
+            if (fseeko(io->f, block_lo, SEEK_SET) != 0) return E_IO;
+            n = fread(io->buf, 1, (size_t)(block_hi - block_lo), io->f);
+            if (n == 0 && ferror(io->f)) return E_IO;
+        }
+
+        // current/previous chars at position pos
+        unsigned char curr_c = (pos < win_hi) ? io->buf[pos - block_lo] : 0;
+        unsigned char prev_char = have_prev ? prev_c : 0;
+
+        // If no active threads, start a new leftmost attempt at pos
+        if (curr.n == 0){
+            have_min = 1; min_start = pos;
+            seen_clear(seen_curr, nins);
+            int match_found = 0;
+            add_thread_ordered(re, &curr, 0, pos, pos, win_lo, win_hi,
+                               seen_curr, &match_found, min_start, curr_c, prev_char);
+            if (match_found){
+                if (dir == DIR_FWD){ *ms = min_start; *me = pos; return E_OK; }
+                else { best_ms = min_start; best_me = pos; /* reset for later starts */ curr.n = 0; have_min = 0; }
+            }
+        } else {
+            // Re-run epsilon to discover MATCH at this pos (no consumption)
+            int match_found = 0;
+            unsigned char curr_char = curr_c;
+            // prev_char already computed above
+            for (int k=0;k<curr.n;k++){
+                // IMPORTANT: keep global min_start
+                add_thread_ordered(re, &curr, curr.v[k].pc, curr.v[k].start, pos, win_lo, win_hi,
+                                   seen_curr, &match_found, min_start, curr_char, prev_char);
+            }
+            if (match_found){
+                if (dir == DIR_FWD){ *ms = min_start; *me = pos; return E_OK; }
+                else { best_ms = min_start; best_me = pos; curr.n = 0; have_min = 0; }
+            }
+        }
+
+        if (pos == win_hi) break; // nothing to consume
+
+        unsigned char c = curr_c;
+        // Build next from curr by consuming c
+        rlist_clear(&next);
+        seen_clear(seen_next, nins);
+
+        for (int i=0;i<curr.n;i++){
+            int pc = curr.v[i].pc;
+            i64 st = curr.v[i].start;
+            // Only proceed for threads at current leftmost start
+            if (have_min && st > min_start) continue;
+            ReInst* I = &re->ins[pc];
+            switch (I->op){
+                case RI_CHAR:
+                    if (c == I->ch) {
+                        add_thread_ordered(re, &next, pc+1, st, pos+1, win_lo, win_hi, seen_next, &(int){0}, min_start, c, prev_char);
+                    }
+                    break;
+                case RI_ANY:
+                    add_thread_ordered(re, &next, pc+1, st, pos+1, win_lo, win_hi, seen_next, &(int){0}, min_start, c, prev_char);
+                    break;
+                case RI_CLASS:
+                    if (I->cls_idx >= 0 && I->cls_idx < re->nclasses && cls_has(&re->classes[I->cls_idx], c)) {
+                        add_thread_ordered(re, &next, pc+1, st, pos+1, win_lo, win_hi, seen_next, &(int){0}, min_start, c, prev_char);
+                    }
+                    break;
+                default:
+                    // Shouldn't be here; closure should have removed epsilons
+                    break;
+            }
+        }
+
+        // Check for matches in the next threads
+        int match_found = 0;
+        for (int i = 0; i < next.n; i++) {
+            int pc = next.v[i].pc;
+            if (pc >= 0 && pc < re->nins && re->ins[pc].op == RI_MATCH) {
+                match_found = 1;
+                break;
+            }
+        }
+
+        if (match_found) {
+            *ms = min_start;
+            *me = pos + 1;
+            return E_OK;
+        }
+
+        // Advance
+        curr = next;
+        // Swap buffers pointers to keep storage valid
+        ReThread* tmp = next_buf; next_buf = curr_buf; curr_buf = tmp;
+        seen_clear(seen_curr, nins);
+        unsigned char* tmpb = seen_next; seen_next = seen_curr; seen_curr = tmpb;
+        // advance and carry previous char
+        prev_c = curr_c;
+        have_prev = (pos < win_hi);
+        pos++;
+    }
+
+    if (dir == DIR_BWD && best_ms >= 0){
+        *ms = best_ms; *me = best_me; return E_OK;
+    }
+    return E_NO_MATCH;
+}
