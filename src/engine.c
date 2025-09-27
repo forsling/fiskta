@@ -1,9 +1,11 @@
 // engine.c
 #include "fiskta.h"
 #include "iosearch.h"
+#include "arena.h"
 #include <stdlib.h>
 #include <string.h>
 #include <alloca.h>
+#include <limits.h>
 
 // Forward declarations
 // LabelWrite typedef moved to fiskta.h
@@ -24,7 +26,6 @@ void clause_caps(const Clause* c, int* out_ranges_cap, int* out_labels_cap) {
     *out_labels_cap = lc > 0 ? lc : 1;
 }
 
-static enum Err execute_clause(const Clause* clause, const Program* prg, File* io, VM* vm, FILE* out);
 static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
     i64* c_cursor, Match* c_last_match,
     Range** ranges, int* range_count, int* range_cap,
@@ -37,34 +38,73 @@ static void commit_labels(VM* vm, const Program* prg, const LabelWrite* label_wr
 
 enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
 {
-    File io = { 0 };
-    enum Err err = io_open(&io, in_path);
-    if (err != E_OK)
+    // Calculate memory needs for arena allocation
+    int cc = prg->clause_count;
+
+    // Calculate scratch buffer sizes for each clause
+    int *r_caps = alloca(sizeof(int) * cc);
+    int *l_caps = alloca(sizeof(int) * cc);
+    size_t total_ranges = 0;
+    size_t total_labels = 0;
+
+    for (int i = 0; i < cc; i++) {
+        clause_caps(&prg->clauses[i], &r_caps[i], &l_caps[i]);
+        total_ranges += (size_t)r_caps[i];
+        total_labels += (size_t)l_caps[i];
+    }
+
+    // Calculate total memory needed
+    const size_t search_buf_cap = (FW_WIN > (BK_BLK + OVERLAP_MAX)) ? (size_t)FW_WIN : (size_t)(BK_BLK + OVERLAP_MAX);
+    const size_t counts_size = (size_t)IDX_MAX_BLOCKS * (size_t)IDX_SUB_MAX * sizeof(unsigned short);
+    const size_t ranges_size = total_ranges * sizeof(Range);
+    const size_t labels_size = total_labels * sizeof(LabelWrite);
+
+    size_t total = search_buf_cap + counts_size + ranges_size + labels_size;
+
+    // Allocate single block
+    void* block = malloc(total);
+    if (!block) return E_OOM;
+
+    // Initialize arena
+    Arena arena;
+    arena_init(&arena, block, total);
+
+    // Carve out slices
+    unsigned char* search_buf = (unsigned char*)arena_alloc(&arena, search_buf_cap, 1);
+    unsigned short* counts_slab = (unsigned short*)arena_alloc(&arena, counts_size, alignof(unsigned short));
+    Range* ranges_pool = (Range*)arena_alloc(&arena, ranges_size, alignof(Range));
+    LabelWrite* labels_pool = (LabelWrite*)arena_alloc(&arena, labels_size, alignof(LabelWrite));
+
+    if (!search_buf || !counts_slab || !ranges_pool || !labels_pool) {
+        free(block);
+        return E_OOM;
+    }
+
+    // Open I/O with arena-backed buffers
+    File io = {0};
+    enum Err err = io_open_arena2(&io, in_path, search_buf, search_buf_cap, counts_slab);
+    if (err != E_OK) {
+        free(block);
         return err;
+    }
 
     VM vm = { 0 };
     vm.cursor = 0;
     vm.last_match.valid = false;
     vm.gen_counter = 0;
 
-    // Preallocate scratch buffers for each clause
-    int cc = prg->clause_count;
+    // Set up per-clause scratch buffers from the pools
+    Range** r_bufs = alloca(sizeof(Range*) * cc);
+    LabelWrite** l_bufs = alloca(sizeof(LabelWrite*) * cc);
 
-    // small metadata on stack is fine; scratch buffers on heap (startup)
-    int *r_caps = alloca(sizeof(int) * cc);
-    int *l_caps = alloca(sizeof(int) * cc);
-
-    Range       **r_bufs = alloca(sizeof(Range*) * cc);
-    LabelWrite  **l_bufs = alloca(sizeof(LabelWrite*) * cc);
+    size_t ranges_offset = 0;
+    size_t labels_offset = 0;
 
     for (int i = 0; i < cc; i++) {
-        clause_caps(&prg->clauses[i], &r_caps[i], &l_caps[i]);
-        r_bufs[i] = (Range*)malloc((size_t)r_caps[i] * sizeof(Range));
-        l_bufs[i] = (LabelWrite*)malloc((size_t)l_caps[i] * sizeof(LabelWrite));
-        if (!r_bufs[i] || !l_bufs[i]) {
-            err = E_OOM;
-            goto done;
-        }
+        r_bufs[i] = ranges_pool + ranges_offset;
+        l_bufs[i] = labels_pool + labels_offset;
+        ranges_offset += (size_t)r_caps[i];
+        labels_offset += (size_t)l_caps[i];
     }
 
     // Execute each clause independently
@@ -72,7 +112,6 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     enum Err last_err = E_OK;
 
     for (int i = 0; i < cc; i++) {
-        // pass preallocated buffers + capacities into execute_clause
         err = execute_clause_with_scratch(&prg->clauses[i], prg, &io, &vm, out,
                                           r_bufs[i], r_caps[i],
                                           l_bufs[i], l_caps[i]);
@@ -88,69 +127,11 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
         err = last_err;
     }
 
-done:
-    // free startup scratch
-    for (int i = 0; i < cc; i++) {
-        free(r_bufs[i]);
-        free(l_bufs[i]);
-    }
     io_close(&io);
+    free(block);
     return err;
 }
 
-static enum Err execute_clause(const Clause* clause, const Program* prg, File* io, VM* vm, FILE* out)
-{
-    // Initialize staged state
-    i64 c_cursor = vm->cursor;
-    Match c_last_match = vm->last_match;
-
-    // Staged captures
-    Range* ranges = malloc(16 * sizeof(Range));
-    if (!ranges)
-        return E_OOM;
-    int range_count = 0;
-    int range_cap = 16;
-
-    // Staged label writes
-    LabelWrite* label_writes = malloc(16 * sizeof(LabelWrite));
-    if (!label_writes) {
-        free(ranges);
-        return E_OOM;
-    }
-    int label_count = 0;
-    int label_cap = 16;
-
-    // Execute each operation
-    enum Err err = E_OK;
-    for (int i = 0; i < clause->op_count; i++) {
-        err = execute_op(&clause->ops[i], prg, io, vm,
-            &c_cursor, &c_last_match,
-            &ranges, &range_count, &range_cap,
-            &label_writes, &label_count, &label_cap);
-        if (err != E_OK) {
-            break;
-        }
-    }
-
-    if (err == E_OK) {
-        // Commit: emit ranges, commit labels, update global state
-        for (int i = 0; i < range_count; i++) {
-            err = io_emit(io, ranges[i].start, ranges[i].end, out);
-            if (err != E_OK)
-                break;
-        }
-
-        if (err == E_OK) {
-            commit_labels(vm, prg, label_writes, label_count);
-            vm->cursor = c_cursor;
-            vm->last_match = c_last_match;
-        }
-    }
-
-    free(ranges);
-    free(label_writes);
-    return err;
-}
 
 // NEW signature: no allocations inside
 enum Err execute_clause_with_scratch(const Clause* clause, const Program* prg,
@@ -245,6 +226,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
             if (err != E_OK)
                 return err;
         } else { // UNIT_CHARS
+            if (op->u.skip.n > INT_MAX) return E_PARSE;
             i64 char_start;
             enum Err err = io_char_start(io, *c_cursor, &char_start);
             if (err != E_OK) return err;
@@ -284,6 +266,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
                     return err;
             }
         } else { // UNIT_CHARS
+            if (op->u.take_len.n > INT_MAX) return E_PARSE;
             i64 cstart;
             enum Err err = io_char_start(io, *c_cursor, &cstart);
             if (err != E_OK) return err;
@@ -301,7 +284,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
         }
 
         // Stage the range
-        if (*range_count >= *range_cap) return E_PARSE; // or E_OOM
+        if (*range_count >= *range_cap) return E_OOM;
         (*ranges)[*range_count].start = start;
         (*ranges)[*range_count].end = end;
         (*range_count)++;
@@ -330,7 +313,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
         }
 
         // Stage the range
-        if (*range_count >= *range_cap) return E_PARSE; // or E_OOM
+        if (*range_count >= *range_cap) return E_OOM;
         (*ranges)[*range_count].start = start;
         (*ranges)[*range_count].end = end;
         (*range_count)++;
@@ -366,7 +349,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
         i64 dst = clamp64(target, 0, io_size(io));
 
         // Stage [cursor, dst) ONLY (no order-normalization)
-        if (*range_count >= *range_cap) return E_PARSE; // or E_OOM
+        if (*range_count >= *range_cap) return E_OOM;
         (*ranges)[*range_count].start = *c_cursor;
         (*ranges)[*range_count].end = dst;
         (*range_count)++;
@@ -380,7 +363,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
 
     case OP_LABEL: {
         // Stage label write
-        if (*label_count >= *label_cap) return E_PARSE; // or E_OOM
+        if (*label_count >= *label_cap) return E_OOM;
         (*label_writes)[*label_count].name_idx = op->u.label.name_idx;
         (*label_writes)[*label_count].pos = *c_cursor;
         (*label_count)++;

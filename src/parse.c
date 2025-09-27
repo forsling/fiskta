@@ -122,7 +122,13 @@ enum Err parse_program(int argc, char** argv, Program* prg, const char** in_path
 
 void parse_free(Program* prg)
 {
-    // Arena-backed allocation - no cleanup needed
+    if (!prg || !prg->clauses) return;
+
+    for (int i = 0; i < prg->clause_count; i++) {
+        free(prg->clauses[i].ops);
+    }
+    free(prg->clauses);
+    free(prg->names);
     memset(prg, 0, sizeof(*prg));
 }
 
