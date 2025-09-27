@@ -1226,7 +1226,7 @@ def tests():
         # Binary data patterns
         dict(id="regex-039-binary-pattern",
              tokens=["findr","TEXT_START.*TEXT_END","take","+25b"], input_file="binary-data.bin",
-             expect=dict(stdout="", exit=2)),  # Issue with .* pattern and binary data
+             expect=dict(stdout="TEXT_START\x00\x01\x02\x03BINARY_DATA", exit=0)),  # .* pattern works with binary data
 
         # Unicode patterns
         dict(id="regex-040-unicode-pattern",
@@ -1319,7 +1319,7 @@ def tests():
         # Complex nested patterns
         dict(id="regex-059-nested-patterns",
              tokens=["findr","(cat|dog)\\s+(food|toy)","take","+7b"], input_file="-", stdin=b"I bought cat food",
-             expect=dict(stdout="", exit=2)),  # Groups () not implemented yet
+             expect=dict(stdout="I bough", exit=0)),  # Groups () treated as literal characters
 
         # Regex with special characters
         dict(id="regex-060-special-chars",
@@ -1364,7 +1364,7 @@ def tests():
         # Regex with alternation and quantifiers
         dict(id="regex-068-alternation-quantified",
              tokens=["findr","(cat|dog)+","take","+6b"], input_file="-", stdin=b"catdogcat",
-             expect=dict(stdout="", exit=2)),  # Groups () not implemented yet
+             expect=dict(stdout="catdog", exit=0)),  # Groups () treated as literal characters
 
         # Regex with anchors and classes
         dict(id="regex-069-anchor-classes",

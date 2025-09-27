@@ -350,25 +350,36 @@ enum Err re_compile_into(const char* pattern,
         int alt_start = 0;
         int jmp_stack_cap = 16, jmp_n = 0;
         int* jmp_from = (int*)alloca((size_t)jmp_stack_cap * sizeof(int));
+        int last_split_pc = -1;
         for (int j = 0; j <= jlen; ++j) {
             if (pattern[j] == '|' || pattern[j] == '\0') {
                 // split: prefer taking this alternative (x), else fallthrough (y)
                 int split_pc; enum Err e = emit_inst(&b, RI_SPLIT, 0, 0, 0, -1, &split_pc); if (e!=E_OK) return e;
+                last_split_pc = split_pc;
                 int alt_i = 0;
                 char* alt = (char*)alloca((size_t)(j - alt_start + 1));
                 memcpy(alt, pattern + alt_start, (size_t)(j - alt_start));
                 alt[j - alt_start] = '\0';
+                int alt_start_pc = b.nins;
                 while (alt[alt_i]) { e = compile_piece(&b, alt, &alt_i); if (e!=E_OK) return e; }
                 int jmp_pc; e = emit_inst(&b, RI_JMP, -1, 0, 0, -1, &jmp_pc); if (e!=E_OK) return e;
                 if (jmp_n == jmp_stack_cap) { /* simple grow */ jmp_stack_cap *= 2; jmp_from = (int*)alloca((size_t)jmp_stack_cap * sizeof(int)); }
                 jmp_from[jmp_n++] = jmp_pc;
-                b.ins[split_pc].x = split_pc + 1; // into alt body
+                b.ins[split_pc].x = alt_start_pc; // into alt body
                 b.ins[split_pc].y = b.nins;       // fall through to next split/alt
                 alt_start = j + 1;
             }
         }
         int cont = b.nins;
         for (int t = 0; t < jmp_n; ++t) b.ins[jmp_from[t]].x = cont;
+
+        // Patch the last split's fallthrough to a dead-end consumer so alternation can't
+        // epsilon-fallthrough to cont (which would create empty matches).
+        if (last_split_pc >= 0) {
+            int dead_end_pc;
+            enum Err e = emit_inst(&b, RI_ANY, 0, 0, 0, -1, &dead_end_pc); if (e != E_OK) return e;
+            b.ins[last_split_pc].y = dead_end_pc;
+        }
     }
 
     enum Err e = emit_inst(&b, RI_MATCH, 0,0,0,-1,NULL);
