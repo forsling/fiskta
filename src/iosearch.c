@@ -19,8 +19,8 @@ static enum Err bmh_forward(const unsigned char* text, size_t text_len,
 static enum Err get_line_block(File* io, i64 pos, LineBlockIdx** out);
 
 // UTF-8 helper functions
-static inline int is_cont_byte(unsigned char b){ return (b & 0xC0) == 0x80; }
-static inline int utf8_len_from_lead(unsigned char b){
+static inline i32 is_cont_byte(unsigned char b){ return (b & 0xC0) == 0x80; }
+static inline i32 utf8_len_from_lead(unsigned char b){
     if ((b & 0x80) == 0x00) return 1;
     if ((b & 0xE0) == 0xC0) return 2;
     if ((b & 0xF0) == 0xE0) return 3;
@@ -93,7 +93,7 @@ enum Err io_open_arena2(File* io, const char* path,
 
     // Initialize line index cache with arena-backed counts
     io->line_idx_gen = 0;
-    for (int i = 0; i < IDX_MAX_BLOCKS; ++i) {
+    for (i32 i = 0; i < IDX_MAX_BLOCKS; ++i) {
         io->line_idx[i].in_use = false;
         io->line_idx[i].gen = 0;
         io->line_idx[i].lf_counts = counts_slab + (size_t)i * (size_t)IDX_SUB_MAX;
@@ -111,7 +111,7 @@ void io_close(File* io)
     }
     if (!io->arena_backed) {
         if (io->buf) { free(io->buf); io->buf = NULL; }
-        for (int i = 0; i < IDX_MAX_BLOCKS; ++i) {
+        for (i32 i = 0; i < IDX_MAX_BLOCKS; ++i) {
             free(io->line_idx[i].lf_counts);
             io->line_idx[i].lf_counts = NULL;
         }
@@ -170,7 +170,7 @@ enum Err io_line_start(File* io, i64 pos, i64* out)
 
         // Find subchunk and offset within subchunk
         i64 sub_offset = cur_pos - block->block_lo;
-        int sub_idx = (int)(sub_offset / IDX_SUB);
+        i32 sub_idx = (i32)(sub_offset / IDX_SUB);
         i64 sub_start = block->block_lo + (i64)sub_idx * IDX_SUB;
         i64 sub_end = sub_start + IDX_SUB;
         if (sub_end > block->block_hi) sub_end = block->block_hi;
@@ -182,8 +182,8 @@ enum Err io_line_start(File* io, i64 pos, i64* out)
         }
 
         // Check if previous subchunks in this block have any LFs
-        int previous_lfs = 0;
-        for (int s = 0; s <= sub_idx; ++s) {
+        i32 previous_lfs = 0;
+        for (i32 s = 0; s <= sub_idx; ++s) {
             previous_lfs += block->lf_counts[s];
         }
         if (previous_lfs == 0) {
@@ -238,7 +238,7 @@ enum Err io_line_end(File* io, i64 pos, i64* out)
 
         // Find subchunk and offset within subchunk
         i64 sub_offset = cur_pos - block->block_lo;
-        int sub_idx = (int)(sub_offset / IDX_SUB);
+        i32 sub_idx = (i32)(sub_offset / IDX_SUB);
         i64 sub_start = block->block_lo + (i64)sub_idx * IDX_SUB;
         i64 sub_end = sub_start + IDX_SUB;
         if (sub_end > block->block_hi) sub_end = block->block_hi;
@@ -250,8 +250,8 @@ enum Err io_line_end(File* io, i64 pos, i64* out)
         }
 
         // Check if remaining subchunks in this block have any LFs
-        int remaining_lfs = 0;
-        for (int s = sub_idx; s < block->sub_count; ++s) {
+        i32 remaining_lfs = 0;
+        for (i32 s = sub_idx; s < block->sub_count; ++s) {
             remaining_lfs += block->lf_counts[s];
         }
         if (remaining_lfs == 0) {
@@ -280,7 +280,7 @@ enum Err io_line_end(File* io, i64 pos, i64* out)
     return E_OK;
 }
 
-enum Err io_step_lines_from(File* io, i64 start_line_start, int delta, i64* out_line_start)
+enum Err io_step_lines_from(File* io, i64 start_line_start, i32 delta, i64* out_line_start)
 {
     if (start_line_start < 0 || start_line_start > io->size) {
         return E_LOC_RESOLVE;
@@ -290,7 +290,7 @@ enum Err io_step_lines_from(File* io, i64 start_line_start, int delta, i64* out_
 
     if (delta > 0) {
         // Move forward by delta lines
-        for (int i = 0; i < delta; i++) {
+        for (i32 i = 0; i < delta; i++) {
             i64 line_end;
             enum Err err = io_line_end(io, current, &line_end);
             if (err != E_OK)
@@ -304,7 +304,7 @@ enum Err io_step_lines_from(File* io, i64 start_line_start, int delta, i64* out_
         }
     } else if (delta < 0) {
         // Move backward by |delta| lines
-        for (int i = 0; i < -delta; i++) {
+        for (i32 i = 0; i < -delta; i++) {
             if (current == 0) {
                 *out_line_start = 0;
                 return E_OK;
@@ -450,7 +450,7 @@ enum Err io_char_start(File* io, i64 pos, i64* out){
         unsigned char b = io->buf[rel - k];
         if (!is_cont_byte(b)){
             // Validate forward length; if malformed, treat that byte as a single-char
-            int len = utf8_len_from_lead(b);
+            i32 len = utf8_len_from_lead(b);
             i64 start = hi - 1 - k;
             if (len == 0 || start + len > io->size){
                 *out = start;
@@ -465,7 +465,7 @@ enum Err io_char_start(File* io, i64 pos, i64* out){
     return E_OK;
 }
 
-enum Err io_step_chars_from(File* io, i64 start, int delta, i64* out){
+enum Err io_step_chars_from(File* io, i64 start, i32 delta, i64* out){
     if (start < 0) start = 0;
     if (start > io->size) start = io->size;
 
@@ -473,7 +473,7 @@ enum Err io_step_chars_from(File* io, i64 start, int delta, i64* out){
 
     if (delta >= 0){
         // forward
-        for (int i = 0; i < delta; ++i){
+        for (i32 i = 0; i < delta; ++i){
             if (cur >= io->size){ *out = io->size; return E_OK; }
             // Read a small window [cur, cur+4]
             i64 hi = cur + 4; if (hi > io->size) hi = io->size;
@@ -482,7 +482,7 @@ enum Err io_step_chars_from(File* io, i64 start, int delta, i64* out){
             if (n == 0){ *out = cur; return E_OK; }
 
             unsigned char b0 = io->buf[0];
-            int len = utf8_len_from_lead(b0);
+            i32 len = utf8_len_from_lead(b0);
             if (len == 0){
                 // malformed lead -> count as 1
                 cur += 1;
@@ -490,7 +490,7 @@ enum Err io_step_chars_from(File* io, i64 start, int delta, i64* out){
                 // ensure we have len bytes and continuations are well-formed; else permissive 1
                 if ((i64)len <= (i64)n){
                     bool ok = true;
-                    for (int j=1;j<len;j++){ if (!is_cont_byte(io->buf[j])) { ok=false; break; } }
+                    for (i32 j=1;j<len;j++){ if (!is_cont_byte(io->buf[j])) { ok=false; break; } }
                     cur += ok ? len : 1;
                 } else {
                     // truncated at EOF -> accept partial as 1
@@ -502,8 +502,8 @@ enum Err io_step_chars_from(File* io, i64 start, int delta, i64* out){
         return E_OK;
     } else {
         // backward
-        int steps = -delta;
-        for (int i = 0; i < steps; ++i){
+        i32 steps = -delta;
+        for (i32 i = 0; i < steps; ++i){
             if (cur <= 0){ *out = 0; return E_OK; }
             i64 start_char;
             // snap to the start of the char immediately before cur
@@ -527,8 +527,8 @@ static enum Err get_line_block(File* io, i64 pos, LineBlockIdx** out) {
     if (block_hi > io->size) block_hi = io->size;
 
     // 1) hit?
-    int free_slot = -1, lru_slot = 0;
-    for (int i = 0; i < IDX_MAX_BLOCKS; ++i) {
+    i32 free_slot = -1, lru_slot = 0;
+    for (i32 i = 0; i < IDX_MAX_BLOCKS; ++i) {
         LineBlockIdx* e = &io->line_idx[i];
         if (!e->in_use) { if (free_slot < 0) free_slot = i; continue; }
         if (e->block_lo == block_lo && e->block_hi == block_hi) {
@@ -539,22 +539,22 @@ static enum Err get_line_block(File* io, i64 pos, LineBlockIdx** out) {
         if (io->line_idx[i].gen < io->line_idx[lru_slot].gen) lru_slot = i;
     }
 
-    int slot = (free_slot >= 0) ? free_slot : lru_slot;
+    i32 slot = (free_slot >= 0) ? free_slot : lru_slot;
 
     // 2) (Re)build index in slot
     LineBlockIdx* e = &io->line_idx[slot];
 
     // (re)allocate counts
-    int sub_count = (int)((block_hi - block_lo + IDX_SUB - 1) / IDX_SUB);
+    i32 sub_count = (i32)((block_hi - block_lo + IDX_SUB - 1) / IDX_SUB);
     if (sub_count <= 0) sub_count = 1;
     if (sub_count > IDX_SUB_MAX) sub_count = IDX_SUB_MAX; // defensive
     e->sub_count = sub_count;
 
     // compute counts
-    for (int s = 0; s < sub_count; ++s) e->lf_counts[s] = 0;
+    for (i32 s = 0; s < sub_count; ++s) e->lf_counts[s] = 0;
 
     i64 pos_cur = block_lo;
-    for (int s = 0; s < sub_count; ++s) {
+    for (i32 s = 0; s < sub_count; ++s) {
         i64 sub_lo = pos_cur;
         i64 sub_hi = sub_lo + IDX_SUB;
         if (sub_hi > block_hi) sub_hi = block_hi;

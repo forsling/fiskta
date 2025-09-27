@@ -11,9 +11,9 @@
 // LabelWrite typedef moved to fiskta.h
 
 // Count capacity needs for a clause
-void clause_caps(const Clause* c, int* out_ranges_cap, int* out_labels_cap) {
-    int rc = 0, lc = 0;
-    for (int i = 0; i < c->op_count; i++) {
+void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap) {
+    i32 rc = 0, lc = 0;
+    for (i32 i = 0; i < c->op_count; i++) {
         switch (c->ops[i].kind) {
         case OP_TAKE_LEN:
         case OP_TAKE_TO:
@@ -28,26 +28,26 @@ void clause_caps(const Clause* c, int* out_ranges_cap, int* out_labels_cap) {
 
 static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
     i64* c_cursor, Match* c_last_match,
-    Range** ranges, int* range_count, int* range_cap,
-    LabelWrite** label_writes, int* label_count, int* label_cap);
+    Range** ranges, i32* range_count, i32* range_cap,
+    LabelWrite** label_writes, i32* label_count, i32* label_cap);
 static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* io,
     const VM* vm, const Match* staged_match, i64 staged_cursor,
-    const LabelWrite* staged_labels, int staged_label_count, i64* out);
+    const LabelWrite* staged_labels, i32 staged_label_count, i64* out);
 static enum Err resolve_at_expr(const AtExpr* at, File* io, const Match* match, i64* out);
-static void commit_labels(VM* vm, const Program* prg, const LabelWrite* label_writes, int label_count);
+static void commit_labels(VM* vm, const Program* prg, const LabelWrite* label_writes, i32 label_count);
 
 enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
 {
     // Calculate memory needs for arena allocation
-    int cc = prg->clause_count;
+    i32 cc = prg->clause_count;
 
     // Calculate scratch buffer sizes for each clause
-    int *r_caps = alloca(sizeof(int) * cc);
-    int *l_caps = alloca(sizeof(int) * cc);
+    i32 *r_caps = alloca(sizeof(i32) * cc);
+    i32 *l_caps = alloca(sizeof(i32) * cc);
     size_t total_ranges = 0;
     size_t total_labels = 0;
 
-    for (int i = 0; i < cc; i++) {
+    for (i32 i = 0; i < cc; i++) {
         clause_caps(&prg->clauses[i], &r_caps[i], &l_caps[i]);
         total_ranges += (size_t)r_caps[i];
         total_labels += (size_t)l_caps[i];
@@ -105,7 +105,7 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     size_t ranges_offset = 0;
     size_t labels_offset = 0;
 
-    for (int i = 0; i < cc; i++) {
+    for (i32 i = 0; i < cc; i++) {
         r_bufs[i] = ranges_pool + ranges_offset;
         l_bufs[i] = labels_pool + labels_offset;
         ranges_offset += (size_t)r_caps[i];
@@ -113,10 +113,10 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     }
 
     // Execute each clause independently
-    int successful_clauses = 0;
+    i32 successful_clauses = 0;
     enum Err last_err = E_OK;
 
-    for (int i = 0; i < cc; i++) {
+    for (i32 i = 0; i < cc; i++) {
         err = execute_clause_with_scratch(&prg->clauses[i], prg, &io, &vm, out,
                                           r_bufs[i], r_caps[i],
                                           l_bufs[i], l_caps[i]);
@@ -141,18 +141,18 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
 // NEW signature: no allocations inside
 enum Err execute_clause_with_scratch(const Clause* clause, const Program* prg,
     void* io_ptr, VM* vm, FILE* out,
-    Range* ranges, int ranges_cap,
-    LabelWrite* label_writes, int label_cap)
+    Range* ranges, i32 ranges_cap,
+    LabelWrite* label_writes, i32 label_cap)
 {
     File* io = (File*)io_ptr;
     i64 c_cursor = vm->cursor;
     Match c_last_match = vm->last_match;
 
-    int range_count = 0;
-    int label_count = 0;
+    i32 range_count = 0;
+    i32 label_count = 0;
 
     enum Err err = E_OK;
-    for (int i = 0; i < clause->op_count; i++) {
+    for (i32 i = 0; i < clause->op_count; i++) {
         err = execute_op(&clause->ops[i], prg, io, vm,
             &c_cursor, &c_last_match,
             &ranges, &range_count, &ranges_cap,
@@ -161,7 +161,7 @@ enum Err execute_clause_with_scratch(const Clause* clause, const Program* prg,
     }
 
     if (err == E_OK) {
-        for (int i = 0; i < range_count; i++) {
+        for (i32 i = 0; i < range_count; i++) {
             err = io_emit(io, ranges[i].start, ranges[i].end, out);
             if (err != E_OK) break;
         }
@@ -177,8 +177,8 @@ enum Err execute_clause_with_scratch(const Clause* clause, const Program* prg,
 
 static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
     i64* c_cursor, Match* c_last_match,
-    Range** ranges, int* range_count, int* range_cap,
-    LabelWrite** label_writes, int* label_count, int* label_cap)
+    Range** ranges, i32* range_count, i32* range_cap,
+    LabelWrite** label_writes, i32* label_count, i32* label_cap)
 {
     switch (op->kind) {
     case OP_FIND: {
@@ -235,7 +235,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
             i64 char_start;
             enum Err err = io_char_start(io, *c_cursor, &char_start);
             if (err != E_OK) return err;
-            err = io_step_chars_from(io, char_start, (int)op->u.skip.n, c_cursor);
+            err = io_step_chars_from(io, char_start, (i32)op->u.skip.n, c_cursor);
             if (err != E_OK) return err;
         }
         break;
@@ -277,12 +277,12 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
             if (err != E_OK) return err;
             if (op->u.take_len.sign > 0) {
                 start = cstart;
-                err = io_step_chars_from(io, cstart, (int)op->u.take_len.n, &end);
+                err = io_step_chars_from(io, cstart, (i32)op->u.take_len.n, &end);
                 if (err != E_OK) return err;
             } else {
                 end = cstart;
                 i64 s;
-                err = io_step_chars_from(io, cstart, -(int)op->u.take_len.n, &s);
+                err = io_step_chars_from(io, cstart, -(i32)op->u.take_len.n, &s);
                 if (err != E_OK) return err;
                 start = s;
             }
@@ -391,7 +391,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
 
 static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* io,
     const VM* vm, const Match* staged_match, i64 staged_cursor,
-    const LabelWrite* staged_labels, int staged_label_count, i64* out)
+    const LabelWrite* staged_labels, i32 staged_label_count, i64* out)
 {
     i64 base;
 
@@ -408,7 +408,7 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
     case LOC_NAME: {
         // Look up label in staged labels first (staged labels override committed ones)
         bool found = false;
-        for (int i = 0; i < staged_label_count; i++) {
+        for (i32 i = 0; i < staged_label_count; i++) {
             if (staged_labels[i].name_idx == loc->name_idx) {
                 base = staged_labels[i].pos;
                 found = true;
@@ -418,7 +418,7 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
 
         // If not found in staged labels, check committed labels
         if (!found) {
-            for (int i = 0; i < 32; i++) {
+            for (i32 i = 0; i < 32; i++) {
                 if (vm->labels[i].in_use && vm->labels[i].name_idx == loc->name_idx) {
                     base = vm->labels[i].pos;
                     found = true;
@@ -469,7 +469,7 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
             }
         } else if (loc->unit == UNIT_LINES) {
             if (loc->n > (u64)INT_MAX) return E_PARSE;
-            int delta = loc->sign > 0 ? (int)loc->n : -(int)loc->n;
+            i32 delta = loc->sign > 0 ? (i32)loc->n : -(i32)loc->n;
             enum Err err = io_step_lines_from(io, base, delta, &base);
             if (err != E_OK)
                 return err;
@@ -478,7 +478,7 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
             i64 char_base;
             enum Err err = io_char_start(io, base, &char_base);
             if (err != E_OK) return err;
-            int delta = loc->sign > 0 ? (int)loc->n : -(int)loc->n;
+            i32 delta = loc->sign > 0 ? (i32)loc->n : -(i32)loc->n;
             err = io_step_chars_from(io, char_base, delta, &char_base);
             if (err != E_OK) return err;
             base = char_base;
@@ -528,7 +528,7 @@ static enum Err resolve_at_expr(const AtExpr* at, File* io, const Match* match, 
             }
         } else if (at->unit == UNIT_LINES) {
             if (at->n > (u64)INT_MAX) return E_PARSE;
-            int delta = at->sign > 0 ? (int)at->n : -(int)at->n;
+            i32 delta = at->sign > 0 ? (i32)at->n : -(i32)at->n;
             enum Err err = io_step_lines_from(io, base, delta, &base);
             if (err != E_OK)
                 return err;
@@ -537,7 +537,7 @@ static enum Err resolve_at_expr(const AtExpr* at, File* io, const Match* match, 
             i64 char_base;
             enum Err err = io_char_start(io, base, &char_base);
             if (err != E_OK) return err;
-            int delta = at->sign > 0 ? (int)at->n : -(int)at->n;
+            i32 delta = at->sign > 0 ? (i32)at->n : -(i32)at->n;
             err = io_step_chars_from(io, char_base, delta, &char_base);
             if (err != E_OK) return err;
             base = char_base;
@@ -548,15 +548,15 @@ static enum Err resolve_at_expr(const AtExpr* at, File* io, const Match* match, 
     return E_OK;
 }
 
-static void commit_labels(VM* vm, const Program* prg, const LabelWrite* label_writes, int label_count)
+static void commit_labels(VM* vm, const Program* prg, const LabelWrite* label_writes, i32 label_count)
 {
-    for (int i = 0; i < label_count; i++) {
-        int name_idx = label_writes[i].name_idx;
+    for (i32 i = 0; i < label_count; i++) {
+        i32 name_idx = label_writes[i].name_idx;
         i64 pos = label_writes[i].pos;
 
         // Find existing label or free slot
-        int slot = -1;
-        for (int j = 0; j < 32; j++) {
+        i32 slot = -1;
+        for (i32 j = 0; j < 32; j++) {
             if (vm->labels[j].in_use && vm->labels[j].name_idx == name_idx) {
                 slot = j;
                 break;
@@ -565,7 +565,7 @@ static void commit_labels(VM* vm, const Program* prg, const LabelWrite* label_wr
 
         if (slot == -1) {
             // Find free slot
-            for (int j = 0; j < 32; j++) {
+            for (i32 j = 0; j < 32; j++) {
                 if (!vm->labels[j].in_use) {
                     slot = j;
                     break;
@@ -575,7 +575,7 @@ static void commit_labels(VM* vm, const Program* prg, const LabelWrite* label_wr
             if (slot == -1) {
                 // Evict LRU (lowest gen)
                 slot = 0;
-                for (int j = 1; j < 32; j++) {
+                for (i32 j = 1; j < 32; j++) {
                     if (vm->labels[j].gen < vm->labels[slot].gen) {
                         slot = j;
                     }

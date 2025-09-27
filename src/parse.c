@@ -5,13 +5,13 @@
 #include <string.h>
 
 typedef struct {
-    int clause_count;
-    int total_ops;
-    int sum_take_ops;
-    int sum_label_ops;
-    int needle_count;
+    i32 clause_count;
+    i32 total_ops;
+    i32 sum_take_ops;
+    i32 sum_label_ops;
+    i32 needle_count;
     size_t needle_bytes;
-    int max_name_count;
+    i32 max_name_count;
 } ParsePlan;
 
 // Helper function to find inline offset start
@@ -30,29 +30,29 @@ static const char* find_inline_offset_start(const char* s) {
 // Forward declarations
 // parse_clause removed - use parse_op_build with arena allocation instead
 // parse_op removed - use parse_op_build with arena allocation instead
-static enum Err parse_op_build(char** tokens, int* idx, int token_count, Op* op, Program* prg,
-                               char* str_pool, size_t* str_pool_off, size_t str_pool_cap, int max_name_count);
-static enum Err parse_loc_expr_build(char** tokens, int* idx, int token_count, LocExpr* loc, Program* prg, int max_name_count);
-static enum Err parse_at_expr_build(char** tokens, int* idx, int token_count, AtExpr* at, Program* prg);
-static enum Err parse_signed_number(const char* token, int* sign, u64* n, enum Unit* unit);
+static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op, Program* prg,
+                               char* str_pool, size_t* str_pool_off, size_t str_pool_cap, i32 max_name_count);
+static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg, i32 max_name_count);
+static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, AtExpr* at, Program* prg);
+static enum Err parse_signed_number(const char* token, i32* sign, u64* n, enum Unit* unit);
 // find_or_add_name removed - use find_or_add_name_build with arena allocation instead
-static int find_or_add_name_build(Program* prg, const char* name, int max_name_count);
+static i32 find_or_add_name_build(Program* prg, const char* name, i32 max_name_count);
 static bool is_valid_label_name(const char* name);
 
 // Function declarations
 // parse_program removed - use parse_build with arena allocation instead
 // parse_free removed - arena-based allocation doesn't need explicit freeing
-enum Err parse_preflight(int token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
-enum Err parse_build(int token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
+enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
+enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
                      Clause* clauses_buf, Op* ops_buf,
-                     char (*names_buf)[17], int max_name_count,
+                     char (*names_buf)[17], i32 max_name_count,
                      char* str_pool, size_t str_pool_cap);
 
 // parse_program removed - use parse_build with arena allocation instead
 
 // parse_free removed - arena-based allocation doesn't need explicit freeing
 
-enum Err parse_preflight(int token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out)
+enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out)
 {
     memset(plan, 0, sizeof(*plan));
 
@@ -65,17 +65,17 @@ enum Err parse_preflight(int token_count, char** tokens, const char* in_path, Pa
 
     // Count clauses (number of "::" + 1)
     plan->clause_count = 1;
-    for (int i = 0; i < token_count; i++) {
+    for (i32 i = 0; i < token_count; i++) {
         if (strcmp(tokens[i], "::") == 0) {
             plan->clause_count++;
         }
     }
 
     // Count operations and analyze needs
-    int idx = 0;
+    i32 idx = 0;
     while (idx < token_count) {
         // Count ops in this clause
-        int clause_start = idx;
+        i32 clause_start = idx;
         while (idx < token_count && strcmp(tokens[idx], "::") != 0) {
             const char* cmd = tokens[idx];
             plan->total_ops++;
@@ -191,9 +191,9 @@ enum Err parse_preflight(int token_count, char** tokens, const char* in_path, Pa
     return E_OK;
 }
 
-enum Err parse_build(int token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
+enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
                      Clause* clauses_buf, Op* ops_buf,
-                     char (*names_buf)[17], int max_name_count,
+                     char (*names_buf)[17], i32 max_name_count,
                      char* str_pool, size_t str_pool_cap)
 {
     memset(prg, 0, sizeof(*prg));
@@ -216,8 +216,8 @@ enum Err parse_build(int token_count, char** tokens, const char* in_path, Progra
     size_t str_pool_off = 0;
 
     // Parse clauses separated by "::"
-    int idx = 0;
-    int op_cursor = 0;
+    i32 idx = 0;
+    i32 op_cursor = 0;
 
     while (idx < token_count) {
         Clause* clause = &prg->clauses[prg->clause_count];
@@ -225,8 +225,8 @@ enum Err parse_build(int token_count, char** tokens, const char* in_path, Progra
         clause->op_count = 0;
 
         // Count ops in this clause first
-        int clause_start = idx;
-        int clause_op_count = 0;
+        i32 clause_start = idx;
+        i32 clause_op_count = 0;
         while (idx < token_count && strcmp(tokens[idx], "::") != 0) {
             const char* cmd = tokens[idx];
             clause_op_count++;
@@ -299,10 +299,10 @@ enum Err parse_build(int token_count, char** tokens, const char* in_path, Progra
     return E_OK;
 }
 
-static int find_or_add_name_build(Program* prg, const char* name, int max_name_count)
+static i32 find_or_add_name_build(Program* prg, const char* name, i32 max_name_count)
 {
     // Linear search for existing name
-    for (int i = 0; i < prg->name_count; i++) {
+    for (i32 i = 0; i < prg->name_count; i++) {
         if (strcmp(prg->names[i], name) == 0) {
             return i;
         }
@@ -317,8 +317,8 @@ static int find_or_add_name_build(Program* prg, const char* name, int max_name_c
     return -1; // No space
 }
 
-static enum Err parse_op_build(char** tokens, int* idx, int token_count, Op* op, Program* prg,
-                               char* str_pool, size_t* str_pool_off, size_t str_pool_cap, int max_name_count)
+static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op, Program* prg,
+                               char* str_pool, size_t* str_pool_off, size_t str_pool_cap, i32 max_name_count)
 {
     if (*idx >= token_count) {
         return E_PARSE;
@@ -432,7 +432,7 @@ static enum Err parse_op_build(char** tokens, int* idx, int token_count, Op* op,
         if (!is_valid_label_name(name))
             return E_LABEL_FMT;
 
-        int name_idx = find_or_add_name_build(prg, name, max_name_count);
+        i32 name_idx = find_or_add_name_build(prg, name, max_name_count);
         if (name_idx < 0)
             return E_OOM;
         op->u.label.name_idx = name_idx;
@@ -453,7 +453,7 @@ static enum Err parse_op_build(char** tokens, int* idx, int token_count, Op* op,
     return E_OK;
 }
 
-static enum Err parse_loc_expr_build(char** tokens, int* idx, int token_count, LocExpr* loc, Program* prg, int max_name_count)
+static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg, i32 max_name_count)
 {
     if (*idx >= token_count)
         return E_PARSE;
@@ -499,7 +499,7 @@ static enum Err parse_loc_expr_build(char** tokens, int* idx, int token_count, L
         loc->base = LOC_LINE_END;
     } else if (is_valid_label_name(token)) {
         loc->base = LOC_NAME;
-        int name_idx = find_or_add_name_build(prg, token, max_name_count);
+        i32 name_idx = find_or_add_name_build(prg, token, max_name_count);
         if (name_idx < 0)
             return E_OOM;
         loc->name_idx = name_idx;
@@ -509,7 +509,7 @@ static enum Err parse_loc_expr_build(char** tokens, int* idx, int token_count, L
 
     // Support detached offset as next token (e.g., "BOF +100b")
     if (*idx < token_count) {
-        int sign_tmp; u64 n_tmp; enum Unit unit_tmp;
+        i32 sign_tmp; u64 n_tmp; enum Unit unit_tmp;
         enum Err off_err = parse_signed_number(tokens[*idx], &sign_tmp, &n_tmp, &unit_tmp);
         if (off_err == E_OK) {
             loc->has_off = true;
@@ -523,7 +523,7 @@ static enum Err parse_loc_expr_build(char** tokens, int* idx, int token_count, L
     return E_OK;
 }
 
-static enum Err parse_at_expr_build(char** tokens, int* idx, int token_count, AtExpr* at, Program* prg)
+static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, AtExpr* at, Program* prg)
 {
     if (*idx >= token_count)
         return E_PARSE;
@@ -567,7 +567,7 @@ static enum Err parse_at_expr_build(char** tokens, int* idx, int token_count, At
 
     // Support detached offset as next token (e.g., "line-start -2l")
     if (*idx < token_count) {
-        int sign_tmp; u64 n_tmp; enum Unit unit_tmp;
+        i32 sign_tmp; u64 n_tmp; enum Unit unit_tmp;
         enum Err off_err = parse_signed_number(tokens[*idx], &sign_tmp, &n_tmp, &unit_tmp);
         if (off_err == E_OK) {
             at->has_off = true;
@@ -587,7 +587,7 @@ static enum Err parse_at_expr_build(char** tokens, int* idx, int token_count, At
 
 // parse_loc_expr and parse_at_expr removed - use parse_loc_expr_build and parse_at_expr_build with arena allocation instead
 
-static enum Err parse_signed_number(const char* token, int* sign, u64* n, enum Unit* unit)
+static enum Err parse_signed_number(const char* token, i32* sign, u64* n, enum Unit* unit)
 {
     if (!token || strlen(token) == 0)
         return E_PARSE;

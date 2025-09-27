@@ -51,11 +51,11 @@ static inline i64 io_size(const File* io) { return io->size; }
 // line boundaries
 enum Err io_line_start(File* io, i64 pos, i64* out);
 enum Err io_line_end(File* io, i64 pos, i64* out);
-enum Err io_step_lines_from(File* io, i64 start_line_start, int delta, i64* out_line_start);
+enum Err io_step_lines_from(File* io, i64 start_line_start, i32 delta, i64* out_line_start);
 
 // UTF-8 character stepping (permissive)
 enum Err io_char_start(File* io, i64 pos, i64* out_char_start);   // snap to start of the char containing/after pos
-enum Err io_step_chars_from(File* io, i64 start_char_start, int delta, i64* out_char_start);
+enum Err io_step_chars_from(File* io, i64 start_char_start, i32 delta, i64* out_char_start);
 
 // search within [win_lo, win_hi); returns E_NO_MATCH if none
 enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,

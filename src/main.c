@@ -7,19 +7,19 @@
 #include <stdlib.h>
 
 typedef struct {
-    int clause_count;
-    int total_ops;
-    int sum_take_ops;
-    int sum_label_ops;
-    int needle_count;
+    i32 clause_count;
+    i32 total_ops;
+    i32 sum_take_ops;
+    i32 sum_label_ops;
+    i32 needle_count;
     size_t needle_bytes;
-    int max_name_count;
+    i32 max_name_count;
 } ParsePlan;
 
 // Minimal ops-string splitter for quoted CLI usage
-static int split_ops_string(const char* s, char** out, int max_tokens) {
+static i32 split_ops_string(const char* s, char** out, i32 max_tokens) {
     static char buf[4096]; // one-shot scratch; fine for our CLI
-    int n = 0; size_t off = 0;
+    i32 n = 0; size_t off = 0;
 
     while (*s && n < max_tokens) {
         while (*s==' ' || *s=='\t') s++;
@@ -55,10 +55,10 @@ static int split_ops_string(const char* s, char** out, int max_tokens) {
 
 // parse_program and parse_free removed - use parse_build with arena allocation instead
 enum Err engine_run(const Program*, const char*, FILE*);
-enum Err parse_preflight(int token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
-enum Err parse_build(int token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
+enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
+enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
                      Clause* clauses_buf, Op* ops_buf,
-                     char (*names_buf)[17], int max_name_count,
+                     char (*names_buf)[17], i32 max_name_count,
                      char* str_pool, size_t str_pool_cap);
 enum Err io_open_arena2(File* io, const char* path,
                         unsigned char* search_buf, size_t search_buf_cap,
@@ -180,19 +180,17 @@ int main(int argc, char** argv)
 
     // Build the token view the parser expects: argv[1..argc-1] if no file specified, argv[1..argc-2] if file specified
     char** tokens = argv + 1;
-    int token_count = argc - 1;
+    i32 token_count = argc - 1;
     const char* in_path = "-"; // Default to stdin
 
     // Check if last argument is a file path (not an operation)
     // This is a simple heuristic: if it doesn't start with a known operation keyword, treat it as a file
+    // But be more careful - only treat it as a file if it looks like a file path (contains '.', '/', or is '-')
     if (argc > 2) {
         const char* last_arg = argv[argc - 1];
-        if (strcmp(last_arg, "find") != 0 &&
-            strcmp(last_arg, "skip") != 0 &&
-            strcmp(last_arg, "take") != 0 &&
-            strcmp(last_arg, "label") != 0 &&
-            strcmp(last_arg, "goto") != 0 &&
-            strcmp(last_arg, "::") != 0) {
+        if (strcmp(last_arg, "-") == 0 ||
+            strchr(last_arg, '.') != NULL ||
+            strchr(last_arg, '/') != NULL) {
             // Last argument looks like a file path
             in_path = last_arg;
             token_count = argc - 2;
@@ -203,7 +201,7 @@ int main(int argc, char** argv)
     // If user passed a single ops string, split it.
     char* splitv[256];
     if (token_count == 1 && strchr(tokens[0], ' ')) {
-        int n = split_ops_string(tokens[0], splitv, (int)(sizeof splitv / sizeof splitv[0]));
+        i32 n = split_ops_string(tokens[0], splitv, (i32)(sizeof splitv / sizeof splitv[0]));
         if (n > 0) {
             tokens = splitv;
             token_count = n;
@@ -274,9 +272,9 @@ int main(int argc, char** argv)
     vm.cursor = 0; vm.last_match.valid = false; vm.gen_counter = 0;
 
     size_t r_off=0, l_off=0;
-    int ok=0; enum Err last_err = E_OK;
-    for (int ci=0; ci<prg.clause_count; ++ci){
-        int rc, lc; clause_caps(&prg.clauses[ci], &rc, &lc);
+    i32 ok=0; enum Err last_err = E_OK;
+    for (i32 ci=0; ci<prg.clause_count; ++ci){
+        i32 rc, lc; clause_caps(&prg.clauses[ci], &rc, &lc);
         Range* r = ranges_pool + r_off; r_off += (size_t)rc;
         LabelWrite* l = labels_pool + l_off; l_off += (size_t)lc;
         e = execute_clause_with_scratch(&prg.clauses[ci], &prg, &io, &vm, stdout, r, rc, l, lc);
