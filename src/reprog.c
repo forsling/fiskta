@@ -371,14 +371,16 @@ enum Err re_compile_into(const char* pattern,
             }
         }
         int cont = b.nins;
-        for (int t = 0; t < jmp_n; ++t) b.ins[jmp_from[t]].x = cont;
+        for (int t = 0; t < jmp_n; ++t) b.ins[jmp_from[t]].x = cont + 1; // +1 because RI_MATCH will be at cont
 
-        // Patch the last split's fallthrough to a dead-end consumer so alternation can't
-        // epsilon-fallthrough to cont (which would create empty matches).
+        // Patch the last split's fallthrough to a dead-end epsilon that goes nowhere:
+        // RI_JMP to itself. Epsilon-closure sees it once (seen[] stops the loop) and
+        // it yields no consuming threads and no MATCH path.
         if (last_split_pc >= 0) {
-            int dead_end_pc;
-            enum Err e = emit_inst(&b, RI_ANY, 0, 0, 0, -1, &dead_end_pc); if (e != E_OK) return e;
-            b.ins[last_split_pc].y = dead_end_pc;
+            int dead_pc;
+            enum Err e2 = emit_inst(&b, RI_JMP, 0, 0, 0, -1, &dead_pc); if (e2 != E_OK) return e2;
+            b.ins[dead_pc].x = dead_pc;   // self-loop
+            b.ins[last_split_pc].y = dead_pc;
         }
     }
 

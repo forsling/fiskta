@@ -712,11 +712,14 @@ static void add_thread_ordered(const ReProg* P, ReList* L, int pc, i64 start,
         ReInst* I = &P->ins[pc];
         switch (I->op){
             case RI_SPLIT:
-                // Preserve order: x then y
+                // IMPORTANT: mark as seen before processing split
+                seen[pc] = 1;
+                // IMPORTANT: X first (preferred), then Y
                 add_thread_ordered(P, L, I->x, start, pos, win_lo, win_hi, seen, match_found, min_start, curr_char, prev_char);
                 pc = I->y; // continue tail-call
                 continue;
             case RI_JMP:
+                seen[pc] = 1; // mark as seen before jumping
                 pc = I->x; continue;
             case RI_BOL:
                 // ^ matches at beginning of string or after a newline
@@ -816,8 +819,8 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
             add_thread_ordered(re, &curr, 0, pos, pos, win_lo, win_hi,
                                seen_curr, &match_found, min_start, curr_c, prev_char);
             if (match_found){
-                if (dir == DIR_FWD){ *ms = min_start; *me = pos; return E_OK; }
-                else { best_ms = min_start; best_me = pos; /* reset for later starts */ curr.n = 0; have_min = 0; }
+                if (dir == DIR_FWD){ *ms = min_start; *me = pos + 1; return E_OK; }
+                else { best_ms = min_start; best_me = pos + 1; /* reset for later starts */ curr.n = 0; have_min = 0; }
             }
         } else {
             seen_clear(seen_curr, nins);
@@ -831,8 +834,8 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
                                    seen_curr, &match_found, min_start, curr_char, prev_char);
             }
             if (match_found){
-                if (dir == DIR_FWD){ *ms = min_start; *me = pos; return E_OK; }
-                else { best_ms = min_start; best_me = pos; curr.n = 0; have_min = 0; }
+                if (dir == DIR_FWD){ *ms = min_start; *me = pos + 1; return E_OK; }
+                else { best_ms = min_start; best_me = pos + 1; curr.n = 0; have_min = 0; }
             }
         }
 
