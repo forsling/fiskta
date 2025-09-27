@@ -333,10 +333,13 @@ enum Err re_compile_into(const char* pattern,
     int i = 0;
     if (!pattern || !pattern[0]) return E_BAD_NEEDLE;
 
-    // Parse alternation: find all | characters
+    // Parse alternation: find all | characters not inside parentheses
     int alt_count = 1;
+    int paren_depth = 0;
     for (int j = 0; pattern[j]; j++) {
-        if (pattern[j] == '|') alt_count++;
+        if (pattern[j] == '(') paren_depth++;
+        else if (pattern[j] == ')') paren_depth--;
+        else if (pattern[j] == '|' && paren_depth == 0) alt_count++;
     }
 
     if (alt_count == 1) {
@@ -351,8 +354,13 @@ enum Err re_compile_into(const char* pattern,
         int jmp_stack_cap = 16, jmp_n = 0;
         int* jmp_from = (int*)alloca((size_t)jmp_stack_cap * sizeof(int));
         int last_split_pc = -1;
+        paren_depth = 0;
         for (int j = 0; j <= jlen; ++j) {
-            if (pattern[j] == '|' || pattern[j] == '\0') {
+            if (j < jlen) {
+                if (pattern[j] == '(') paren_depth++;
+                else if (pattern[j] == ')') paren_depth--;
+            }
+            if ((pattern[j] == '|' && paren_depth == 0) || pattern[j] == '\0') {
                 // split: prefer taking this alternative (x), else fallthrough (y)
                 int split_pc; enum Err e = emit_inst(&b, RI_SPLIT, 0, 0, 0, -1, &split_pc); if (e!=E_OK) return e;
                 last_split_pc = split_pc;
