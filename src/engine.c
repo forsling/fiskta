@@ -225,6 +225,40 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
         break;
     }
 
+    case OP_FINDR: {
+        i64 win_lo, win_hi;
+
+        if (op->u.findr.to.base == LOC_EOF && !op->u.findr.to.has_off) {
+            win_hi = io_size(io);
+        } else {
+            enum Err err = resolve_loc_expr(&op->u.findr.to, prg, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, &win_hi);
+            if (err != E_OK)
+                return err;
+        }
+
+        win_lo = *c_cursor;
+
+        // Determine direction and adjust window
+        enum Dir dir = DIR_FWD;
+        if (win_hi < win_lo) {
+            dir = DIR_BWD;
+            i64 temp = win_lo;
+            win_lo = win_hi;
+            win_hi = temp;
+        }
+
+        i64 ms, me;
+        enum Err err = io_findr_window(io, win_lo, win_hi, op->u.findr.prog, dir, &ms, &me);
+        if (err != E_OK)
+            return err;
+
+        c_last_match->start = ms;
+        c_last_match->end = me;
+        c_last_match->valid = true;
+        *c_cursor = ms;
+        break;
+    }
+
     case OP_SKIP: {
         if (op->u.skip.unit == UNIT_BYTES) {
             *c_cursor = clamp64(*c_cursor + op->u.skip.n, 0, io_size(io));

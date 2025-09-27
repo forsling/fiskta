@@ -1,6 +1,7 @@
 // iosearch.h
 #pragma once
 #include "fiskta.h"
+#include "reprog.h"
 #include <stdio.h>
 
 // Line indexing constants (tunable via environment variables)
@@ -61,3 +62,7 @@ enum Err io_step_chars_from(File* io, i64 start_char_start, i32 delta, i64* out_
 enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
     const unsigned char* needle, size_t nlen,
     enum Dir dir, i64* ms, i64* me);
+
+// Regex (ordered Thompson NFA), streaming
+enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
+    const ReProg* re, enum Dir dir, i64* ms, i64* me);

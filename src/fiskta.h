@@ -20,6 +20,7 @@ enum Unit {
 
 enum OpKind {
     OP_FIND,
+    OP_FINDR,
     OP_SKIP,
     OP_TAKE_LEN,
     OP_TAKE_TO,
@@ -67,12 +68,19 @@ typedef struct { // at-expr used only by TAKE_UNTIL
     u64 n;
 } AtExpr;
 
+typedef struct ReProg ReProg;
+
 typedef struct {
     union {
         struct {
             LocExpr to;
             char* needle;
         } find;
+        struct {
+            LocExpr to;
+            char* pattern;   // raw pattern text (from pool)
+            struct ReProg* prog; // compiled program (arena-backed), set during setup
+        } findr;
         struct {
             u64 n;
             enum Unit unit;

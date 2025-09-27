@@ -2,6 +2,7 @@
 #include "arena.h"
 #include "fiskta.h"
 #include "iosearch.h"
+#include "reprog.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -14,6 +15,9 @@ typedef struct {
     i32 needle_count;
     size_t needle_bytes;
     i32 max_name_count;
+    i32   sum_findr_ops;
+    i32   re_ins_estimate;
+    i32   re_classes_estimate;
 } ParsePlan;
 
 // Minimal ops-string splitter for quoted CLI usage
@@ -240,6 +244,10 @@ int main(int argc, char** argv)
     const size_t str_pool_bytes = plan.needle_bytes + (size_t)plan.needle_count; // include NULs
     const size_t ranges_bytes = (size_t)plan.sum_take_ops * sizeof(Range);
     const size_t labels_bytes = (size_t)plan.sum_label_ops * sizeof(LabelWrite);
+    // Regex pools
+    const size_t re_prog_bytes = (size_t)plan.sum_findr_ops * sizeof(ReProg);
+    const size_t re_ins_bytes  = (size_t)plan.re_ins_estimate * sizeof(ReInst);
+    const size_t re_cls_bytes  = (size_t)plan.re_classes_estimate * sizeof(ReClass);
 
     // 3) One allocation
     size_t search_buf_size = a_align(search_buf_cap, alignof(unsigned char));
@@ -250,8 +258,12 @@ int main(int argc, char** argv)
     size_t str_pool_size = a_align(str_pool_bytes, alignof(char));
     size_t ranges_size = a_align(ranges_bytes, alignof(Range));
     size_t labels_size = a_align(labels_bytes, alignof(LabelWrite));
+    size_t re_prog_size = a_align(re_prog_bytes, alignof(ReProg));
+    size_t re_ins_size  = a_align(re_ins_bytes,  alignof(ReInst));
+    size_t re_cls_size  = a_align(re_cls_bytes,  alignof(ReClass));
 
-    size_t total = search_buf_size + counts_size + clauses_size + ops_size + names_size + str_pool_size + ranges_size + labels_size + 64; // Add 64 bytes buffer for alignment padding
+    size_t total = search_buf_size + counts_size + clauses_size + ops_size + names_size + str_pool_size + ranges_size + labels_size
+                 + re_prog_size + re_ins_size + re_cls_size + 64; // small cushion
 
     void* block = malloc(total);
     if (!block) {
@@ -270,7 +282,10 @@ int main(int argc, char** argv)
     char* str_pool = arena_alloc(&A, str_pool_bytes, alignof(char));
     Range* ranges_pool = arena_alloc(&A, ranges_bytes, alignof(Range));
     LabelWrite* labels_pool = arena_alloc(&A, labels_bytes, alignof(LabelWrite));
-    if (!search_buf || !counts_slab || !clauses_buf || !ops_buf || !names_buf || !str_pool || !ranges_pool || !labels_pool) {
+    ReProg* re_progs = arena_alloc(&A, re_prog_bytes, alignof(ReProg));
+    ReInst*  re_ins  = arena_alloc(&A, re_ins_bytes,  alignof(ReInst));
+    ReClass* re_cls  = arena_alloc(&A, re_cls_bytes,  alignof(ReClass));
+    if (!search_buf || !counts_slab || !clauses_buf || !ops_buf || !names_buf || !str_pool || !ranges_pool || !labels_pool || !re_progs || !re_ins || !re_cls) {
         die(E_OOM, "arena carve");
         free(block);
         return 2;
@@ -284,6 +299,27 @@ int main(int argc, char** argv)
         die(e, "parse build");
         free(block);
         return 2;
+    }
+
+    // 5.5) Compile regex programs
+    i32 re_prog_idx = 0, re_ins_idx = 0, re_cls_idx = 0;
+    for (i32 ci = 0; ci < prg.clause_count; ++ci) {
+        Clause* clause = &prg.clauses[ci];
+        for (i32 i = 0; i < clause->op_count; ++i) {
+            Op* op = &clause->ops[i];
+            if (op->kind == OP_FINDR) {
+                ReProg* prog = &re_progs[re_prog_idx++];
+                enum Err err = re_compile_into(op->u.findr.pattern, prog,
+                    re_ins + re_ins_idx, (i32)(re_ins_bytes/sizeof(ReInst)) - re_ins_idx, &re_ins_idx,
+                    re_cls + re_cls_idx, (i32)(re_cls_bytes/sizeof(ReClass)) - re_cls_idx, &re_cls_idx);
+                if (err != E_OK) {
+                    die(err, "regex compile");
+                    free(block);
+                    return 2;
+                }
+                op->u.findr.prog = prog;
+            }
+        }
     }
 
     // 6) Open I/O with arena-backed buffers

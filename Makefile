@@ -4,7 +4,7 @@ CFLAGS = -std=c11 -O3 -Wall -Wextra -Wconversion -Wshadow
 TARGET = fiskta
 SRCDIR = src
 BUILDDIR = build
-SOURCES = $(SRCDIR)/main.c $(SRCDIR)/parse.c $(SRCDIR)/engine.c $(SRCDIR)/iosearch.c
+SOURCES = $(SRCDIR)/main.c $(SRCDIR)/parse.c $(SRCDIR)/engine.c $(SRCDIR)/iosearch.c $(SRCDIR)/reprog.c
 OBJECTS = $(SOURCES:$(SRCDIR)/%.c=$(BUILDDIR)/%.o)
 
 .PHONY: all clean test test-full debug
