@@ -33,6 +33,37 @@ find to LABEL+1l "X"
 
 ---
 
+### `findr [to <loc-expr>] <regex-pattern>`
+
+Search using **regular expressions** within a window from the **cursor** to `L` (default `L=EOF`).
+
+* **Window:** `[min(cursor,L), max(cursor,L))`
+* **Selection:** forward window → **first** match; backward window → **rightmost** match (closest to the cursor)
+* **Effect:** `cursor = match-start`; `last_match = {ms,me}`
+* **Regex Features:** Character classes, quantifiers, anchors, alternation, escape sequences
+* Empty patterns are invalid.
+
+**Regex Syntax**
+
+* **Character Classes:** `\d` (digits), `\w` (word chars), `\s` (whitespace), `[a-z]`, `[^0-9]`
+* **Quantifiers:** `*` (0+), `+` (1+), `?` (0-1), `{n}` (exactly n), `{n,m}` (n to m), `{n,}` (n+)
+* **Anchors:** `^` (line start), `$` (line end)
+* **Alternation:** `|` (OR)
+* **Escape Sequences:** `\n`, `\t`, `\r`, `\f`, `\v`, `\0`
+* **Special:** `.` (any char except newline)
+
+**Examples**
+
+```bash
+findr "\\d{3}-\\d{3}-\\d{4}"           # phone number pattern
+findr "^ERROR"                         # ERROR at start of line
+findr "\\w+@\\w+\\.\\w+"               # email-like pattern
+findr "cat|dog"                        # alternation
+findr to BOF "^HEADER"                 # HEADER at line start, backward search
+```
+
+---
+
 ### `skip <N><b|l|c>`
 
 Move the cursor **forward** by bytes or whole lines (clamped to file bounds).
@@ -246,6 +277,15 @@ fiskta take to line-start+1l take 3c file.txt
 # Nearest ERROR in the last MiB, then capture back to BOF
 fiskta find to cursor-1048576b "ERROR" take to BOF file.txt
 
+# Find phone numbers using regex
+fiskta findr "\\d{3}-\\d{3}-\\d{4}" take +12b file.txt
+
+# Find lines starting with ERROR
+fiskta findr "^ERROR" take to line-end file.txt
+
+# Find email addresses
+fiskta findr "\\w+@\\w+\\.\\w+" take +20b file.txt
+
 # Previous 5 lines, then next 20 bytes
 fiskta take -5l take 20b file.txt
 
@@ -274,9 +314,10 @@ fiskta goto EOF take -50b file.txt
 program   := clause { "::" clause } input
 clause    := { op }
 
-op        := find | skip | take | label | goto
+op        := find | findr | skip | take | label | goto
 
 find      := "find" [ "to" loc-expr ] STRING
+findr     := "findr" [ "to" loc-expr ] STRING
 skip      := "skip" N ("b"|"l"|"c")
 take      := "take" ( signedN ("b"|"l"|"c") | "to" loc-expr | "until" STRING [ "at" at-expr ] )
 label     := "label" NAME
