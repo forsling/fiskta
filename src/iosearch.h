@@ -15,7 +15,7 @@ enum {
 typedef struct {
     i64 block_lo; // file offset of block start (aligned to IDX_BLOCK)
     i64 block_hi; // file offset of block end   (<= block_lo + IDX_BLOCK, clipped at EOF)
-    int sub_count; // number of subchunks = ceil((block_hi - block_lo)/IDX_SUB)
+    i32 sub_count; // number of subchunks = ceil((block_hi - block_lo)/IDX_SUB)
     // For each subchunk, how many LF bytes are in that subchunk
     // uint16 is enough: max 4096 LFs per 4 KiB
     unsigned short* lf_counts; // length = sub_count
