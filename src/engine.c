@@ -1,28 +1,34 @@
 // engine.c
+#include "arena.h"
 #include "fiskta.h"
 #include "iosearch.h"
-#include "arena.h"
-#include <stdlib.h>
-#include <string.h>
 #include <alloca.h>
 #include <limits.h>
+#include <stdlib.h>
+#include <string.h>
 
 // Forward declarations
 // LabelWrite typedef moved to fiskta.h
 
 // Count capacity needs for a clause
-void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap) {
+void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap)
+{
     i32 rc = 0, lc = 0;
     for (i32 i = 0; i < c->op_count; i++) {
         switch (c->ops[i].kind) {
         case OP_TAKE_LEN:
         case OP_TAKE_TO:
-        case OP_TAKE_UNTIL: rc++; break;
-        case OP_LABEL:      lc++; break;
-        default: break;
+        case OP_TAKE_UNTIL:
+            rc++;
+            break;
+        case OP_LABEL:
+            lc++;
+            break;
+        default:
+            break;
         }
     }
-    *out_ranges_cap = rc > 0 ? rc : 1;     // avoid zero-length arrays
+    *out_ranges_cap = rc > 0 ? rc : 1; // avoid zero-length arrays
     *out_labels_cap = lc > 0 ? lc : 1;
 }
 
@@ -42,8 +48,8 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     i32 cc = prg->clause_count;
 
     // Calculate scratch buffer sizes for each clause
-    i32 *r_caps = alloca(sizeof(i32) * cc);
-    i32 *l_caps = alloca(sizeof(i32) * cc);
+    i32* r_caps = alloca(sizeof(i32) * cc);
+    i32* l_caps = alloca(sizeof(i32) * cc);
     size_t total_ranges = 0;
     size_t total_labels = 0;
 
@@ -61,14 +67,15 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
 
     // Account for alignment padding between slices
     size_t total = a_align(search_buf_cap, 1)
-                 + a_align(counts_bytes, alignof(unsigned short))
-                 + a_align(ranges_bytes, alignof(Range))
-                 + a_align(labels_bytes, alignof(LabelWrite))
-                 + 64; // small cushion like main.c
+        + a_align(counts_bytes, alignof(unsigned short))
+        + a_align(ranges_bytes, alignof(Range))
+        + a_align(labels_bytes, alignof(LabelWrite))
+        + 64; // small cushion like main.c
 
     // Allocate single block
     void* block = malloc(total);
-    if (!block) return E_OOM;
+    if (!block)
+        return E_OOM;
 
     // Initialize arena
     Arena arena;
@@ -86,7 +93,7 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     }
 
     // Open I/O with arena-backed buffers
-    File io = {0};
+    File io = { 0 };
     enum Err err = io_open_arena2(&io, in_path, search_buf, search_buf_cap, counts_slab);
     if (err != E_OK) {
         free(block);
@@ -118,8 +125,8 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
 
     for (i32 i = 0; i < cc; i++) {
         err = execute_clause_with_scratch(&prg->clauses[i], prg, &io, &vm, out,
-                                          r_bufs[i], r_caps[i],
-                                          l_bufs[i], l_caps[i]);
+            r_bufs[i], r_caps[i],
+            l_bufs[i], l_caps[i]);
         if (err == E_OK) {
             successful_clauses++;
         } else {
@@ -136,7 +143,6 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     free(block);
     return err;
 }
-
 
 // NEW signature: no allocations inside
 enum Err execute_clause_with_scratch(const Clause* clause, const Program* prg,
@@ -157,13 +163,15 @@ enum Err execute_clause_with_scratch(const Clause* clause, const Program* prg,
             &c_cursor, &c_last_match,
             &ranges, &range_count, &ranges_cap,
             &label_writes, &label_count, &label_cap);
-        if (err != E_OK) break;
+        if (err != E_OK)
+            break;
     }
 
     if (err == E_OK) {
         for (i32 i = 0; i < range_count; i++) {
             err = io_emit(io, ranges[i].start, ranges[i].end, out);
-            if (err != E_OK) break;
+            if (err != E_OK)
+                break;
         }
         if (err == E_OK) {
             commit_labels(vm, prg, label_writes, label_count);
@@ -231,12 +239,15 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
             if (err != E_OK)
                 return err;
         } else { // UNIT_CHARS
-            if (op->u.skip.n > INT_MAX) return E_PARSE;
+            if (op->u.skip.n > INT_MAX)
+                return E_PARSE;
             i64 char_start;
             enum Err err = io_char_start(io, *c_cursor, &char_start);
-            if (err != E_OK) return err;
+            if (err != E_OK)
+                return err;
             err = io_step_chars_from(io, char_start, (i32)op->u.skip.n, c_cursor);
-            if (err != E_OK) return err;
+            if (err != E_OK)
+                return err;
         }
         break;
     }
@@ -271,25 +282,30 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
                     return err;
             }
         } else { // UNIT_CHARS
-            if (op->u.take_len.n > INT_MAX) return E_PARSE;
+            if (op->u.take_len.n > INT_MAX)
+                return E_PARSE;
             i64 cstart;
             enum Err err = io_char_start(io, *c_cursor, &cstart);
-            if (err != E_OK) return err;
+            if (err != E_OK)
+                return err;
             if (op->u.take_len.sign > 0) {
                 start = cstart;
                 err = io_step_chars_from(io, cstart, (i32)op->u.take_len.n, &end);
-                if (err != E_OK) return err;
+                if (err != E_OK)
+                    return err;
             } else {
                 end = cstart;
                 i64 s;
                 err = io_step_chars_from(io, cstart, -(i32)op->u.take_len.n, &s);
-                if (err != E_OK) return err;
+                if (err != E_OK)
+                    return err;
                 start = s;
             }
         }
 
         // Stage the range
-        if (*range_count >= *range_cap) return E_OOM;
+        if (*range_count >= *range_cap)
+            return E_OOM;
         (*ranges)[*range_count].start = start;
         (*ranges)[*range_count].end = end;
         (*range_count)++;
@@ -318,7 +334,8 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
         }
 
         // Stage the range
-        if (*range_count >= *range_cap) return E_OOM;
+        if (*range_count >= *range_cap)
+            return E_OOM;
         (*ranges)[*range_count].start = start;
         (*ranges)[*range_count].end = end;
         (*range_count)++;
@@ -354,7 +371,8 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
         i64 dst = clamp64(target, 0, io_size(io));
 
         // Stage [cursor, dst) ONLY (no order-normalization)
-        if (*range_count >= *range_cap) return E_OOM;
+        if (*range_count >= *range_cap)
+            return E_OOM;
         (*ranges)[*range_count].start = *c_cursor;
         (*ranges)[*range_count].end = dst;
         (*range_count)++;
@@ -368,7 +386,8 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
 
     case OP_LABEL: {
         // Stage label write
-        if (*label_count >= *label_cap) return E_OOM;
+        if (*label_count >= *label_cap)
+            return E_OOM;
         (*label_writes)[*label_count].name_idx = op->u.label.name_idx;
         (*label_writes)[*label_count].pos = *c_cursor;
         (*label_count)++;
@@ -432,24 +451,28 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
         break;
     }
     case LOC_MATCH_START:
-        if (!staged_match->valid) return E_LOC_RESOLVE;
+        if (!staged_match->valid)
+            return E_LOC_RESOLVE;
         base = staged_match->start;
         break;
     case LOC_MATCH_END:
-        if (!staged_match->valid) return E_LOC_RESOLVE;
+        if (!staged_match->valid)
+            return E_LOC_RESOLVE;
         base = staged_match->end;
         break;
     case LOC_LINE_START: {
         // relative to cursor
         enum Err err = io_line_start(io, staged_cursor, &base);
-        if (err != E_OK) return err;
+        if (err != E_OK)
+            return err;
         break;
     }
     case LOC_LINE_END: {
         // io_line_end expects a byte inside the line
         i64 ref = staged_cursor > 0 ? staged_cursor - 1 : 0;
         enum Err err = io_line_end(io, ref, &base);
-        if (err != E_OK) return err;
+        if (err != E_OK)
+            return err;
         break;
     }
     default:
@@ -468,19 +491,23 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
                 base += delta;
             }
         } else if (loc->unit == UNIT_LINES) {
-            if (loc->n > (u64)INT_MAX) return E_PARSE;
+            if (loc->n > (u64)INT_MAX)
+                return E_PARSE;
             i32 delta = loc->sign > 0 ? (i32)loc->n : -(i32)loc->n;
             enum Err err = io_step_lines_from(io, base, delta, &base);
             if (err != E_OK)
                 return err;
         } else { // UNIT_CHARS
-            if (loc->n > (u64)INT_MAX) return E_PARSE;
+            if (loc->n > (u64)INT_MAX)
+                return E_PARSE;
             i64 char_base;
             enum Err err = io_char_start(io, base, &char_base);
-            if (err != E_OK) return err;
+            if (err != E_OK)
+                return err;
             i32 delta = loc->sign > 0 ? (i32)loc->n : -(i32)loc->n;
             err = io_step_chars_from(io, char_base, delta, &char_base);
-            if (err != E_OK) return err;
+            if (err != E_OK)
+                return err;
             base = char_base;
         }
     }
@@ -527,19 +554,23 @@ static enum Err resolve_at_expr(const AtExpr* at, File* io, const Match* match, 
                 base += delta;
             }
         } else if (at->unit == UNIT_LINES) {
-            if (at->n > (u64)INT_MAX) return E_PARSE;
+            if (at->n > (u64)INT_MAX)
+                return E_PARSE;
             i32 delta = at->sign > 0 ? (i32)at->n : -(i32)at->n;
             enum Err err = io_step_lines_from(io, base, delta, &base);
             if (err != E_OK)
                 return err;
         } else { // UNIT_CHARS
-            if (at->n > (u64)INT_MAX) return E_PARSE;
+            if (at->n > (u64)INT_MAX)
+                return E_PARSE;
             i64 char_base;
             enum Err err = io_char_start(io, base, &char_base);
-            if (err != E_OK) return err;
+            if (err != E_OK)
+                return err;
             i32 delta = at->sign > 0 ? (i32)at->n : -(i32)at->n;
             err = io_step_chars_from(io, char_base, delta, &char_base);
-            if (err != E_OK) return err;
+            if (err != E_OK)
+                return err;
             base = char_base;
         }
     }

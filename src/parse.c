@@ -15,7 +15,8 @@ typedef struct {
 } ParsePlan;
 
 // Helper function to find inline offset start
-static const char* find_inline_offset_start(const char* s) {
+static const char* find_inline_offset_start(const char* s)
+{
     // Return pointer to first '+' or '-' that begins an offset suffix, else NULL.
     // Skip the first char to avoid treating a leading sign as part of the base token.
     // Only treat +/- as offset if followed by a digit (not part of base token name).
@@ -31,7 +32,7 @@ static const char* find_inline_offset_start(const char* s) {
 // parse_clause removed - use parse_op_build with arena allocation instead
 // parse_op removed - use parse_op_build with arena allocation instead
 static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op, Program* prg,
-                               char* str_pool, size_t* str_pool_off, size_t str_pool_cap, i32 max_name_count);
+    char* str_pool, size_t* str_pool_off, size_t str_pool_cap, i32 max_name_count);
 static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg, i32 max_name_count);
 static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, AtExpr* at, Program* prg);
 static enum Err parse_signed_number(const char* token, i32* sign, u64* n, enum Unit* unit);
@@ -44,9 +45,9 @@ static bool is_valid_label_name(const char* name);
 // parse_free removed - arena-based allocation doesn't need explicit freeing
 enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
 enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
-                     Clause* clauses_buf, Op* ops_buf,
-                     char (*names_buf)[17], i32 max_name_count,
-                     char* str_pool, size_t str_pool_cap);
+    Clause* clauses_buf, Op* ops_buf,
+    char (*names_buf)[17], i32 max_name_count,
+    char* str_pool, size_t str_pool_cap);
 
 // parse_program removed - use parse_build with arena allocation instead
 
@@ -105,7 +106,8 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                 }
             } else if (strcmp(cmd, "skip") == 0) {
                 idx++;
-                if (idx < token_count) idx++;
+                if (idx < token_count)
+                    idx++;
             } else if (strcmp(cmd, "take") == 0) {
                 idx++;
                 if (idx < token_count) {
@@ -192,9 +194,9 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
 }
 
 enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
-                     Clause* clauses_buf, Op* ops_buf,
-                     char (*names_buf)[17], i32 max_name_count,
-                     char* str_pool, size_t str_pool_cap)
+    Clause* clauses_buf, Op* ops_buf,
+    char (*names_buf)[17], i32 max_name_count,
+    char* str_pool, size_t str_pool_cap)
 {
     memset(prg, 0, sizeof(*prg));
 
@@ -204,7 +206,6 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
 
     // Input path is passed separately
     *in_path_out = in_path;
-
 
     // Initialize program with preallocated buffers
     prg->clauses = clauses_buf;
@@ -236,29 +237,35 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
             if (strcmp(cmd, "find") == 0) {
                 if (idx < token_count && strcmp(tokens[idx], "to") == 0) {
                     idx++;
-                    if (idx < token_count) idx++; // skip location
+                    if (idx < token_count)
+                        idx++; // skip location
                     if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
                         idx++; // skip offset
                     }
                 }
-                if (idx < token_count) idx++; // skip needle
+                if (idx < token_count)
+                    idx++; // skip needle
             } else if (strcmp(cmd, "skip") == 0) {
-                if (idx < token_count) idx++; // skip number+unit
+                if (idx < token_count)
+                    idx++; // skip number+unit
             } else if (strcmp(cmd, "take") == 0) {
                 if (idx < token_count) {
                     const char* next = tokens[idx];
                     if (strcmp(next, "to") == 0) {
                         idx++;
-                        if (idx < token_count) idx++; // skip location
+                        if (idx < token_count)
+                            idx++; // skip location
                         if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
                             idx++; // skip offset
                         }
                     } else if (strcmp(next, "until") == 0) {
                         idx++;
-                        if (idx < token_count) idx++; // skip needle
+                        if (idx < token_count)
+                            idx++; // skip needle
                         if (idx < token_count && strcmp(tokens[idx], "at") == 0) {
                             idx++;
-                            if (idx < token_count) idx++; // skip location
+                            if (idx < token_count)
+                                idx++; // skip location
                             if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
                                 idx++; // skip offset
                             }
@@ -268,9 +275,11 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
                     }
                 }
             } else if (strcmp(cmd, "label") == 0) {
-                if (idx < token_count) idx++; // skip name
+                if (idx < token_count)
+                    idx++; // skip name
             } else if (strcmp(cmd, "goto") == 0) {
-                if (idx < token_count) idx++; // skip location
+                if (idx < token_count)
+                    idx++; // skip location
                 if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
                     idx++; // skip offset
                 }
@@ -318,7 +327,7 @@ static i32 find_or_add_name_build(Program* prg, const char* name, i32 max_name_c
 }
 
 static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op, Program* prg,
-                               char* str_pool, size_t* str_pool_off, size_t str_pool_cap, i32 max_name_count)
+    char* str_pool, size_t* str_pool_off, size_t str_pool_cap, i32 max_name_count)
 {
     if (*idx >= token_count) {
         return E_PARSE;
@@ -509,13 +518,15 @@ static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, L
 
     // Support detached offset as next token (e.g., "BOF +100b")
     if (*idx < token_count) {
-        i32 sign_tmp; u64 n_tmp; enum Unit unit_tmp;
+        i32 sign_tmp;
+        u64 n_tmp;
+        enum Unit unit_tmp;
         enum Err off_err = parse_signed_number(tokens[*idx], &sign_tmp, &n_tmp, &unit_tmp);
         if (off_err == E_OK) {
             loc->has_off = true;
-            loc->sign   = sign_tmp;
-            loc->n      = n_tmp;
-            loc->unit   = unit_tmp;
+            loc->sign = sign_tmp;
+            loc->n = n_tmp;
+            loc->unit = unit_tmp;
             (*idx)++; // consume detached offset token
         }
     }
@@ -567,12 +578,14 @@ static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, At
 
     // Support detached offset as next token (e.g., "line-start -2l")
     if (*idx < token_count) {
-        i32 sign_tmp; u64 n_tmp; enum Unit unit_tmp;
+        i32 sign_tmp;
+        u64 n_tmp;
+        enum Unit unit_tmp;
         enum Err off_err = parse_signed_number(tokens[*idx], &sign_tmp, &n_tmp, &unit_tmp);
         if (off_err == E_OK) {
             at->has_off = true;
             at->sign = sign_tmp;
-            at->n    = n_tmp;
+            at->n = n_tmp;
             at->unit = unit_tmp;
             (*idx)++; // consume
         }
