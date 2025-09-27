@@ -703,7 +703,8 @@ static inline void seen_clear(unsigned char* seen, int n){ memset(seen, 0, (size
 // Ordered epsilon-closure push. Sets *match_found if RI_MATCH reachable for current pos and min_start.
 static void add_thread_ordered(const ReProg* P, ReList* L, int pc, i64 start,
                                i64 pos, i64 win_lo, i64 win_hi,
-                               unsigned char* seen, int* match_found, i64 min_start)
+                               unsigned char* seen, int* match_found, i64 min_start,
+                               unsigned char curr_char, unsigned char prev_char)
 {
     while (1){
         if (pc < 0 || pc >= P->nins) return;
@@ -712,22 +713,25 @@ static void add_thread_ordered(const ReProg* P, ReList* L, int pc, i64 start,
         switch (I->op){
             case RI_SPLIT:
                 // Preserve order: x then y
-                add_thread_ordered(P, L, I->x, start, pos, win_lo, win_hi, seen, match_found, min_start);
+                add_thread_ordered(P, L, I->x, start, pos, win_lo, win_hi, seen, match_found, min_start, curr_char, prev_char);
                 pc = I->y; // continue tail-call
                 continue;
             case RI_JMP:
                 pc = I->x; continue;
             case RI_BOL:
-                if (pos != win_lo) return;
-                pc++; continue;
-            case RI_EOL:
-                // $ matches at end of string (win_hi) or at last non-newline character
-                if (pos == win_hi) {
-                    pc++; continue; // match at end
-                }
-                if (pos == win_hi - 1) {
-                    // Check if this is a trailing newline - if so, match here
+                // ^ matches at beginning of string or after a newline
+                if (pos == win_lo || prev_char == '\n') {
                     pc++; continue;
+                }
+                return;
+            case RI_EOL:
+                // $ matches at end of string or before a newline
+                if (pos == win_hi) {
+                    pc++; continue; // match at end of string
+                }
+                // Check if next character is a newline
+                if (pos < win_hi && curr_char == '\n') {
+                    pc++; continue; // match before newline
                 }
                 return;
             case RI_MATCH:
@@ -799,7 +803,9 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
             have_min = 1; min_start = pos;
             seen_clear(seen_curr, nins);
             int match_found = 0;
-            add_thread_ordered(re, &curr, 0, pos, pos, win_lo, win_hi, seen_curr, &match_found, min_start);
+            unsigned char curr_char = (pos < win_hi) ? io->buf[pos - block_lo] : 0;
+            unsigned char prev_char = (pos > win_lo) ? io->buf[pos - 1 - block_lo] : 0;
+            add_thread_ordered(re, &curr, 0, pos, pos, win_lo, win_hi, seen_curr, &match_found, min_start, curr_char, prev_char);
             if (match_found){
                 if (dir == DIR_FWD){ *ms = min_start; *me = pos; return E_OK; }
                 else { best_ms = min_start; best_me = pos; /* reset for later starts */ curr.n = 0; have_min = 0; }
@@ -809,9 +815,11 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
             int match_found = 0;
             // We need to re-run closure check for existing threads? Already closed when inserted.
             // add a no-op that only discovers RI_MATCH through epsilon from existing PCs:
+            unsigned char curr_char = (pos < win_hi) ? io->buf[pos - block_lo] : 0;
+            unsigned char prev_char = (pos > win_lo) ? io->buf[pos - 1 - block_lo] : 0;
             for (int k=0;k<curr.n;k++){
                 // revisit epsilon from pc to catch trailing BOL/EOL/MATCH
-                add_thread_ordered(re, &curr, curr.v[k].pc, curr.v[k].start, pos, win_lo, win_hi, seen_curr, &match_found, curr.v[k].start);
+                add_thread_ordered(re, &curr, curr.v[k].pc, curr.v[k].start, pos, win_lo, win_hi, seen_curr, &match_found, curr.v[k].start, curr_char, prev_char);
             }
             if (match_found){
                 if (dir == DIR_FWD){ *ms = min_start; *me = pos; return E_OK; }
@@ -825,6 +833,16 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
         // Build next from curr by consuming c
         rlist_clear(&next);
         seen_clear(seen_next, nins);
+
+        // Get previous character for line boundary detection
+        unsigned char prev_char = 0;
+        if (pos > win_lo) {
+            // Make sure we're within the current buffer
+            if (pos - 1 >= block_lo) {
+                prev_char = io->buf[pos - 1 - block_lo];
+            }
+        }
+
         for (int i=0;i<curr.n;i++){
             int pc = curr.v[i].pc;
             i64 st = curr.v[i].start;
@@ -834,15 +852,15 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
             switch (I->op){
                 case RI_CHAR:
                     if (c == I->ch) {
-                        add_thread_ordered(re, &next, pc+1, st, pos+1, win_lo, win_hi, seen_next, &(int){0}, min_start);
+                        add_thread_ordered(re, &next, pc+1, st, pos+1, win_lo, win_hi, seen_next, &(int){0}, min_start, c, prev_char);
                     }
                     break;
                 case RI_ANY:
-                    add_thread_ordered(re, &next, pc+1, st, pos+1, win_lo, win_hi, seen_next, &(int){0}, min_start);
+                    add_thread_ordered(re, &next, pc+1, st, pos+1, win_lo, win_hi, seen_next, &(int){0}, min_start, c, prev_char);
                     break;
                 case RI_CLASS:
                     if (I->cls_idx >= 0 && I->cls_idx < re->nclasses && cls_has(&re->classes[I->cls_idx], c)) {
-                        add_thread_ordered(re, &next, pc+1, st, pos+1, win_lo, win_hi, seen_next, &(int){0}, min_start);
+                        add_thread_ordered(re, &next, pc+1, st, pos+1, win_lo, win_hi, seen_next, &(int){0}, min_start, c, prev_char);
                     }
                     break;
                 default:

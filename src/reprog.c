@@ -47,8 +47,15 @@ static int peek(const char* s, int i){ return (unsigned char)s[i]; }
 static enum Err parse_class(ReB* b, const char* pat, int* i_inout, int* out_cls_idx){
     int i = *i_inout;
     ReClass cls; cls_clear(&cls);
+    int negated = 0;
 
     if (pat[i] == ']') return E_PARSE; // empty
+
+    // Check for negation
+    if (pat[i] == '^') {
+        negated = 1;
+        i++;
+    }
 
     while (pat[i] && pat[i] != ']'){
         unsigned char a;
@@ -91,6 +98,15 @@ static enum Err parse_class(ReB* b, const char* pat, int* i_inout, int* out_cls_
     }
     if (pat[i] != ']') return E_PARSE;
     ++i;
+
+    // Apply negation if needed
+    if (negated) {
+        ReClass negated_cls;
+        for (int v=0; v<256; ++v) cls_set(&negated_cls,(unsigned char)v);
+        for (int b=0;b<32;++b) negated_cls.bits[b] &= (unsigned char)~cls.bits[b];
+        cls = negated_cls;
+    }
+
     int cls_idx;
     enum Err e = new_class(b, &cls, &cls_idx); if (e != E_OK) return e;
     *i_inout = i;
