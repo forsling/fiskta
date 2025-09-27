@@ -125,8 +125,11 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                     size_t L = strlen(pat);
                     plan->sum_findr_ops++;
                     plan->re_ins_estimate     += (i32)(4*L + 8);
-                    // crude class count estimate: count '['
-                    for (const char* p=pat; *p; ++p) if (*p=='[') plan->re_classes_estimate++;
+                    // crude class count estimate: count '[' and escape sequences that create classes
+                    for (const char* p=pat; *p; ++p) {
+                        if (*p=='[') plan->re_classes_estimate++;
+                        if (*p=='\\' && p[1] && strchr("dDwWsS", p[1])) plan->re_classes_estimate++;
+                    }
                     plan->needle_count++;                 // account string storage (shared pool)
                     plan->needle_bytes += L;
                     idx++;

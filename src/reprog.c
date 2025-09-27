@@ -2,6 +2,7 @@
 #include "reprog.h"
 #include <string.h>
 #include <ctype.h>
+#include <alloca.h>
 
 static inline void cls_clear(ReClass* c){ memset(c->bits, 0, sizeof c->bits); }
 static inline void cls_set(ReClass* c, unsigned char ch){ c->bits[ch>>3] |= (unsigned char)(1u << (ch & 7)); }
@@ -130,6 +131,12 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout){
             case 'S': { ReClass c; for (int v=0; v<256; ++v) cls_set(&c,(unsigned char)v); ReClass w; cls_clear(&w); cls_set_ws(&w);
                         for (int b2=0;b2<32;++b2) c.bits[b2] &= (unsigned char)~w.bits[b2];
                         enum Err e=new_class(b,&c,&cls_idx); if (e!=E_OK) return e; ak=A_CLASS; } break;
+            case 'n': ch = '\n'; ak = A_CHAR; break;
+            case 't': ch = '\t'; ak = A_CHAR; break;
+            case 'r': ch = '\r'; ak = A_CHAR; break;
+            case 'f': ch = '\f'; ak = A_CHAR; break;
+            case 'v': ch = '\v'; ak = A_CHAR; break;
+            case '0': ch = '\0'; ak = A_CHAR; break;
             default: ch = (unsigned char)pat[i]; ak = A_CHAR; break;
         }
         i++;
@@ -221,10 +228,71 @@ enum Err re_compile_into(const char* pattern,
     int i = 0;
     if (!pattern || !pattern[0]) return E_BAD_NEEDLE;
 
-    while (pattern[i]){
-        enum Err e = compile_piece(&b, pattern, &i);
-        if (e != E_OK) return e;
+    // Parse alternation: find all | characters
+    int alt_count = 1;
+    for (int j = 0; pattern[j]; j++) {
+        if (pattern[j] == '|') alt_count++;
     }
+
+    if (alt_count == 1) {
+        // No alternation, compile normally
+        while (pattern[i]){
+            enum Err e = compile_piece(&b, pattern, &i);
+            if (e != E_OK) return e;
+        }
+    } else {
+        // Handle alternation - create proper NFA structure
+        int split_pc = -1;
+        int match_pc = -1;
+
+        // First, emit the split instruction
+        enum Err e = emit_inst(&b, RI_SPLIT, -1, -1, 0, -1, &split_pc);
+        if (e != E_OK) return e;
+
+        int alt_start = 0;
+        int alt_idx = 0;
+
+        for (int j = 0; j <= strlen(pattern); j++) {
+            if (pattern[j] == '|' || pattern[j] == '\0') {
+                // Compile this alternative
+                char* alt_pattern = (char*)alloca((size_t)(j - alt_start + 1));
+                strncpy(alt_pattern, pattern + alt_start, (size_t)(j - alt_start));
+                alt_pattern[j - alt_start] = '\0';
+
+                int alt_start_pc = b.nins;
+                int alt_i = 0;
+                while (alt_pattern[alt_i]) {
+                    enum Err e = compile_piece(&b, alt_pattern, &alt_i);
+                    if (e != E_OK) return e;
+                }
+
+                // Patch the split to point to this alternative
+                if (alt_idx == 0) {
+                    b.ins[split_pc].x = alt_start_pc;
+                } else {
+                    b.ins[split_pc].y = alt_start_pc;
+                }
+
+                // Add JMP to MATCH after this alternative
+                enum Err e = emit_inst(&b, RI_JMP, -1, 0, 0, -1, NULL);
+                if (e != E_OK) return e;
+
+                alt_start = j + 1;
+                alt_idx++;
+            }
+        }
+
+        // Set the continuation point for the split
+        match_pc = b.nins;
+
+        // Patch all JMP instructions to point to MATCH
+        for (int k = split_pc + 1; k < b.nins; k++) {
+            if (b.ins[k].op == RI_JMP && b.ins[k].x == -1) {
+                b.ins[k].x = match_pc;
+            }
+        }
+    }
+
     enum Err e = emit_inst(&b, RI_MATCH, 0,0,0,-1,NULL);
     if (e != E_OK) return e;
 

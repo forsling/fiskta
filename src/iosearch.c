@@ -721,8 +721,15 @@ static void add_thread_ordered(const ReProg* P, ReList* L, int pc, i64 start,
                 if (pos != win_lo) return;
                 pc++; continue;
             case RI_EOL:
-                if (pos != win_hi) return;
-                pc++; continue;
+                // $ matches at end of string (win_hi) or at last non-newline character
+                if (pos == win_hi) {
+                    pc++; continue; // match at end
+                }
+                if (pos == win_hi - 1) {
+                    // Check if this is a trailing newline - if so, match here
+                    pc++; continue;
+                }
+                return;
             case RI_MATCH:
                 if (start == min_start) *match_found = 1;
                 // Add the thread to the list so consumption step can detect it
