@@ -1,10 +1,10 @@
 // main.c
-#include "fiskta.h"
 #include "arena.h"
+#include "fiskta.h"
 #include "iosearch.h"
 #include <stdio.h>
-#include <string.h>
 #include <stdlib.h>
+#include <string.h>
 
 typedef struct {
     i32 clause_count;
@@ -17,28 +17,34 @@ typedef struct {
 } ParsePlan;
 
 // Minimal ops-string splitter for quoted CLI usage
-static i32 split_ops_string(const char* s, char** out, i32 max_tokens) {
+static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
+{
     static char buf[4096]; // one-shot scratch; fine for our CLI
-    i32 n = 0; size_t off = 0;
+    i32 n = 0;
+    size_t off = 0;
 
     while (*s && n < max_tokens) {
-        while (*s==' ' || *s=='\t') s++;
-        if (!*s) break;
+        while (*s == ' ' || *s == '\t')
+            s++;
+        if (!*s)
+            break;
 
-        if (s[0]==':' && s[1]==':') {           // "::" token
+        if (s[0] == ':' && s[1] == ':') { // "::" token
             out[n++] = (char*)"::";
             s += 2;
             continue;
         }
 
         const char* start = s;
-        while (*s && *s!=' ' && *s!='\t') {
-            if (s[0]==':' && s[1]==':') break;
+        while (*s && *s != ' ' && *s != '\t') {
+            if (s[0] == ':' && s[1] == ':')
+                break;
             s++;
         }
         size_t len = (size_t)(s - start);
         if (len) {
-            if (off + len + 1 >= sizeof(buf)) break; // truncate defensively
+            if (off + len + 1 >= sizeof(buf))
+                break; // truncate defensively
             memcpy(buf + off, start, len);
             buf[off + len] = '\0';
             out[n++] = buf + off;
@@ -57,30 +63,43 @@ static i32 split_ops_string(const char* s, char** out, i32 max_tokens) {
 enum Err engine_run(const Program*, const char*, FILE*);
 enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
 enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
-                     Clause* clauses_buf, Op* ops_buf,
-                     char (*names_buf)[17], i32 max_name_count,
-                     char* str_pool, size_t str_pool_cap);
+    Clause* clauses_buf, Op* ops_buf,
+    char (*names_buf)[17], i32 max_name_count,
+    char* str_pool, size_t str_pool_cap);
 enum Err io_open_arena2(File* io, const char* path,
-                        unsigned char* search_buf, size_t search_buf_cap,
-                        unsigned short* counts_slab);
+    unsigned char* search_buf, size_t search_buf_cap,
+    unsigned short* counts_slab);
 
-static const char* err_str(enum Err e) {
+static const char* err_str(enum Err e)
+{
     switch (e) {
-    case E_OK: return "ok";
-    case E_PARSE: return "parse error";
-    case E_BAD_NEEDLE: return "empty needle";
-    case E_LOC_RESOLVE: return "location not resolvable";
-    case E_NO_MATCH: return "no match in window";
-    case E_LABEL_FMT: return "bad label (A-Z, _ or -, ≤16)";
-    case E_IO: return "I/O error";
-    case E_OOM: return "out of memory";
-    default: return "unknown error";
+    case E_OK:
+        return "ok";
+    case E_PARSE:
+        return "parse error";
+    case E_BAD_NEEDLE:
+        return "empty needle";
+    case E_LOC_RESOLVE:
+        return "location not resolvable";
+    case E_NO_MATCH:
+        return "no match in window";
+    case E_LABEL_FMT:
+        return "bad label (A-Z, _ or -, ≤16)";
+    case E_IO:
+        return "I/O error";
+    case E_OOM:
+        return "out of memory";
+    default:
+        return "unknown error";
     }
 }
 
-static void die(enum Err e, const char* msg) {
-    if (msg) fprintf(stderr, "fiskta: %s (%s)\n", msg, err_str(e));
-    else     fprintf(stderr, "fiskta: %s\n", err_str(e));
+static void die(enum Err e, const char* msg)
+{
+    if (msg)
+        fprintf(stderr, "fiskta: %s (%s)\n", msg, err_str(e));
+    else
+        fprintf(stderr, "fiskta: %s\n", err_str(e));
 }
 
 static void print_usage(void)
@@ -175,7 +194,7 @@ int main(int argc, char** argv)
     }
 
     // 1) Preflight
-    ParsePlan plan = {0};
+    ParsePlan plan = { 0 };
     const char* path = NULL;
 
     // Build the token view the parser expects: argv[1..argc-1] if no file specified, argv[1..argc-2] if file specified
@@ -188,15 +207,12 @@ int main(int argc, char** argv)
     // But be more careful - only treat it as a file if it looks like a file path (contains '.', '/', or is '-')
     if (argc > 2) {
         const char* last_arg = argv[argc - 1];
-        if (strcmp(last_arg, "-") == 0 ||
-            strchr(last_arg, '.') != NULL ||
-            strchr(last_arg, '/') != NULL) {
+        if (strcmp(last_arg, "-") == 0 || strchr(last_arg, '.') != NULL || strchr(last_arg, '/') != NULL) {
             // Last argument looks like a file path
             in_path = last_arg;
             token_count = argc - 2;
         }
     }
-
 
     // If user passed a single ops string, split it.
     char* splitv[256];
@@ -210,12 +226,13 @@ int main(int argc, char** argv)
     }
 
     enum Err e = parse_preflight(token_count, tokens, in_path, &plan, &path);
-    if (e != E_OK){ die(e, "parse preflight"); return 2; }
-
+    if (e != E_OK) {
+        die(e, "parse preflight");
+        return 2;
+    }
 
     // 2) Compute sizes
-    const size_t search_buf_cap =
-        (FW_WIN > (BK_BLK + OVERLAP_MAX)) ? (size_t)FW_WIN : (size_t)(BK_BLK + OVERLAP_MAX);
+    const size_t search_buf_cap = (FW_WIN > (BK_BLK + OVERLAP_MAX)) ? (size_t)FW_WIN : (size_t)(BK_BLK + OVERLAP_MAX);
     const size_t counts_total_u16 = (size_t)IDX_MAX_BLOCKS * (size_t)IDX_SUB_MAX;
     const size_t names_bytes = (size_t)plan.max_name_count * sizeof(char[17]);
     const size_t ops_bytes = (size_t)plan.total_ops * sizeof(Op);
@@ -237,52 +254,75 @@ int main(int argc, char** argv)
     size_t total = search_buf_size + counts_size + clauses_size + ops_size + names_size + str_pool_size + ranges_size + labels_size + 64; // Add 64 bytes buffer for alignment padding
 
     void* block = malloc(total);
-    if (!block){ die(E_OOM, "arena alloc"); return 2; }
-    Arena A; arena_init(&A, block, total);
+    if (!block) {
+        die(E_OOM, "arena alloc");
+        return 2;
+    }
+    Arena A;
+    arena_init(&A, block, total);
 
     // 4) Carve slices
-    unsigned char* search_buf   = arena_alloc(&A, search_buf_cap, alignof(unsigned char));
+    unsigned char* search_buf = arena_alloc(&A, search_buf_cap, alignof(unsigned char));
     unsigned short* counts_slab = arena_alloc(&A, counts_total_u16 * sizeof(unsigned short), alignof(unsigned short));
-    Clause* clauses_buf         = arena_alloc(&A, clauses_bytes, alignof(Clause));
-    Op* ops_buf                 = arena_alloc(&A, ops_bytes, alignof(Op));
-    char (*names_buf)[17]       = arena_alloc(&A, names_bytes, alignof(char));
-    char* str_pool              = arena_alloc(&A, str_pool_bytes, alignof(char));
-    Range* ranges_pool          = arena_alloc(&A, ranges_bytes, alignof(Range));
-    LabelWrite* labels_pool     = arena_alloc(&A, labels_bytes, alignof(LabelWrite));
-    if (!search_buf || !counts_slab || !clauses_buf || !ops_buf ||
-        !names_buf || !str_pool || !ranges_pool || !labels_pool) {
+    Clause* clauses_buf = arena_alloc(&A, clauses_bytes, alignof(Clause));
+    Op* ops_buf = arena_alloc(&A, ops_bytes, alignof(Op));
+    char(*names_buf)[17] = arena_alloc(&A, names_bytes, alignof(char));
+    char* str_pool = arena_alloc(&A, str_pool_bytes, alignof(char));
+    Range* ranges_pool = arena_alloc(&A, ranges_bytes, alignof(Range));
+    LabelWrite* labels_pool = arena_alloc(&A, labels_bytes, alignof(LabelWrite));
+    if (!search_buf || !counts_slab || !clauses_buf || !ops_buf || !names_buf || !str_pool || !ranges_pool || !labels_pool) {
         die(E_OOM, "arena carve");
         free(block);
         return 2;
     }
 
     // 5) Parse into preallocated storage
-    Program prg = {0};
+    Program prg = { 0 };
     e = parse_build(token_count, tokens, in_path, &prg, &path, clauses_buf, ops_buf,
-                    names_buf, plan.max_name_count, str_pool, str_pool_bytes);
-    if (e != E_OK){ die(e, "parse build"); free(block); return 2; }
+        names_buf, plan.max_name_count, str_pool, str_pool_bytes);
+    if (e != E_OK) {
+        die(e, "parse build");
+        free(block);
+        return 2;
+    }
 
     // 6) Open I/O with arena-backed buffers
-    File io = {0};
+    File io = { 0 };
     e = io_open_arena2(&io, path, search_buf, search_buf_cap, counts_slab);
-    if (e != E_OK){ die(e, "I/O open"); free(block); return 2; }
+    if (e != E_OK) {
+        die(e, "I/O open");
+        free(block);
+        return 2;
+    }
 
     // 7) Run engine using precomputed scratch pools
-    VM vm = {0};
-    vm.cursor = 0; vm.last_match.valid = false; vm.gen_counter = 0;
+    VM vm = { 0 };
+    vm.cursor = 0;
+    vm.last_match.valid = false;
+    vm.gen_counter = 0;
 
-    size_t r_off=0, l_off=0;
-    i32 ok=0; enum Err last_err = E_OK;
-    for (i32 ci=0; ci<prg.clause_count; ++ci){
-        i32 rc, lc; clause_caps(&prg.clauses[ci], &rc, &lc);
-        Range* r = ranges_pool + r_off; r_off += (size_t)rc;
-        LabelWrite* l = labels_pool + l_off; l_off += (size_t)lc;
+    size_t r_off = 0, l_off = 0;
+    i32 ok = 0;
+    enum Err last_err = E_OK;
+    for (i32 ci = 0; ci < prg.clause_count; ++ci) {
+        i32 rc, lc;
+        clause_caps(&prg.clauses[ci], &rc, &lc);
+        Range* r = ranges_pool + r_off;
+        r_off += (size_t)rc;
+        LabelWrite* l = labels_pool + l_off;
+        l_off += (size_t)lc;
         e = execute_clause_with_scratch(&prg.clauses[ci], &prg, &io, &vm, stdout, r, rc, l, lc);
-        if (e == E_OK) ok++; else last_err = e;
+        if (e == E_OK)
+            ok++;
+        else
+            last_err = e;
     }
     io_close(&io);
     free(block);
 
-    if (ok==0){ die(last_err, "execution error"); return 2; }
+    if (ok == 0) {
+        die(last_err, "execution error");
+        return 2;
+    }
     return 0;
 }

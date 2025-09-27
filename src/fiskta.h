@@ -15,7 +15,7 @@ typedef uint32_t u32;
 enum Unit {
     UNIT_BYTES,
     UNIT_LINES,
-    UNIT_CHARS   // UTF-8 code points
+    UNIT_CHARS // UTF-8 code points
 };
 
 enum OpKind {
