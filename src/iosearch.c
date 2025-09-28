@@ -819,8 +819,9 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
             add_thread_ordered(re, &curr, 0, pos, pos, win_lo, win_hi,
                                seen_curr, &match_found, min_start, curr_c, prev_char);
             if (match_found){
-                if (dir == DIR_FWD){ *ms = min_start; *me = pos + 1; return E_OK; }
-                else { best_ms = min_start; best_me = pos + 1; /* reset for later starts */ curr.n = 0; have_min = 0; }
+                // epsilon-only match (no consumption): end == pos
+                if (dir == DIR_FWD){ *ms = min_start; *me = pos; return E_OK; }
+                else { best_ms = min_start; best_me = pos; /* reset for later starts */ curr.n = 0; have_min = 0; }
             }
         } else {
             seen_clear(seen_curr, nins);
@@ -834,8 +835,9 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
                                    seen_curr, &match_found, min_start, curr_char, prev_char);
             }
             if (match_found){
-                if (dir == DIR_FWD){ *ms = min_start; *me = pos + 1; return E_OK; }
-                else { best_ms = min_start; best_me = pos + 1; curr.n = 0; have_min = 0; }
+                // epsilon-only match at current pos
+                if (dir == DIR_FWD){ *ms = min_start; *me = pos; return E_OK; }
+                else { best_ms = min_start; best_me = pos; curr.n = 0; have_min = 0; }
             }
         }
 
@@ -895,10 +897,9 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
             }
         }
 
-        // Advance
-        curr = next;
-        ReThread* tmp = next_buf; next_buf = curr_buf; curr_buf = tmp;
-        unsigned char* tmpb = seen_next; seen_next = seen_curr; seen_curr = tmpb;
+        // Advance: swap lists (do NOT swap raw buffers; swap the structs)
+        ReList tmpL = curr; curr = next; next = tmpL;
+        unsigned char* tmpb = seen_curr; seen_curr = seen_next; seen_next = tmpb;
         // advance and carry previous char
         prev_c = curr_c;
         have_prev = (pos < win_hi);
