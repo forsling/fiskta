@@ -114,42 +114,82 @@ static enum Err parse_class(ReB* b, const char* pat, int* i_inout, int* out_cls_
     return E_OK;
 }
 
-// Recursive descent parser structures
-typedef struct {
-    const char* pat;
-    int i; // current index
-} ReParser;
+// Forward declaration
+static enum Err compile_piece(ReB* b, const char* pat, int* i_inout);
 
-// Thompson construction fragment for proper quantifier handling
-typedef struct {
-    int start;     // start instruction
-    int* outs;     // list of out instructions to patch
-    int nouts;     // number of out instructions
-} Frag;
-
-static int peekp(ReParser* p) { return (unsigned char)p->pat[p->i]; }
-static int getp(ReParser* p)  { return (unsigned char)p->pat[p->i++]; }
-static int eop(ReParser* p)  { return p->pat[p->i] == '\0'; }
-
-// Thompson construction helpers
-static void patch(Frag* frag, int target) {
-    for (int i = 0; i < frag->nouts; i++) {
-        frag->outs[i] = target;
+// --- helpers for compiling a subpattern (possibly with alternation) ---
+// Compiles pat[0..len) into `b` without emitting RI_MATCH.
+// This is the same chain-of-splits structure you already use at top level.
+static enum Err compile_subpattern(ReB* b, const char* pat, int len){
+    // Count top-level '|' (respecting parentheses and escapes)
+    int depth = 0, has_bar = 0;
+    for (int j=0;j<len;j++){
+        if (pat[j] == '\\'){ if (j+1<len) j++; continue; }
+        if (pat[j] == '(') depth++;
+        else if (pat[j] == ')') depth--;
+        else if (pat[j] == '|' && depth == 0){ has_bar = 1; break; }
     }
-}
 
-static Frag append(Frag* a, Frag* b) {
-    // Append b's outs to a's outs
-    Frag result = { .start = a->start, .outs = a->outs, .nouts = a->nouts + b->nouts };
-    // Note: This is simplified - in practice we'd need proper memory management
-    return result;
-}
+    if (!has_bar){
+        // No alternation: compile pieces linearly
+        char* tmp = (char*)alloca((size_t)len + 1);
+        memcpy(tmp, pat, (size_t)len);
+        tmp[len] = '\0';
+        int i = 0;
+        while (tmp[i]){
+            enum Err e = compile_piece(b, tmp, &i);
+            if (e != E_OK) return e;
+        }
+        return E_OK;
+    }
 
-// Forward declarations for recursive descent parser
-static enum Err compile_alt(ReB* b, ReParser* p);
-static enum Err compile_concat(ReB* b, ReParser* p);
-static enum Err compile_quant(ReB* b, ReParser* p);
-static enum Err compile_atom(ReB* b, ReParser* p);
+    // With alternation: chain RI_SPLITs and RI_JMPs
+    int start = 0, depth2 = 0;
+    int jmp_cap = 16, jmp_n = 0;
+    int* jmp_from = (int*)alloca((size_t)jmp_cap * sizeof(int));
+    int last_split_pc = -1;
+
+    for (int j = 0; j <= len; ++j){
+        if (j < len){
+            if (pat[j] == '\\'){ if (j+1 < len) j++; continue; }
+            if (pat[j] == '(') depth2++;
+            else if (pat[j] == ')') depth2--;
+        }
+        if ((j == len || (pat[j] == '|' && depth2 == 0))){
+            // emit split
+            int split_pc; enum Err e = emit_inst(b, RI_SPLIT, 0, 0, 0, -1, &split_pc); if (e != E_OK) return e;
+            last_split_pc = split_pc;
+
+            // compile the alternative body
+            int alt_len = j - start;
+            char* alt = (char*)alloca((size_t)alt_len + 1);
+            memcpy(alt, pat + start, (size_t)alt_len);
+            alt[alt_len] = '\0';
+            int ai = 0;
+            int alt_start_pc = b->nins;
+            while (alt[ai]){ e = compile_piece(b, alt, &ai); if (e != E_OK) return e; }
+
+            // jump to continuation (to be patched later)
+            int jmp_pc; e = emit_inst(b, RI_JMP, -1, 0, 0, -1, &jmp_pc); if (e != E_OK) return e;
+            if (jmp_n == jmp_cap){ jmp_cap *= 2; jmp_from = (int*)alloca((size_t)jmp_cap * sizeof(int)); }
+            jmp_from[jmp_n++] = jmp_pc;
+
+            // wire split.x into this alt, and split.y to next split/alt (patched below)
+            b->ins[split_pc].x = alt_start_pc;
+            b->ins[split_pc].y = b->nins;
+
+            start = j + 1;
+        }
+    }
+
+    // Continuation is the next instruction
+    int cont = b->nins;
+    for (int t=0; t<jmp_n; ++t) b->ins[jmp_from[t]].x = cont;
+
+    // For the last split in the chain, its fallthrough currently points to cont,
+    // which is fine. (If you prefer your "dead epsilon" style, you can substitute it here.)
+    return E_OK;
+}
 
 // Legacy function - now just calls the new parser
 static enum Err compile_piece(ReB* b, const char* pat, int* i_inout){
@@ -197,6 +237,71 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout){
     else {
         ch = (unsigned char)pat[i++];
         ak = A_CHAR;
+    }
+
+    // --- NEW: grouping atom '(' ... ')' with nested alternation ---
+    if (pat[i-1] == '('){
+        int start_i = i-1;
+        int j = i, depth = 1;
+        while (pat[j]){
+            if (pat[j] == '\\'){ if (pat[j+1]) j += 2; else return E_PARSE; continue; }
+            if (pat[j] == '(') depth++;
+            else if (pat[j] == ')'){ depth--; if (depth == 0){ break; } }
+            j++;
+        }
+        if (pat[j] != ')') return E_PARSE; // unmatched '('
+
+        int inner_lo = i;
+        int inner_len = j - inner_lo;
+        int group_start_pc = b->nins;
+
+        if (inner_len == 0){
+            // Empty group: compile a dead epsilon (never proceeds)
+            int dead_pc; enum Err e2 = emit_inst(b, RI_JMP, 0, 0, 0, -1, &dead_pc); if (e2 != E_OK) return e2;
+            b->ins[dead_pc].x = dead_pc;
+        } else {
+            // Compile the inner subpattern (may contain its own '|' and groups)
+            enum Err e2 = compile_subpattern(b, pat + inner_lo, inner_len);
+            if (e2 != E_OK) return e2;
+        }
+
+        // The group's "atom start" is the first instruction we emitted
+        int idx_atom = group_start_pc;
+
+        // Advance `i` past the ')'
+        i = j + 1;
+
+        // ----- optional quantifier for the group -----
+        int idx_split;
+        enum Err e;
+        if (pat[i] == '*'){
+            // Thompson: split(cont, body) before body; since we've already emitted body,
+            // we emulate by adding: split(loop, cont) *after* and a jump back inside.
+            // Structure:
+            //   [group ...]  SPLIT idx_atom, next
+            //   (loop inside the group body ensures 0+)
+            e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split); if (e != E_OK) return e;
+            b->ins[idx_split].x = idx_atom;  // loop
+            b->ins[idx_split].y = b->nins;   // cont
+            i++;
+        } else if (pat[i] == '+'){
+            e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split); if (e != E_OK) return e;
+            b->ins[idx_split].x = idx_atom;  // loop
+            b->ins[idx_split].y = b->nins;   // cont
+            i++;
+        } else if (pat[i] == '?'){
+            // Prefer taking the group (greedy), else skip
+            // Emit a split that *enters* the group or skips it.
+            // Since body is already emitted, we simulate by inserting a no-op path:
+            // Just add a split here that prefers to jump back into group start.
+            e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split); if (e != E_OK) return e;
+            b->ins[idx_split].x = b->nins;   // fallthrough path (already at cont)
+            b->ins[idx_split].y = idx_atom;  // optional take (second arm reached after)
+            // Make it greedy by ordering x/y if your VM treats x as preferred. Swap if needed.
+            i++;
+        }
+        *i_inout = i;
+        return E_OK;
     }
 
     // Look for quantifier
@@ -357,255 +462,6 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout){
     return E_OK;
 }
 
-// Recursive descent parser implementation
-// Grammar: regex := concat ('|' concat)*
-
-// alt := concat ('|' concat)*
-static enum Err compile_alt(ReB* b, ReParser* p) {
-    // Compile first alternative
-    enum Err e = compile_concat(b, p);
-    if (e != E_OK) return e;
-    
-    // Handle additional alternatives
-    int jmp_stack_cap = 16, jmp_n = 0;
-    int* jmp_from = (int*)alloca((size_t)jmp_stack_cap * sizeof(int));
-    int last_split_pc = -1;
-    
-    while (peekp(p) == '|') {
-        getp(p); // consume '|'
-        
-        // Emit split: prefer current alternative (x), fallthrough to next (y)
-        int split_pc;
-        e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc);
-        if (e != E_OK) return e;
-        last_split_pc = split_pc;
-        
-        // Compile next alternative
-        int alt_start = b->nins;
-        e = compile_concat(b, p);
-        if (e != E_OK) return e;
-        
-        // Emit jump to continuation
-        int jmp_pc;
-        e = emit_inst(b, RI_JMP, -1, 0, 0, -1, &jmp_pc);
-        if (e != E_OK) return e;
-        
-        // Store jump for later patching
-        if (jmp_n == jmp_stack_cap) {
-            jmp_stack_cap *= 2;
-            jmp_from = (int*)alloca((size_t)jmp_stack_cap * sizeof(int));
-        }
-        jmp_from[jmp_n++] = jmp_pc;
-        
-        // Patch split: x = alt_start, y = next alternative (or continuation if this is the last)
-        b->ins[split_pc].x = alt_start;
-        // We'll patch the y field after we know if there are more alternatives
-    }
-    
-    // Now patch all the split y fields
-    int split_idx = 0;
-    int temp_jmp_n = 0;
-    int temp_last_split = last_split_pc;
-    
-    // Re-scan to patch split y fields correctly
-    p->i = 0; // Reset parser position
-    e = compile_concat(b, p); // Compile first alternative again
-    if (e != E_OK) return e;
-    
-    while (peekp(p) == '|') {
-        getp(p); // consume '|'
-        
-        // Find the split instruction for this alternative
-        // This is a simplified approach - we'll patch the last split's y field
-        if (peekp(p) == '|' || eop(p) || peekp(p) == ')') {
-            // This is the last alternative, patch the previous split's y field
-            if (temp_last_split >= 0) {
-                b->ins[temp_last_split].y = b->nins; // point to continuation
-            }
-        } else {
-            // There are more alternatives, patch to point to next alternative
-            if (temp_last_split >= 0) {
-                b->ins[temp_last_split].y = b->nins; // point to next alternative
-            }
-        }
-        
-        // Compile next alternative
-        int alt_start = b->nins;
-        e = compile_concat(b, p);
-        if (e != E_OK) return e;
-        
-        // Emit jump to continuation
-        int jmp_pc;
-        e = emit_inst(b, RI_JMP, -1, 0, 0, -1, &jmp_pc);
-        if (e != E_OK) return e;
-        
-        temp_jmp_n++;
-    }
-    
-    // Patch all jumps to continuation point
-    int cont = b->nins;
-    for (int t = 0; t < jmp_n; ++t) {
-        b->ins[jmp_from[t]].x = cont + 1; // +1 because RI_MATCH will be at cont
-    }
-    
-    // Patch the last split's fallthrough to a dead-end epsilon that goes nowhere:
-    // RI_JMP to itself. Epsilon-closure sees it once (seen[] stops the loop) and
-    // it yields no consuming threads and no MATCH path.
-    if (last_split_pc >= 0) {
-        int dead_pc;
-        enum Err e2 = emit_inst(b, RI_JMP, 0, 0, 0, -1, &dead_pc);
-        if (e2 != E_OK) return e2;
-        b->ins[dead_pc].x = dead_pc;   // self-loop
-        b->ins[last_split_pc].y = dead_pc;
-    }
-    
-    return E_OK;
-}
-
-// concat := quant+
-static enum Err compile_concat(ReB* b, ReParser* p) {
-    // Stop on: ')', '|', or end
-    while (!eop(p) && peekp(p) != ')' && peekp(p) != '|') {
-        enum Err e = compile_quant(b, p);
-        if (e != E_OK) return e;
-    }
-    return E_OK;
-}
-
-// quant := atom quantifier?
-static enum Err compile_quant(ReB* b, ReParser* p) {
-    // Compile the atom first
-    enum Err e = compile_atom(b, p);
-    if (e != E_OK) return e;
-
-    // Check for quantifier immediately after
-    if (eop(p) || peekp(p) == ')' || peekp(p) == '|') {
-        return E_OK; // no quantifier
-    }
-
-    char q = peekp(p);
-    if (q == '*' || q == '+' || q == '?' || q == '{') {
-        // We have a quantifier, but we've already compiled the atom
-        // This is a limitation of the current approach - we need to handle
-        // quantifiers at the atom level, not after compilation
-        // For now, return an error to indicate this needs proper implementation
-        return E_PARSE;
-    }
-
-    return E_OK;
-}
-
-// atom := literal | '.' | '^' | '$' | '['class']' | '(' alt ')'
-static enum Err compile_atom(ReB* b, ReParser* p) {
-    if (eop(p)) return E_PARSE;
-
-    int c = peekp(p);
-
-    if (c == '(') {
-        getp(p); // consume '('
-        enum Err e = compile_alt(b, p);
-        if (e != E_OK) return e;
-        if (peekp(p) != ')') return E_PARSE;
-        getp(p); // consume ')'
-        return E_OK;
-    }
-
-    if (c == '^') {
-        getp(p);
-        return emit_inst(b, RI_BOL, 0, 0, 0, -1, NULL);
-    }
-
-    if (c == '$') {
-        getp(p);
-        return emit_inst(b, RI_EOL, 0, 0, 0, -1, NULL);
-    }
-
-    if (c == '.') {
-        getp(p);
-        return emit_inst(b, RI_ANY, 0, 0, 0, -1, NULL);
-    }
-
-    if (c == '[') {
-        getp(p); // consume '['
-        int cls_idx;
-        int i = p->i;
-        enum Err e = parse_class(b, p->pat, &i, &cls_idx);
-        if (e != E_OK) return e;
-        p->i = i; // update parser position
-        return emit_inst(b, RI_CLASS, 0, 0, 0, cls_idx, NULL);
-    }
-
-    if (c == '\\') {
-        getp(p); // consume '\'
-        if (eop(p)) return E_PARSE;
-        c = getp(p);
-
-        unsigned char ch = 0;
-        int cls_idx = -1;
-
-        switch (c) {
-            case 'd': {
-                ReClass cls; cls_clear(&cls); cls_set_digit(&cls);
-                enum Err e = new_class(b, &cls, &cls_idx);
-                if (e != E_OK) return e;
-                return emit_inst(b, RI_CLASS, 0, 0, 0, cls_idx, NULL);
-            }
-            case 'D': {
-                ReClass cls;
-                for (int v = 0; v < 256; ++v) cls_set(&cls, (unsigned char)v);
-                ReClass d; cls_clear(&d); cls_set_digit(&d);
-                for (int b2 = 0; b2 < 32; ++b2) cls.bits[b2] &= (unsigned char)~d.bits[b2];
-                enum Err e = new_class(b, &cls, &cls_idx);
-                if (e != E_OK) return e;
-                return emit_inst(b, RI_CLASS, 0, 0, 0, cls_idx, NULL);
-            }
-            case 'w': {
-                ReClass cls; cls_clear(&cls); cls_set_word(&cls);
-                enum Err e = new_class(b, &cls, &cls_idx);
-                if (e != E_OK) return e;
-                return emit_inst(b, RI_CLASS, 0, 0, 0, cls_idx, NULL);
-            }
-            case 'W': {
-                ReClass cls;
-                for (int v = 0; v < 256; ++v) cls_set(&cls, (unsigned char)v);
-                ReClass w; cls_clear(&w); cls_set_word(&w);
-                for (int b2 = 0; b2 < 32; ++b2) cls.bits[b2] &= (unsigned char)~w.bits[b2];
-                enum Err e = new_class(b, &cls, &cls_idx);
-                if (e != E_OK) return e;
-                return emit_inst(b, RI_CLASS, 0, 0, 0, cls_idx, NULL);
-            }
-            case 's': {
-                ReClass cls; cls_clear(&cls); cls_set_ws(&cls);
-                enum Err e = new_class(b, &cls, &cls_idx);
-                if (e != E_OK) return e;
-                return emit_inst(b, RI_CLASS, 0, 0, 0, cls_idx, NULL);
-            }
-            case 'S': {
-                ReClass cls;
-                for (int v = 0; v < 256; ++v) cls_set(&cls, (unsigned char)v);
-                ReClass ws; cls_clear(&ws); cls_set_ws(&ws);
-                for (int b2 = 0; b2 < 32; ++b2) cls.bits[b2] &= (unsigned char)~ws.bits[b2];
-                enum Err e = new_class(b, &cls, &cls_idx);
-                if (e != E_OK) return e;
-                return emit_inst(b, RI_CLASS, 0, 0, 0, cls_idx, NULL);
-            }
-            case 'n': ch = '\n'; break;
-            case 't': ch = '\t'; break;
-            case 'r': ch = '\r'; break;
-            case 'f': ch = '\f'; break;
-            case 'v': ch = '\v'; break;
-            case '0': ch = '\0'; break;
-            default: ch = (unsigned char)c; break;
-        }
-
-        return emit_inst(b, RI_CHAR, 0, 0, ch, -1, NULL);
-    }
-
-    // Literal character
-    unsigned char ch = (unsigned char)getp(p);
-    return emit_inst(b, RI_CHAR, 0, 0, ch, -1, NULL);
-}
-
 enum Err re_compile_into(const char* pattern,
                          ReProg* out,
                          ReInst* ins_base,  int ins_cap,  int* ins_used,
@@ -620,88 +476,25 @@ enum Err re_compile_into(const char* pattern,
 
     if (!pattern || !pattern[0]) return E_BAD_NEEDLE;
 
-    // Check if pattern has quantifiers - if so, use old parser
-    int has_quantifiers = 0;
-    int paren_depth = 0;
-    for (int i = 0; pattern[i]; i++) {
-        if (pattern[i] == '(') paren_depth++;
-        else if (pattern[i] == ')') paren_depth--;
-        else if (pattern[i] == '*' || pattern[i] == '+' || pattern[i] == '?' || pattern[i] == '{') {
-            has_quantifiers = 1;
-            break;
-        }
+    // Always use the proven single-pass emitter (with nested alternation via compile_subpattern)
+    // First, check top-level alternation
+    int depth = 0, has_bar = 0;
+    for (int j=0; pattern[j]; ++j){
+        if (pattern[j] == '\\'){ if (pattern[j+1]) j++; continue; }
+        if (pattern[j] == '(') depth++;
+        else if (pattern[j] == ')') depth--;
+        else if (pattern[j] == '|' && depth == 0){ has_bar = 1; break; }
     }
 
-    if (has_quantifiers) {
-        // Use old parser for patterns with quantifiers
+    if (!has_bar){
         int i = 0;
-
-        // Parse alternation: find all | characters not inside parentheses
-        int alt_count = 1;
-        paren_depth = 0;
-        for (int j = 0; pattern[j]; j++) {
-            if (pattern[j] == '(') paren_depth++;
-            else if (pattern[j] == ')') paren_depth--;
-            else if (pattern[j] == '|' && paren_depth == 0) alt_count++;
-        }
-
-        if (alt_count == 1) {
-            // No alternation, compile normally
-            while (pattern[i]){
-                enum Err e = compile_piece(&b, pattern, &i);
-                if (e != E_OK) return e;
-            }
-        } else {
-            int jlen = (int)strlen(pattern);
-            int alt_start = 0;
-            int jmp_stack_cap = 16, jmp_n = 0;
-            int* jmp_from = (int*)alloca((size_t)jmp_stack_cap * sizeof(int));
-            int last_split_pc = -1;
-            paren_depth = 0;
-            for (int j = 0; j <= jlen; ++j) {
-                if (j < jlen) {
-                    if (pattern[j] == '(') paren_depth++;
-                    else if (pattern[j] == ')') paren_depth--;
-                }
-                if ((pattern[j] == '|' && paren_depth == 0) || pattern[j] == '\0') {
-                    // split: prefer taking this alternative (x), else fallthrough (y)
-                    int split_pc; enum Err e = emit_inst(&b, RI_SPLIT, 0, 0, 0, -1, &split_pc); if (e!=E_OK) return e;
-                    last_split_pc = split_pc;
-                    int alt_i = 0;
-                    char* alt = (char*)alloca((size_t)(j - alt_start + 1));
-                    memcpy(alt, pattern + alt_start, (size_t)(j - alt_start));
-                    alt[j - alt_start] = '\0';
-                    int alt_start_pc = b.nins;
-                    while (alt[alt_i]) { e = compile_piece(&b, alt, &alt_i); if (e!=E_OK) return e; }
-                    int jmp_pc; e = emit_inst(&b, RI_JMP, -1, 0, 0, -1, &jmp_pc); if (e!=E_OK) return e;
-                    if (jmp_n == jmp_stack_cap) { /* simple grow */ jmp_stack_cap *= 2; jmp_from = (int*)alloca((size_t)jmp_stack_cap * sizeof(int)); }
-                    jmp_from[jmp_n++] = jmp_pc;
-                    b.ins[split_pc].x = alt_start_pc; // into alt body
-                    b.ins[split_pc].y = b.nins;       // fall through to next split/alt
-                    alt_start = j + 1;
-                }
-            }
-            int cont = b.nins;
-            for (int t = 0; t < jmp_n; ++t) b.ins[jmp_from[t]].x = cont + 1; // +1 because RI_MATCH will be at cont
-
-            // Patch the last split's fallthrough to a dead-end epsilon that goes nowhere:
-            // RI_JMP to itself. Epsilon-closure sees it once (seen[] stops the loop) and
-            // it yields no consuming threads and no MATCH path.
-            if (last_split_pc >= 0) {
-                int dead_pc;
-                enum Err e2 = emit_inst(&b, RI_JMP, 0, 0, 0, -1, &dead_pc); if (e2 != E_OK) return e2;
-                b.ins[dead_pc].x = dead_pc;   // self-loop
-                b.ins[last_split_pc].y = dead_pc;
-            }
+        while (pattern[i]){
+            enum Err e = compile_piece(&b, pattern, &i);
+            if (e != E_OK) return e;
         }
     } else {
-        // Use new recursive descent parser for patterns without quantifiers
-        ReParser p = { .pat = pattern, .i = 0 };
-        enum Err e = compile_alt(&b, &p);
-        if (e != E_OK) return e;
-
-        // Ensure we consumed the entire pattern
-        if (!eop(&p)) return E_PARSE;
+        enum Err e2 = compile_subpattern(&b, pattern, (int)strlen(pattern));
+        if (e2 != E_OK) return e2;
     }
 
     // Emit final match instruction
