@@ -117,21 +117,20 @@ static enum Err parse_class(ReB* b, const char* pat, int* i_inout, int* out_cls_
 // Forward declaration
 static enum Err compile_piece(ReB* b, const char* pat, int* i_inout);
 
-// --- helpers for compiling a subpattern (possibly with alternation) ---
 // Compiles pat[0..len) into `b` without emitting RI_MATCH.
-// This is the same chain-of-splits structure you already use at top level.
+// Uses N-1 splits so there is no epsilon path that skips all alts.
 static enum Err compile_subpattern(ReB* b, const char* pat, int len){
-    // Count top-level '|' (respecting parentheses and escapes)
-    int depth = 0, has_bar = 0;
-    for (int j=0;j<len;j++){
-        if (pat[j] == '\\'){ if (j+1<len) j++; continue; }
-        if (pat[j] == '(') depth++;
-        else if (pat[j] == ')') depth--;
-        else if (pat[j] == '|' && depth == 0){ has_bar = 1; break; }
+    // 1) Collect top-level alternatives (respect escapes/parentheses)
+    int depth = 0, nalt = 1;
+    for (int j=0; j<len; ++j){
+        if (pat[j] == '\\'){ if (j+1<len) ++j; continue; }
+        if (pat[j] == '(') ++depth;
+        else if (pat[j] == ')') --depth;
+        else if (pat[j] == '|' && depth == 0) ++nalt;
     }
 
-    if (!has_bar){
-        // No alternation: compile pieces linearly
+    // Single alt: compile linearly and return
+    if (nalt == 1){
         char* tmp = (char*)alloca((size_t)len + 1);
         memcpy(tmp, pat, (size_t)len);
         tmp[len] = '\0';
@@ -143,51 +142,59 @@ static enum Err compile_subpattern(ReB* b, const char* pat, int len){
         return E_OK;
     }
 
-    // With alternation: chain RI_SPLITs and RI_JMPs
-    int start = 0, depth2 = 0;
-    int jmp_cap = 16, jmp_n = 0;
-    int* jmp_from = (int*)alloca((size_t)jmp_cap * sizeof(int));
-    int last_split_pc = -1;
-
-    for (int j = 0; j <= len; ++j){
-        if (j < len){
-            if (pat[j] == '\\'){ if (j+1 < len) j++; continue; }
-            if (pat[j] == '(') depth2++;
-            else if (pat[j] == ')') depth2--;
-        }
-        if ((j == len || (pat[j] == '|' && depth2 == 0))){
-            // emit split
-            int split_pc; enum Err e = emit_inst(b, RI_SPLIT, 0, 0, 0, -1, &split_pc); if (e != E_OK) return e;
-            last_split_pc = split_pc;
-
-            // compile the alternative body
-            int alt_len = j - start;
-            char* alt = (char*)alloca((size_t)alt_len + 1);
-            memcpy(alt, pat + start, (size_t)alt_len);
-            alt[alt_len] = '\0';
-            int ai = 0;
-            int alt_start_pc = b->nins;
-            while (alt[ai]){ e = compile_piece(b, alt, &ai); if (e != E_OK) return e; }
-
-            // jump to continuation (to be patched later)
-            int jmp_pc; e = emit_inst(b, RI_JMP, -1, 0, 0, -1, &jmp_pc); if (e != E_OK) return e;
-            if (jmp_n == jmp_cap){ jmp_cap *= 2; jmp_from = (int*)alloca((size_t)jmp_cap * sizeof(int)); }
-            jmp_from[jmp_n++] = jmp_pc;
-
-            // wire split.x into this alt, and split.y to next split/alt (patched below)
-            b->ins[split_pc].x = alt_start_pc;
-            b->ins[split_pc].y = b->nins;
-
-            start = j + 1;
+    // 2) Record (lo,len) for each alt
+    int* lo   = (int*)alloca((size_t)nalt * sizeof(int));
+    int* alen = (int*)alloca((size_t)nalt * sizeof(int));
+    int k = 0, start = 0; depth = 0;
+    for (int j=0; j<len; ++j){
+        if (pat[j] == '\\'){ if (j+1<len) ++j; continue; }
+        if (pat[j] == '(') ++depth;
+        else if (pat[j] == ')') --depth;
+        else if (pat[j] == '|' && depth == 0){
+            lo[k] = start; alen[k] = j - start; ++k; start = j + 1;
         }
     }
+    lo[k] = start; alen[k] = len - start; /* k == nalt-1 */
 
-    // Continuation is the next instruction
+    // 3) Emit N-1 splits + all alt bodies
+    int* split_pc     = (int*)alloca((size_t)(nalt-1) * sizeof(int));
+    int* alt_start_pc = (int*)alloca((size_t)nalt     * sizeof(int));
+    int* jmp_pc       = (int*)alloca((size_t)nalt     * sizeof(int));
+
+    enum Err e;
+    // Emit a split before each of the first N-1 alts, then their bodies
+    for (int i=0; i<nalt-1; ++i){
+        e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc[i]); if (e != E_OK) return e;
+
+        alt_start_pc[i] = b->nins;
+        // compile alt i
+        char* frag = (char*)alloca((size_t)alen[i] + 1);
+        memcpy(frag, pat + lo[i], (size_t)alen[i]);
+        frag[alen[i]] = '\0';
+        int pi = 0;
+        while (frag[pi]){ e = compile_piece(b, frag, &pi); if (e != E_OK) return e; }
+
+        e = emit_inst(b, RI_JMP, -1, 0, 0, -1, &jmp_pc[i]); if (e != E_OK) return e;
+    }
+
+    // Last alternative (no leading split)
+    alt_start_pc[nalt-1] = b->nins;
+    char* last = (char*)alloca((size_t)alen[nalt-1] + 1);
+    memcpy(last, pat + lo[nalt-1], (size_t)alen[nalt-1]);
+    last[alen[nalt-1]] = '\0';
+    int pi = 0;
+    while (last[pi]){ e = compile_piece(b, last, &pi); if (e != E_OK) return e; }
+    e = emit_inst(b, RI_JMP, -1, 0, 0, -1, &jmp_pc[nalt-1]); if (e != E_OK) return e;
+
+    // 4) Continuation point and patching
     int cont = b->nins;
-    for (int t=0; t<jmp_n; ++t) b->ins[jmp_from[t]].x = cont;
+    for (int i=0; i<nalt; ++i) b->ins[jmp_pc[i]].x = cont;
 
-    // For the last split in the chain, its fallthrough currently points to cont,
-    // which is fine. (If you prefer your "dead epsilon" style, you can substitute it here.)
+    for (int i=0; i<nalt-1; ++i){
+        b->ins[split_pc[i]].x = alt_start_pc[i];
+        b->ins[split_pc[i]].y = (i+1 < nalt-1) ? split_pc[i+1] : alt_start_pc[nalt-1];
+    }
+
     return E_OK;
 }
 
