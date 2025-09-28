@@ -109,7 +109,6 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                     idx++;
                 }
             } else if (strcmp(cmd, "findr") == 0) {
-                plan->total_ops++;
                 idx++;
                 if (idx < token_count && strcmp(tokens[idx], "to") == 0) {
                     idx++;
