@@ -260,53 +260,65 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout){
 
         int inner_lo = i;
         int inner_len = j - inner_lo;
-        int group_start_pc = b->nins;
+        char q = pat[j + 1];      // quantifier char (if present)
 
+        // Handle empty group
         if (inner_len == 0){
             // Empty group: compile a dead epsilon (never proceeds)
             int dead_pc; enum Err e2 = emit_inst(b, RI_JMP, 0, 0, 0, -1, &dead_pc); if (e2 != E_OK) return e2;
             b->ins[dead_pc].x = dead_pc;
-        } else {
-            // Compile the inner subpattern (may contain its own '|' and groups)
-            enum Err e2 = compile_subpattern(b, pat + inner_lo, inner_len);
-            if (e2 != E_OK) return e2;
+            i = j + 1;
+            *i_inout = i;
+            return E_OK;
         }
 
-        // The group's "atom start" is the first instruction we emitted
-        int idx_atom = group_start_pc;
-
-        // Advance `i` past the ')'
-        i = j + 1;
-
-        // ----- optional quantifier for the group -----
-        int idx_split;
         enum Err e;
-        if (pat[i] == '*'){
-            // Thompson: split(cont, body) before body; since we've already emitted body,
-            // we emulate by adding: split(loop, cont) *after* and a jump back inside.
-            // Structure:
-            //   [group ...]  SPLIT idx_atom, next
-            //   (loop inside the group body ensures 0+)
-            e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split); if (e != E_OK) return e;
-            b->ins[idx_split].x = idx_atom;  // loop
-            b->ins[idx_split].y = b->nins;   // cont
-            i++;
-        } else if (pat[i] == '+'){
-            e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split); if (e != E_OK) return e;
-            b->ins[idx_split].x = idx_atom;  // loop
-            b->ins[idx_split].y = b->nins;   // cont
-            i++;
-        } else if (pat[i] == '?'){
-            // Prefer taking the group (greedy), else skip
-            // Emit a split that *enters* the group or skips it.
-            // Since body is already emitted, we simulate by inserting a no-op path:
-            // Just add a split here that prefers to jump back into group start.
-            e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split); if (e != E_OK) return e;
-            b->ins[idx_split].x = b->nins;   // fallthrough path (already at cont)
-            b->ins[idx_split].y = idx_atom;  // optional take (second arm reached after)
-            // Make it greedy by ordering x/y if your VM treats x as preferred. Swap if needed.
-            i++;
+        int split_pc, group_entry, cont, jmp_pc;
+
+        // Use canonical Thompson constructions based on quantifier
+        if (q == '?'){
+            // ( ... )? - pre-split: split(take, skip)
+            e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc); if (e != E_OK) return e;
+
+            group_entry = b->nins;
+            e = compile_subpattern(b, pat + inner_lo, inner_len); if (e != E_OK) return e;
+            cont = b->nins;
+
+            b->ins[split_pc].x = group_entry;  // take
+            b->ins[split_pc].y = cont;         // skip
+
+            i = j + 2; // past '?'
+        } else if (q == '*'){
+            // ( ... )* - pre-split + back-jump: split(take, next), body, jmp split
+            e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc); if (e != E_OK) return e;
+
+            group_entry = b->nins;
+            e = compile_subpattern(b, pat + inner_lo, inner_len); if (e != E_OK) return e;
+
+            e = emit_inst(b, RI_JMP, split_pc, 0, 0, -1, &jmp_pc); if (e != E_OK) return e;
+
+            cont = b->nins;
+            b->ins[split_pc].x = group_entry;  // take one more (greedy)
+            b->ins[split_pc].y = cont;         // or stop here
+
+            i = j + 2; // past '*'
+        } else if (q == '+'){
+            // ( ... )+ - post-split loop: body, split(start, next)
+            // Use the same pattern as single-atom +: atom, then split(atom, next)
+            group_entry = b->nins;
+            e = compile_subpattern(b, pat + inner_lo, inner_len); if (e != E_OK) return e;
+
+            e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc); if (e != E_OK) return e;
+            b->ins[split_pc].x = group_entry; // loop back to group start
+            b->ins[split_pc].y = b->nins;     // fallthrough to next instruction
+
+            i = j + 2; // past '+'
+        } else {
+            // No quantifier - just compile the body
+            e = compile_subpattern(b, pat + inner_lo, inner_len); if (e != E_OK) return e;
+            i = j + 1;
         }
+
         *i_inout = i;
         return E_OK;
     }

@@ -1486,6 +1486,31 @@ def tests():
         dict(id="regex-092-grouping-multiline-after-newline",
              tokens=["findr","^(a|b)","take","+1b"], input_file="-", stdin=b"xyz\na",
              expect=dict(stdout="a", exit=0)),
+
+        # Regression tests for grouped quantifiers (catch issues old implementation accidentally allowed)
+        dict(id="regex-093-star-quantifier-multiple-repeats",
+             tokens=["findr","(ab)*x","take","to","match-end"], input_file="-", stdin=b"ababx",
+             expect=dict(stdout="ababx", exit=0)),
+
+        dict(id="regex-094-question-quantifier-zero-occurrences",
+             tokens=["findr","(ab)?x","take","to","match-end"], input_file="-", stdin=b"x",
+             expect=dict(stdout="x", exit=0)),
+
+        dict(id="regex-095-question-quantifier-one-occurrence",
+             tokens=["findr","(ab)?x","take","to","match-end"], input_file="-", stdin=b"abx",
+             expect=dict(stdout="abx", exit=0)),
+
+        dict(id="regex-096-question-quantifier-not-require-two",
+             tokens=["findr","(ab)?x","take","to","match-end"], input_file="-", stdin=b"ababx",
+             expect=dict(stdout="x", exit=0)),  # Should find first match, not require 2 occurrences
+
+        dict(id="regex-097-plus-quantifier-requires-one",
+             tokens=["findr","(ab)+x"], input_file="-", stdin=b"x",
+             expect=dict(stdout="", exit=2)),  # Should fail - requires at least one occurrence
+
+        dict(id="regex-098-plus-quantifier-multiple-occurrences",
+             tokens=["findr","(ab)+x","take","to","match-end"], input_file="-", stdin=b"ababx",
+             expect=dict(stdout="ababx", exit=0)),
     ]
 
 def main():

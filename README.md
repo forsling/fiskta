@@ -47,6 +47,7 @@ Search using **regular expressions** within a window from the **cursor** to `L` 
 
 * **Character Classes:** `\d` (digits), `\w` (word chars), `\s` (whitespace), `[a-z]`, `[^0-9]`
 * **Quantifiers:** `*` (0+), `+` (1+), `?` (0-1), `{n}` (exactly n), `{n,m}` (n to m), `{n,}` (n+)
+* **Grouping:** `( ... )` (group subpatterns), `(a|b)+` (quantified groups)
 * **Anchors:** `^` (line start), `$` (line end)
 * **Alternation:** `|` (OR)
 * **Escape Sequences:** `\n`, `\t`, `\r`, `\f`, `\v`, `\0`
@@ -59,6 +60,9 @@ findr "\\d{3}-\\d{3}-\\d{4}"           # phone number pattern
 findr "^ERROR"                         # ERROR at start of line
 findr "\\w+@\\w+\\.\\w+"               # email-like pattern
 findr "cat|dog"                        # alternation
+findr "(a|b)+"                         # grouped quantifier: one or more a or b
+findr "(ab)*"                          # grouped quantifier: zero or more ab
+findr "(cat|dog)?"                     # grouped quantifier: optional cat or dog
 findr to BOF "^HEADER"                 # HEADER at line start, backward search
 ```
 
@@ -285,6 +289,12 @@ fiskta findr "^ERROR" take to line-end file.txt
 
 # Find email addresses
 fiskta findr "\\w+@\\w+\\.\\w+" take +20b file.txt
+
+# Find repeated patterns (e.g., "ababab" or "catcatcat")
+fiskta findr "(ab)+" take to match-end file.txt
+
+# Find optional words (e.g., "cat" or "dog" followed by "x")
+fiskta findr "(cat|dog)?x" take to match-end file.txt
 
 # Previous 5 lines, then next 20 bytes
 fiskta take -5l take 20b file.txt
