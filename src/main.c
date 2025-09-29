@@ -146,15 +146,9 @@ static void vm_reset_full(VM* vm)
     vm->view.active = false;
     vm->view.lo = 0;
     vm->view.hi = 0;
-    vm->gen_counter = 0;
 
-    // Reset all labels
-    for (int i = 0; i < 32; i++) {
-        vm->labels[i].in_use = false;
-        vm->labels[i].name_idx = 0;
-        vm->labels[i].pos = 0;
-        vm->labels[i].gen = 0;
-    }
+    // Reset label arrays
+    memset(vm->label_set, 0, sizeof(vm->label_set));
 }
 
 static void print_usage(void)
@@ -426,7 +420,8 @@ int main(int argc, char** argv)
     VM vm = { 0 };
     vm.cursor = 0;
     vm.last_match.valid = false;
-    vm.gen_counter = 0;
+    // Initialize label arrays
+    memset(vm.label_set, 0, sizeof(vm.label_set));
 
     i32 ok = 0;
     enum Err last_err = E_OK;

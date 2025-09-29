@@ -163,7 +163,8 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     VM vm = { 0 };
     vm.cursor = 0;
     vm.last_match.valid = false;
-    vm.gen_counter = 0;
+    // Initialize label arrays
+    memset(vm.label_set, 0, sizeof(vm.label_set));
 
     // Execute each clause independently
     i32 successful_clauses = 0;
@@ -585,12 +586,9 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
 
         // If not found in staged labels, check committed labels
         if (!found) {
-            for (i32 i = 0; i < 32; i++) {
-                if (vm->labels[i].in_use && vm->labels[i].name_idx == loc->name_idx) {
-                    base = vm->labels[i].pos;
-                    found = true;
-                    break;
-                }
+            if (vm->label_set[loc->name_idx]) {
+                base = vm->label_pos[loc->name_idx];
+                found = true;
             }
         }
 
@@ -740,11 +738,22 @@ static enum Err resolve_loc_expr_cp(
     case LOC_BOF:    base = vbof(c_view);  break;
     case LOC_EOF:    base = veof(c_view, io); break;
     case LOC_NAME: {
-        bool found=false;
-        for (i32 i=0;i<staged_label_count;i++)
-            if (staged_labels[i].name_idx==loc->name_idx){ base=staged_labels[i].pos; found=true; break; }
-        if (!found) for (i32 j=0;j<32;j++)
-            if (vm->labels[j].in_use && vm->labels[j].name_idx==loc->name_idx){ base=vm->labels[j].pos; found=true; break; }
+        // Check staged labels first (overrides committed)
+        bool found = false;
+        for (i32 i = 0; i < staged_label_count; i++) {
+            if (staged_labels[i].name_idx == loc->name_idx) {
+                base = staged_labels[i].pos;
+                found = true;
+                break;
+            }
+        }
+        // If not found in staged, check committed labels
+        if (!found) {
+            if (vm->label_set[loc->name_idx]) {
+                base = vm->label_pos[loc->name_idx];
+                found = true;
+            }
+        }
         if (!found) return E_LOC_RESOLVE;
         break;
     }
@@ -847,40 +856,9 @@ static void commit_labels(VM* vm, const Program* prg, const LabelWrite* label_wr
     for (i32 i = 0; i < label_count; i++) {
         i32 name_idx = label_writes[i].name_idx;
         i64 pos = label_writes[i].pos;
-
-        // Find existing label or free slot
-        i32 slot = -1;
-        for (i32 j = 0; j < 32; j++) {
-            if (vm->labels[j].in_use && vm->labels[j].name_idx == name_idx) {
-                slot = j;
-                break;
-            }
-        }
-
-        if (slot == -1) {
-            // Find free slot
-            for (i32 j = 0; j < 32; j++) {
-                if (!vm->labels[j].in_use) {
-                    slot = j;
-                    break;
-                }
-            }
-
-            if (slot == -1) {
-                // Evict LRU (lowest gen)
-                slot = 0;
-                for (i32 j = 1; j < 32; j++) {
-                    if (vm->labels[j].gen < vm->labels[slot].gen) {
-                        slot = j;
-                    }
-                }
-            }
-        }
-
-        // Update slot
-        vm->labels[slot].name_idx = name_idx;
-        vm->labels[slot].pos = pos;
-        vm->labels[slot].gen = ++vm->gen_counter;
-        vm->labels[slot].in_use = true;
+        
+        // Direct assignment - no eviction needed
+        vm->label_pos[name_idx] = pos;
+        vm->label_set[name_idx] = 1;
     }
 }
