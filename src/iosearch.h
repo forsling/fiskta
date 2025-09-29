@@ -20,9 +20,9 @@ typedef struct {
     i64 block_lo; // file offset of block start (aligned to IDX_BLOCK)
     i64 block_hi; // file offset of block end   (<= block_lo + IDX_BLOCK, clipped at EOF)
     i32 sub_count; // number of subchunks = ceil((block_hi - block_lo)/IDX_SUB)
-    // For each subchunk, how many LF bytes are in that subchunk
-    // uint16 is enough: max 4096 LFs per 4 KiB
-    unsigned short* lf_counts; // length = sub_count
+    // For each subchunk, how many LF bytes are in that subchunk.
+    // uint16 is enough: max 4096 LFs per 4 KiB. Fixed-size to simplify ownership.
+    unsigned short lf_counts[IDX_SUB_MAX];
     u64 gen; // for LRU
     bool in_use;
 } LineBlockIdx;
@@ -33,7 +33,6 @@ typedef struct {
     // one reusable buffer for searching
     unsigned char* buf;
     size_t buf_cap; // allocate once, e.g., max(FW_WIN, BK_BLK + OVERLAP_MAX)
-    bool arena_backed; // if true, buf/lf_counts are arena-owned and must not be freed
 
     // Bounded LRU cache of line indices
     LineBlockIdx line_idx[IDX_MAX_BLOCKS];
@@ -53,10 +52,9 @@ typedef struct {
 enum Dir { DIR_FWD = +1,
     DIR_BWD = -1 };
 
-// io_open removed - use io_open_arena2 with arena allocation instead
-enum Err io_open_arena2(File* io, const char* path,
-    unsigned char* search_buf, size_t search_buf_cap,
-    unsigned short* counts_slab /* IDX_MAX_BLOCKS*IDX_SUB_MAX */);
+// Open using caller-provided search buffer. No dynamic ownership here.
+enum Err io_open(File* io, const char* path,
+    unsigned char* search_buf, size_t search_buf_cap);
 void io_close(File* io);
 void io_reset_full(File* io);
 enum Err io_emit(File* io, i64 start, i64 end, FILE* out);

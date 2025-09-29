@@ -11,7 +11,6 @@ typedef struct {
     i32 sum_label_ops;
     i32 needle_count;
     size_t needle_bytes;
-    i32 max_name_count;
     // Regex planning
     i32   sum_findr_ops;
     i32   re_ins_estimate;     // sum over patterns of ~4*len + 8
@@ -37,12 +36,12 @@ static const char* find_inline_offset_start(const char* s)
 // parse_clause removed - use parse_op_build with arena allocation instead
 // parse_op removed - use parse_op_build with arena allocation instead
 static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op, Program* prg,
-    char* str_pool, size_t* str_pool_off, size_t str_pool_cap, i32 max_name_count);
-static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg, i32 max_name_count);
+    char* str_pool, size_t* str_pool_off, size_t str_pool_cap);
+static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg);
 static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, AtExpr* at, Program* prg);
 static enum Err parse_signed_number(const char* token, i32* sign, u64* n, enum Unit* unit);
 // find_or_add_name removed - use find_or_add_name_build with arena allocation instead
-static i32 find_or_add_name_build(Program* prg, const char* name, i32 max_name_count);
+static i32 find_or_add_name_build(Program* prg, const char* name);
 static bool is_valid_label_name(const char* name);
 
 // Function declarations
@@ -51,7 +50,6 @@ static bool is_valid_label_name(const char* name);
 enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
 enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
     Clause* clauses_buf, Op* ops_buf,
-    char (*names_buf)[17], i32 max_name_count,
     char* str_pool, size_t str_pool_cap);
 
 // parse_program removed - use parse_build with arena allocation instead
@@ -92,10 +90,6 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                     idx++;
                     // Skip location expression
                     if (idx < token_count) {
-                        const char* loc_token = tokens[idx];
-                        if (is_valid_label_name(loc_token)) {
-                            plan->max_name_count++;
-                        }
                         idx++;
                         // Skip offset if present
                         if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
@@ -114,8 +108,6 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                 if (idx < token_count && strcmp(tokens[idx], "to") == 0) {
                     idx++;
                     if (idx < token_count) {
-                        const char* loc_token = tokens[idx];
-                        if (is_valid_label_name(loc_token)) plan->max_name_count++;
                         idx++;
                         if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) idx++;
                     }
@@ -151,10 +143,6 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                         idx++;
                         // Skip location expression
                         if (idx < token_count) {
-                            const char* loc_token = tokens[idx];
-                            if (is_valid_label_name(loc_token)) {
-                                plan->max_name_count++;
-                            }
                             idx++;
                             // Skip offset if present
                             if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
@@ -174,10 +162,6 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                         if (idx < token_count && strcmp(tokens[idx], "at") == 0) {
                             idx++;
                             if (idx < token_count) {
-                                const char* at_token = tokens[idx];
-                                if (is_valid_label_name(at_token)) {
-                                    plan->max_name_count++;
-                                }
                                 idx++;
                                 // Skip offset if present
                                 if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
@@ -195,19 +179,11 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                 plan->sum_label_ops++;
                 idx++;
                 if (idx < token_count) {
-                    const char* name = tokens[idx];
-                    if (is_valid_label_name(name)) {
-                        plan->max_name_count++;
-                    }
                     idx++;
                 }
             } else if (strcmp(cmd, "goto") == 0) {
                 idx++;
                 if (idx < token_count) {
-                    const char* loc_token = tokens[idx];
-                    if (is_valid_label_name(loc_token)) {
-                        plan->max_name_count++;
-                    }
                     idx++;
                     // Skip offset if present
                     if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
@@ -218,10 +194,6 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                 idx++;
                 // Skip two location expressions
                 if (idx < token_count) {
-                    const char* loc_token = tokens[idx];
-                    if (is_valid_label_name(loc_token)) {
-                        plan->max_name_count++;
-                    }
                     idx++;
                     // Skip offset if present
                     if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
@@ -229,10 +201,6 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                     }
                 }
                 if (idx < token_count) {
-                    const char* loc_token = tokens[idx];
-                    if (is_valid_label_name(loc_token)) {
-                        plan->max_name_count++;
-                    }
                     idx++;
                     // Skip offset if present
                     if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
@@ -256,7 +224,6 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
 
 enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
     Clause* clauses_buf, Op* ops_buf,
-    char (*names_buf)[17], i32 max_name_count,
     char* str_pool, size_t str_pool_cap)
 {
     memset(prg, 0, sizeof(*prg));
@@ -269,10 +236,9 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
     *in_path_out = in_path;
 
     // Initialize program with preallocated buffers
-    prg->clauses = clauses_buf;
+    prg->clauses     = clauses_buf;
     prg->clause_count = 0;
-    prg->names = names_buf;
-    prg->name_count = 0;
+    prg->name_count   = 0;
 
     // Track string pool usage
     size_t str_pool_off = 0;
@@ -364,7 +330,7 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
         idx = clause_start;
         while (idx < token_count && strcmp(tokens[idx], "::") != 0) {
             Op* op = &clause->ops[clause->op_count];
-            enum Err err = parse_op_build(tokens, &idx, token_count, op, prg, str_pool, &str_pool_off, str_pool_cap, max_name_count);
+            enum Err err = parse_op_build(tokens, &idx, token_count, op, prg, str_pool, &str_pool_off, str_pool_cap);
             if (err != E_OK) {
                 return err;
             }
@@ -382,7 +348,7 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
     return E_OK;
 }
 
-static i32 find_or_add_name_build(Program* prg, const char* name, i32 max_name_count)
+static i32 find_or_add_name_build(Program* prg, const char* name)
 {
     // Linear search for existing name
     for (i32 i = 0; i < prg->name_count; i++) {
@@ -392,7 +358,7 @@ static i32 find_or_add_name_build(Program* prg, const char* name, i32 max_name_c
     }
 
     // Add new name if space available
-    if (prg->name_count < max_name_count) {
+    if (prg->name_count < 128) {
         strcpy(prg->names[prg->name_count], name);
         return prg->name_count++;
     }
@@ -401,7 +367,7 @@ static i32 find_or_add_name_build(Program* prg, const char* name, i32 max_name_c
 }
 
 static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op, Program* prg,
-    char* str_pool, size_t* str_pool_off, size_t str_pool_cap, i32 max_name_count)
+    char* str_pool, size_t* str_pool_off, size_t str_pool_cap)
 {
     if (*idx >= token_count) {
         return E_PARSE;
@@ -415,7 +381,7 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
 
         if (*idx < token_count && strcmp(tokens[*idx], "to") == 0) {
             (*idx)++;
-            enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.find.to, prg, max_name_count);
+            enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.find.to, prg);
             if (err != E_OK)
                 return err;
         } else {
@@ -448,7 +414,7 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
 
             if (*idx < token_count && strcmp(tokens[*idx], "to") == 0) {
                 (*idx)++;
-                enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.findr.to, prg, max_name_count);
+                enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.findr.to, prg);
                 if (err != E_OK)
                     return err;
             } else {
@@ -485,7 +451,7 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         if (strcmp(next, "to") == 0) {
             op->kind = OP_TAKE_TO;
             (*idx)++;
-            enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.take_to.to, prg, max_name_count);
+            enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.take_to.to, prg);
             if (err != E_OK)
                 return err;
         } else if (strcmp(next, "until") == 0) {
@@ -539,7 +505,7 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         if (!is_valid_label_name(name))
             return E_LABEL_FMT;
 
-        i32 name_idx = find_or_add_name_build(prg, name, max_name_count);
+        i32 name_idx = find_or_add_name_build(prg, name);
         if (name_idx < 0)
             return E_OOM;
         op->u.label.name_idx = name_idx;
@@ -549,7 +515,7 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
 
         if (*idx >= token_count)
             return E_PARSE;
-        enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.go.to, prg, max_name_count);
+        enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.go.to, prg);
         if (err != E_OK)
             return err;
 
@@ -558,13 +524,13 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
 
         if (*idx >= token_count)
             return E_PARSE;
-        enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.viewset.a, prg, max_name_count);
+        enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.viewset.a, prg);
         if (err != E_OK)
             return err;
 
         if (*idx >= token_count)
             return E_PARSE;
-        err = parse_loc_expr_build(tokens, idx, token_count, &op->u.viewset.b, prg, max_name_count);
+        err = parse_loc_expr_build(tokens, idx, token_count, &op->u.viewset.b, prg);
         if (err != E_OK)
             return err;
 
@@ -579,7 +545,7 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
     return E_OK;
 }
 
-static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg, i32 max_name_count)
+static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg)
 {
     if (*idx >= token_count)
         return E_PARSE;
@@ -625,7 +591,7 @@ static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, L
         loc->base = LOC_LINE_END;
     } else if (is_valid_label_name(token)) {
         loc->base = LOC_NAME;
-        i32 name_idx = find_or_add_name_build(prg, token, max_name_count);
+        i32 name_idx = find_or_add_name_build(prg, token);
         if (name_idx < 0)
             return E_OOM;
         loc->name_idx = name_idx;

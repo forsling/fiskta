@@ -9,6 +9,17 @@
 
 // Forward declarations
 // LabelWrite typedef moved to fiskta.h
+enum Err io_open(File* io, const char* path,
+    unsigned char* search_buf, size_t search_buf_cap);
+
+// Arena alignment helper with overflow protection
+static size_t safe_align(size_t x, size_t align) {
+    size_t aligned = a_align(x, align);
+    if (aligned < x) { // overflow check
+        return SIZE_MAX; // signal overflow
+    }
+    return aligned;
+}
 
 // View helpers
 static inline i64 vbof(const View* v) { return (v && v->active) ? v->lo : 0; }
@@ -85,13 +96,10 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
         total_labels += (size_t)l_caps[i];
     }
 
+    // We'll allocate per-clause capture/label arrays on the stack during the loop.
+
     // Calculate total memory needed
     const size_t search_buf_cap = (FW_WIN > (BK_BLK + OVERLAP_MAX)) ? (size_t)FW_WIN : (size_t)(BK_BLK + OVERLAP_MAX);
-    const size_t counts_bytes = (size_t)IDX_MAX_BLOCKS * (size_t)IDX_SUB_MAX * sizeof(unsigned short);
-    const size_t ranges_bytes = total_ranges * sizeof(Range);
-    const size_t labels_bytes = total_labels * sizeof(LabelWrite);
-
-    // Determine max compiled regex size across program to size regex scratch.
     int max_nins = 0;
     for (i32 ci = 0; ci < prg->clause_count; ++ci) {
         const Clause* C = &prg->clauses[ci];
@@ -108,13 +116,18 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     const size_t re_seen_bytes_each = (size_t)(max_nins > 0 ? max_nins : 32);
 
     // Account for alignment padding between slices
-    size_t total = a_align(search_buf_cap, 1)
-        + a_align(counts_bytes, alignof(unsigned short))
-        + a_align(ranges_bytes, alignof(Range))
-        + a_align(labels_bytes, alignof(LabelWrite))
-        + a_align(re_thr_bytes, alignof(ReThread)) * 2
-        + a_align(re_seen_bytes_each, 1) * 2
-        + 64; // small cushion like main.c
+    size_t total = safe_align(search_buf_cap, 1);
+    if (total == SIZE_MAX) return E_OOM;
+    
+    size_t re_thr_size = safe_align(re_thr_bytes, alignof(ReThread)) * 2;
+    if (re_thr_size == SIZE_MAX) return E_OOM;
+    total += re_thr_size;
+    
+    size_t re_seen_size = safe_align(re_seen_bytes_each, 1) * 2;
+    if (re_seen_size == SIZE_MAX) return E_OOM;
+    total += re_seen_size;
+    
+    total += 64; // small cushion like main.c
 
     // Allocate single block
     void* block = malloc(total);
@@ -127,23 +140,19 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
 
     // Carve out slices
     unsigned char* search_buf = (unsigned char*)arena_alloc(&arena, search_buf_cap, 1);
-    unsigned short* counts_slab = (unsigned short*)arena_alloc(&arena, counts_bytes, alignof(unsigned short));
-    Range* ranges_pool = (Range*)arena_alloc(&arena, ranges_bytes, alignof(Range));
-    LabelWrite* labels_pool = (LabelWrite*)arena_alloc(&arena, labels_bytes, alignof(LabelWrite));
     ReThread* re_curr_thr = (ReThread*)arena_alloc(&arena, re_thr_bytes, alignof(ReThread));
     ReThread* re_next_thr = (ReThread*)arena_alloc(&arena, re_thr_bytes, alignof(ReThread));
     unsigned char* seen_curr = (unsigned char*)arena_alloc(&arena, re_seen_bytes_each, 1);
     unsigned char* seen_next = (unsigned char*)arena_alloc(&arena, re_seen_bytes_each, 1);
 
-    if (!search_buf || !counts_slab || !ranges_pool || !labels_pool
-        || !re_curr_thr || !re_next_thr || !seen_curr || !seen_next) {
+    if (!search_buf || !re_curr_thr || !re_next_thr || !seen_curr || !seen_next) {
         free(block);
         return E_OOM;
     }
 
     // Open I/O with arena-backed buffers
     File io = { 0 };
-    enum Err err = io_open_arena2(&io, in_path, search_buf, search_buf_cap, counts_slab);
+    enum Err err = io_open(&io, in_path, search_buf, search_buf_cap);
     if (err != E_OK) {
         free(block);
         return err;
@@ -156,28 +165,17 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     vm.last_match.valid = false;
     vm.gen_counter = 0;
 
-    // Set up per-clause scratch buffers from the pools
-    Range** r_bufs = alloca(sizeof(Range*) * cc);
-    LabelWrite** l_bufs = alloca(sizeof(LabelWrite*) * cc);
-
-    size_t ranges_offset = 0;
-    size_t labels_offset = 0;
-
-    for (i32 i = 0; i < cc; i++) {
-        r_bufs[i] = ranges_pool + ranges_offset;
-        l_bufs[i] = labels_pool + labels_offset;
-        ranges_offset += (size_t)r_caps[i];
-        labels_offset += (size_t)l_caps[i];
-    }
-
     // Execute each clause independently
     i32 successful_clauses = 0;
     enum Err last_err = E_OK;
 
     for (i32 i = 0; i < cc; i++) {
+        i32 rc=0, lc=0;
+        clause_caps(&prg->clauses[i], &rc, &lc);
+        Range*      r_tmp  = rc ? alloca((size_t)rc * sizeof *r_tmp) : NULL;
+        LabelWrite* lw_tmp = lc ? alloca((size_t)lc * sizeof *lw_tmp) : NULL;
         err = execute_clause_with_scratch(&prg->clauses[i], prg, &io, &vm, out,
-            r_bufs[i], r_caps[i],
-            l_bufs[i], l_caps[i]);
+                                          r_tmp, rc, lw_tmp, lc);
         if (err == E_OK) {
             successful_clauses++;
         } else {

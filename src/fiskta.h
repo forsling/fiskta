@@ -135,9 +135,9 @@ typedef struct {
     Clause* clauses;
     i32 clause_count;
     i32 clause_cap;
-    char (*names)[17];
+    /* Static name table (UPPER / '_' / '-', ≤16 chars + NUL) */
+    char names[128][17];
     i32 name_count;
-    i32 name_cap; // dedupbed label names
 } Program;
 
 typedef struct {

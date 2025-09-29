@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <alloca.h>
 
 typedef struct {
     i32 clause_count;
@@ -14,7 +15,6 @@ typedef struct {
     i32 sum_label_ops;
     i32 needle_count;
     size_t needle_bytes;
-    i32 max_name_count;
     i32   sum_findr_ops;
     i32   re_ins_estimate;
     i32   re_classes_estimate;
@@ -69,14 +69,11 @@ enum Err engine_run(const Program*, const char*, FILE*);
 enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
 enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
     Clause* clauses_buf, Op* ops_buf,
-    char (*names_buf)[17], i32 max_name_count,
     char* str_pool, size_t str_pool_cap);
-enum Err io_open_arena2(File* io, const char* path,
-    unsigned char* search_buf, size_t search_buf_cap,
-    unsigned short* counts_slab);
+enum Err io_open(File* io, const char* path,
+    unsigned char* search_buf, size_t search_buf_cap);
 
-static const char* err_str(enum Err e)
-{
+static const char* err_str(enum Err e) {
     switch (e) {
     case E_OK:
         return "ok";
@@ -105,6 +102,17 @@ static void die(enum Err e, const char* msg)
         fprintf(stderr, "fiskta: %s (%s)\n", msg, err_str(e));
     else
         fprintf(stderr, "fiskta: %s\n", err_str(e));
+    exit(e == E_OK ? 0 : 1);
+}
+
+// Arena alignment helper with overflow protection
+static size_t safe_align(size_t x, size_t align) {
+    size_t aligned = a_align(x, align);
+    if (aligned < x) { // overflow check
+        die(E_OOM, "arena alignment overflow");
+        return 0; // unreachable
+    }
+    return aligned;
 }
 
 // Normalize "no match" into one code
@@ -312,13 +320,10 @@ int main(int argc, char** argv)
 
     // 2) Compute sizes
     const size_t search_buf_cap = (FW_WIN > (BK_BLK + OVERLAP_MAX)) ? (size_t)FW_WIN : (size_t)(BK_BLK + OVERLAP_MAX);
-    const size_t counts_total_u16 = (size_t)IDX_MAX_BLOCKS * (size_t)IDX_SUB_MAX;
-    const size_t names_bytes = (size_t)plan.max_name_count * sizeof(char[17]);
     const size_t ops_bytes = (size_t)plan.total_ops * sizeof(Op);
     const size_t clauses_bytes = (size_t)plan.clause_count * sizeof(Clause);
     const size_t str_pool_bytes = plan.needle_bytes + (size_t)plan.needle_count; // include NULs
-    const size_t ranges_bytes = (size_t)plan.sum_take_ops * sizeof(Range);
-    const size_t labels_bytes = (size_t)plan.sum_label_ops * sizeof(LabelWrite);
+    // Per-clause ranges/labels are stack-allocated during execution
     // Regex pools
     const size_t re_prog_bytes = (size_t)plan.sum_findr_ops * sizeof(ReProg);
     const size_t re_ins_bytes  = (size_t)plan.re_ins_estimate * sizeof(ReInst);
@@ -330,24 +335,20 @@ int main(int argc, char** argv)
     const size_t re_threads_bytes = (size_t)re_threads_cap * sizeof(ReThread);
 
     // 3) One allocation
-    size_t search_buf_size = a_align(search_buf_cap, alignof(unsigned char));
-    size_t counts_size = a_align(counts_total_u16 * sizeof(unsigned short), alignof(unsigned short));
-    size_t clauses_size = a_align(clauses_bytes, alignof(Clause));
-    size_t ops_size = a_align(ops_bytes, alignof(Op));
-    size_t names_size = a_align(names_bytes, alignof(char));
-    size_t ranges_size = a_align(ranges_bytes, alignof(Range));
-    size_t labels_size = a_align(labels_bytes, alignof(LabelWrite));
-    size_t re_prog_size = a_align(re_prog_bytes, alignof(ReProg));
-    size_t re_ins_size  = a_align(re_ins_bytes,  alignof(ReInst));
-    size_t re_cls_size  = a_align(re_cls_bytes,  alignof(ReClass));
-    size_t str_pool_size = a_align(str_pool_bytes, alignof(char));
+    size_t search_buf_size = safe_align(search_buf_cap, alignof(unsigned char));
+    size_t clauses_size = safe_align(clauses_bytes, alignof(Clause));
+    size_t ops_size = safe_align(ops_bytes, alignof(Op));
+    size_t re_prog_size = safe_align(re_prog_bytes, alignof(ReProg));
+    size_t re_ins_size  = safe_align(re_ins_bytes,  alignof(ReInst));
+    size_t re_cls_size  = safe_align(re_cls_bytes,  alignof(ReClass));
+    size_t str_pool_size = safe_align(str_pool_bytes, alignof(char));
     // Two thread buffers + two seen arrays sized to max estimated nins
     size_t re_seen_bytes_each = (size_t)(plan.re_ins_estimate_max > 0 ? plan.re_ins_estimate_max : 32);
-    size_t re_seen_size = a_align(re_seen_bytes_each, 1) * 2;
-    size_t re_thrbufs_size = a_align(re_threads_bytes, alignof(ReThread)) * 2;
+    size_t re_seen_size = safe_align(re_seen_bytes_each, 1) * 2;
+    size_t re_thrbufs_size = safe_align(re_threads_bytes, alignof(ReThread)) * 2;
 
-    size_t total = search_buf_size + counts_size + clauses_size + ops_size + names_size
-                 + ranges_size + labels_size + re_prog_size + re_ins_size + re_cls_size
+    size_t total = search_buf_size + clauses_size + ops_size
+                 + re_prog_size + re_ins_size + re_cls_size
                  + str_pool_size + re_thrbufs_size + re_seen_size + 64; // small cushion
 
     void* block = malloc(total);
@@ -360,12 +361,8 @@ int main(int argc, char** argv)
 
     // 4) Carve slices
     unsigned char* search_buf = arena_alloc(&A, search_buf_cap, alignof(unsigned char));
-    unsigned short* counts_slab = arena_alloc(&A, counts_total_u16 * sizeof(unsigned short), alignof(unsigned short));
     Clause* clauses_buf = arena_alloc(&A, clauses_bytes, alignof(Clause));
     Op* ops_buf = arena_alloc(&A, ops_bytes, alignof(Op));
-    char(*names_buf)[17] = arena_alloc(&A, names_bytes, alignof(char));
-    Range* ranges_pool = arena_alloc(&A, ranges_bytes, alignof(Range));
-    LabelWrite* labels_pool = arena_alloc(&A, labels_bytes, alignof(LabelWrite));
     ReThread* re_curr_thr = arena_alloc(&A, re_threads_bytes, alignof(ReThread));
     ReThread* re_next_thr = arena_alloc(&A, re_threads_bytes, alignof(ReThread));
     unsigned char* seen_curr = arena_alloc(&A, re_seen_bytes_each, 1);
@@ -374,7 +371,7 @@ int main(int argc, char** argv)
     ReInst*  re_ins  = arena_alloc(&A, re_ins_bytes,  alignof(ReInst));
     ReClass* re_cls  = arena_alloc(&A, re_cls_bytes,  alignof(ReClass));
     char* str_pool = arena_alloc(&A, str_pool_bytes, alignof(char));
-    if (!search_buf || !counts_slab || !clauses_buf || !ops_buf || !names_buf || !ranges_pool || !labels_pool
+    if (!search_buf || !clauses_buf || !ops_buf
         || !re_curr_thr || !re_next_thr || !seen_curr || !seen_next
         || !re_progs || !re_ins || !re_cls || !str_pool) {
         die(E_OOM, "arena carve");
@@ -385,7 +382,7 @@ int main(int argc, char** argv)
     // 5) Parse into preallocated storage
     Program prg = { 0 };
     e = parse_build(token_count, tokens, in_path, &prg, &path, clauses_buf, ops_buf,
-        names_buf, plan.max_name_count, str_pool, str_pool_bytes);
+        str_pool, str_pool_bytes);
     if (e != E_OK) {
         die(e, "parse build");
         free(block);
@@ -415,7 +412,7 @@ int main(int argc, char** argv)
 
     // 6) Open I/O with arena-backed buffers
     File io = { 0 };
-    e = io_open_arena2(&io, path, search_buf, search_buf_cap, counts_slab);
+    e = io_open(&io, path, search_buf, search_buf_cap);
     if (e != E_OK) {
         die(e, "I/O open");
         free(block);
@@ -431,18 +428,16 @@ int main(int argc, char** argv)
     vm.last_match.valid = false;
     vm.gen_counter = 0;
 
-    size_t r_off = 0, l_off = 0;
     i32 ok = 0;
     enum Err last_err = E_OK;
 
     for (i32 ci = 0; ci < prg.clause_count; ++ci) {
-        i32 rc, lc;
+        i32 rc=0, lc=0;
         clause_caps(&prg.clauses[ci], &rc, &lc);
-        Range* r = ranges_pool + r_off;
-        r_off += (size_t)rc;
-        LabelWrite* l = labels_pool + l_off;
-        l_off += (size_t)lc;
-        e = execute_clause_with_scratch(&prg.clauses[ci], &prg, &io, &vm, stdout, r, rc, l, lc);
+        Range*      r_tmp  = rc ? alloca((size_t)rc * sizeof *r_tmp) : NULL;
+        LabelWrite* lw_tmp = lc ? alloca((size_t)lc * sizeof *lw_tmp) : NULL;
+        e = execute_clause_with_scratch(&prg.clauses[ci], &prg, &io, &vm, stdout,
+                                        r_tmp, rc, lw_tmp, lc);
         if (e == E_OK)
             ok++;
         else

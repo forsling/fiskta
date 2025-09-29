@@ -36,12 +36,10 @@ static inline i32 utf8_len_from_lead(unsigned char b)
 
 // io_open removed - use io_open_arena2 with arena allocation instead
 
-enum Err io_open_arena2(File* io, const char* path,
-    unsigned char* search_buf, size_t search_buf_cap,
-    unsigned short* counts_slab)
+enum Err io_open(File* io, const char* path,
+    unsigned char* search_buf, size_t search_buf_cap)
 {
     memset(io, 0, sizeof(*io));
-    io->arena_backed = true;
 
     if (strcmp(path, "-") == 0) {
         // Spool stdin to temp file
@@ -106,12 +104,11 @@ enum Err io_open_arena2(File* io, const char* path,
     io->buf = search_buf;
     io->buf_cap = search_buf_cap;
 
-    // Initialize line index cache with arena-backed counts
+    // Initialize LRU line index cache (counts are embedded)
     io->line_idx_gen = 0;
     for (i32 i = 0; i < IDX_MAX_BLOCKS; ++i) {
         io->line_idx[i].in_use = false;
         io->line_idx[i].gen = 0;
-        io->line_idx[i].lf_counts = counts_slab + (size_t)i * (size_t)IDX_SUB_MAX;
         io->line_idx[i].sub_count = 0;
     }
 
@@ -130,16 +127,6 @@ void io_close(File* io)
     if (io->f) {
         fclose(io->f);
         io->f = NULL;
-    }
-    if (!io->arena_backed) {
-        if (io->buf) {
-            free(io->buf);
-            io->buf = NULL;
-        }
-        for (i32 i = 0; i < IDX_MAX_BLOCKS; ++i) {
-            free(io->line_idx[i].lf_counts);
-            io->line_idx[i].lf_counts = NULL;
-        }
     }
 
     io->size = 0;
@@ -652,7 +639,6 @@ static enum Err get_line_block(File* io, i64 pos, LineBlockIdx** out)
     // 2) (Re)build index in slot
     LineBlockIdx* e = &io->line_idx[slot];
 
-    // (re)allocate counts
     i32 sub_count = (i32)((block_hi - block_lo + IDX_SUB - 1) / IDX_SUB);
     if (sub_count <= 0)
         sub_count = 1;
