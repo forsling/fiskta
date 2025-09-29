@@ -363,20 +363,20 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
         i64 start, end;
 
         if (op->u.take_len.unit == UNIT_BYTES) {
-            if (op->u.take_len.n > 0) {
+            if (op->u.take_len.offset > 0) {
                 start = vclamp(c_view, io, *c_cursor);
                 end = start;
-                if (op->u.take_len.n > INT64_MAX)
+                if (op->u.take_len.offset > INT64_MAX)
                     end = veof(c_view, io);
                 else
-                    apply_byte_saturation(&end, op->u.take_len.n, c_view, io, CLAMP_VIEW);
+                    apply_byte_saturation(&end, op->u.take_len.offset, c_view, io, CLAMP_VIEW);
             } else {
                 end = vclamp(c_view, io, *c_cursor);
                 start = end;
-                if (op->u.take_len.n < -INT64_MAX)
+                if (op->u.take_len.offset < -INT64_MAX)
                     start = vbof(c_view);
                 else
-                    apply_byte_saturation(&start, op->u.take_len.n, c_view, io, CLAMP_VIEW);
+                    apply_byte_saturation(&start, op->u.take_len.offset, c_view, io, CLAMP_VIEW);
                 start = clamp64(start, vbof(c_view), end);
             }
         } else if (op->u.take_len.unit == UNIT_LINES) {
@@ -390,42 +390,42 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
             if (line_start < vbof(c_view))
                 line_start = vbof(c_view);
 
-            if (op->u.take_len.n > 0) {
+            if (op->u.take_len.offset > 0) {
                 start = line_start;
-                if (op->u.take_len.n > INT_MAX)
+                if (op->u.take_len.offset > INT_MAX)
                     return E_PARSE;
                 err = io_step_lines_from(io, line_start,
-                    (i32)op->u.take_len.n, &end);
+                    (i32)op->u.take_len.offset, &end);
                 if (err != E_OK)
                     return err;
                 end = vclamp(c_view, io, end);
             } else {
                 end = line_start;
-                if (op->u.take_len.n < -INT_MAX)
+                if (op->u.take_len.offset < -INT_MAX)
                     return E_PARSE;
                 err = io_step_lines_from(io, line_start,
-                    (i32)op->u.take_len.n, &start);
+                    (i32)op->u.take_len.offset, &start);
                 if (err != E_OK)
                     return err;
                 start = clamp64(start, vbof(c_view), end);
             }
         } else { // UNIT_CHARS
-            if (op->u.take_len.n > INT_MAX || op->u.take_len.n < -INT_MAX)
+            if (op->u.take_len.offset > INT_MAX || op->u.take_len.offset < -INT_MAX)
                 return E_PARSE;
             i64 cstart;
             enum Err err = io_char_start(io, *c_cursor, &cstart);
             if (err != E_OK)
                 return err;
-            if (op->u.take_len.n > 0) {
+            if (op->u.take_len.offset > 0) {
                 start = cstart;
-                err = io_step_chars_from(io, cstart, (i32)op->u.take_len.n, &end);
+                err = io_step_chars_from(io, cstart, (i32)op->u.take_len.offset, &end);
                 if (err != E_OK)
                     return err;
                 end = vclamp(c_view, io, end);
             } else {
                 end = cstart;
                 i64 s;
-                err = io_step_chars_from(io, cstart, (i32)op->u.take_len.n, &s);
+                err = io_step_chars_from(io, cstart, (i32)op->u.take_len.offset, &s);
                 if (err != E_OK)
                     return err;
                 start = clamp64(s, vbof(c_view), end);
@@ -649,32 +649,32 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
     }
 
     // Apply offset if present
-    if (loc->n != 0) {
+    if (loc->offset != 0) {
         if (loc->unit == UNIT_BYTES) {
             // clamp i64 delta safely
-            if (loc->n > INT64_MAX) {
+            if (loc->offset > INT64_MAX) {
                 // saturate at extremes
                 base = io_size(io);
-            } else if (loc->n < -INT64_MAX) {
+            } else if (loc->offset < -INT64_MAX) {
                 base = 0;
             } else {
-                base += loc->n;
+                base += loc->offset;
             }
         } else if (loc->unit == UNIT_LINES) {
-            if (loc->n > INT_MAX || loc->n < -INT_MAX)
+            if (loc->offset > INT_MAX || loc->offset < -INT_MAX)
                 return E_PARSE;
-            i32 delta = (i32)loc->n;
+            i32 delta = (i32)loc->offset;
             enum Err err = io_step_lines_from(io, base, delta, &base);
             if (err != E_OK)
                 return err;
         } else { // UNIT_CHARS
-            if (loc->n > INT_MAX || loc->n < -INT_MAX)
+            if (loc->offset > INT_MAX || loc->offset < -INT_MAX)
                 return E_PARSE;
             i64 char_base;
             enum Err err = io_char_start(io, base, &char_base);
             if (err != E_OK)
                 return err;
-            i32 delta = (i32)loc->n;
+            i32 delta = (i32)loc->offset;
             err = io_step_chars_from(io, char_base, delta, &char_base);
             if (err != E_OK)
                 return err;
@@ -715,30 +715,30 @@ static enum Err resolve_at_expr(const AtExpr* at, File* io, const Match* match, 
     }
 
     // Apply offset if present
-    if (at->n != 0) {
+    if (at->offset != 0) {
         if (at->unit == UNIT_BYTES) {
-            if (at->n > INT64_MAX) {
+            if (at->offset > INT64_MAX) {
                 base = io_size(io);
-            } else if (at->n < -INT64_MAX) {
+            } else if (at->offset < -INT64_MAX) {
                 base = 0;
             } else {
-                base += at->n;
+                base += at->offset;
             }
         } else if (at->unit == UNIT_LINES) {
-            if (at->n > INT_MAX || at->n < -INT_MAX)
+            if (at->offset > INT_MAX || at->offset < -INT_MAX)
                 return E_PARSE;
-            i32 delta = (i32)at->n;
+            i32 delta = (i32)at->offset;
             enum Err err = io_step_lines_from(io, base, delta, &base);
             if (err != E_OK)
                 return err;
         } else { // UNIT_CHARS
-            if (at->n > INT_MAX || at->n < -INT_MAX)
+            if (at->offset > INT_MAX || at->offset < -INT_MAX)
                 return E_PARSE;
             i64 char_base;
             enum Err err = io_char_start(io, base, &char_base);
             if (err != E_OK)
                 return err;
-            i32 delta = (i32)at->n;
+            i32 delta = (i32)at->offset;
             err = io_step_chars_from(io, char_base, delta, &char_base);
             if (err != E_OK)
                 return err;
@@ -819,34 +819,34 @@ static enum Err resolve_loc_expr_cp(
         return E_PARSE;
     }
 
-    if (loc->n != 0) {
+    if (loc->offset != 0) {
         if (loc->unit == UNIT_BYTES) {
-            if (loc->n > INT64_MAX) {
+            if (loc->offset > INT64_MAX) {
                 base = (clamp == CLAMP_VIEW)
-                    ? (loc->n > 0 ? veof(c_view, io) : vbof(c_view))
-                    : (loc->n > 0 ? io_size(io) : 0);
-            } else if (loc->n < -INT64_MAX) {
+                    ? (loc->offset > 0 ? veof(c_view, io) : vbof(c_view))
+                    : (loc->offset > 0 ? io_size(io) : 0);
+            } else if (loc->offset < -INT64_MAX) {
                 base = (clamp == CLAMP_VIEW)
                     ? vbof(c_view)
                     : 0;
             } else {
-                apply_byte_saturation(&base, loc->n, c_view, io, clamp == CLAMP_FILE ? CLAMP_FILE : clamp);
+                apply_byte_saturation(&base, loc->offset, c_view, io, clamp == CLAMP_FILE ? CLAMP_FILE : clamp);
             }
         } else if (loc->unit == UNIT_LINES) {
-            if (loc->n > INT_MAX || loc->n < -INT_MAX)
+            if (loc->offset > INT_MAX || loc->offset < -INT_MAX)
                 return E_PARSE;
-            i32 d = (i32)loc->n;
+            i32 d = (i32)loc->offset;
             enum Err e = io_step_lines_from(io, base, d, &base);
             if (e != E_OK)
                 return e;
         } else { // UNIT_CHARS
-            if (loc->n > INT_MAX || loc->n < -INT_MAX)
+            if (loc->offset > INT_MAX || loc->offset < -INT_MAX)
                 return E_PARSE;
             i64 cs;
             enum Err e = io_char_start(io, base, &cs);
             if (e != E_OK)
                 return e;
-            i32 d = (i32)loc->n;
+            i32 d = (i32)loc->offset;
             e = io_step_chars_from(io, cs, d, &cs);
             if (e != E_OK)
                 return e;
@@ -895,34 +895,34 @@ static enum Err resolve_at_expr_cp(
         return E_PARSE;
     }
 
-    if (at->n != 0) {
+    if (at->offset != 0) {
         if (at->unit == UNIT_BYTES) {
-            if (at->n > INT64_MAX) {
+            if (at->offset > INT64_MAX) {
                 base = (clamp == CLAMP_VIEW)
-                    ? (at->n > 0 ? veof(c_view, io) : vbof(c_view))
-                    : (at->n > 0 ? io_size(io) : 0);
-            } else if (at->n < -INT64_MAX) {
+                    ? (at->offset > 0 ? veof(c_view, io) : vbof(c_view))
+                    : (at->offset > 0 ? io_size(io) : 0);
+            } else if (at->offset < -INT64_MAX) {
                 base = (clamp == CLAMP_VIEW)
                     ? vbof(c_view)
                     : 0;
             } else {
-                apply_byte_saturation(&base, at->n, c_view, io, clamp == CLAMP_FILE ? CLAMP_FILE : clamp);
+                apply_byte_saturation(&base, at->offset, c_view, io, clamp == CLAMP_FILE ? CLAMP_FILE : clamp);
             }
         } else if (at->unit == UNIT_LINES) {
-            if (at->n > INT_MAX || at->n < -INT_MAX)
+            if (at->offset > INT_MAX || at->offset < -INT_MAX)
                 return E_PARSE;
-            i32 d = (i32)at->n;
+            i32 d = (i32)at->offset;
             enum Err e = io_step_lines_from(io, base, d, &base);
             if (e != E_OK)
                 return e;
         } else { // UNIT_CHARS
-            if (at->n > INT_MAX || at->n < -INT_MAX)
+            if (at->offset > INT_MAX || at->offset < -INT_MAX)
                 return E_PARSE;
             i64 cs;
             enum Err e = io_char_start(io, base, &cs);
             if (e != E_OK)
                 return e;
-            i32 d = (i32)at->n;
+            i32 d = (i32)at->offset;
             e = io_step_chars_from(io, cs, d, &cs);
             if (e != E_OK)
                 return e;
