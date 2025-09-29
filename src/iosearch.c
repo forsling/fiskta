@@ -884,7 +884,8 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
                 if (fseeko(io->f, block_hi, SEEK_SET) != 0)
                     return E_IO;
                 unsigned char t[2];
-                size_t m = fread(t, 1, (size_t)((win_hi - block_hi) >= 2 ? 2 : 1), io->f);
+                size_t bytes_to_read = (win_hi - block_hi) >= 2 ? 2 : (win_hi - block_hi);
+                size_t m = fread(t, 1, bytes_to_read, io->f);
                 if (m >= 1) {
                     tail1 = t[0];
                     tails = 1;
