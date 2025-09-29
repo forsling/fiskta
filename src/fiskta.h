@@ -26,7 +26,9 @@ enum OpKind {
     OP_TAKE_TO,
     OP_TAKE_UNTIL,
     OP_LABEL,
-    OP_GOTO
+    OP_GOTO,
+    OP_VIEWSET,
+    OP_VIEWCLEAR
 };
 
 enum LocBase {
@@ -70,6 +72,15 @@ typedef struct { // at-expr used only by TAKE_UNTIL
 
 typedef struct ReProg ReProg;
 
+// View state (staged per clause; committed on clause success)
+typedef struct {
+    bool active;
+    i64  lo, hi; // half-open [lo, hi)
+} View;
+
+// Clamp policy
+typedef enum { CLAMP_NONE, CLAMP_FILE, CLAMP_VIEW } ClampPolicy;
+
 typedef struct {
     union {
         struct {
@@ -104,6 +115,12 @@ typedef struct {
         struct {
             LocExpr to;
         } go;
+        struct {
+            LocExpr a, b;
+        } viewset;
+        struct {
+            int _;
+        } viewclear;
     } u;
     enum OpKind kind;
 } Op;
@@ -132,6 +149,7 @@ typedef struct {
     // global state
     i64 cursor;
     Match last_match;
+    View view;
 
     // labels (LRU of 32)
     struct {

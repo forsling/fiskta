@@ -748,14 +748,14 @@ static enum Err add_thread_ordered(const ReProg* P, ReList* L, int pc, i64 start
                 seen[pc] = 1; // mark as seen before jumping
                 pc = I->x; continue;
             case RI_BOL:
-                // ^ matches at BOF or after a newline (NOT at window start)
-                if (pos == 0 || prev_char == '\n') {
+                // ^ matches at window start or after a newline
+                if (pos == win_lo || prev_char == '\n') {
                     pc++; continue;
                 }
                 return E_OK;
             case RI_EOL:
-                // $ matches at EOF or before a newline (NOT at window end)
-                if (pos == file_size || curr_char == '\n') {
+                // $ matches at window end or before a newline
+                if (pos == win_hi || curr_char == '\n') {
                     pc++; continue;
                 }
                 return E_OK;

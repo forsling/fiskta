@@ -136,6 +136,29 @@ take until "ERROR" at line-start+1l   # up to start of the line after ERROR’s 
 
 ---
 
+### `viewset <L1> <L2>` / `viewclear`
+
+* `viewset` activates a view: treat `[min(L1,L2), max(L1,L2))` as the whole file.
+* `BOF` becomes the view start; `EOF` becomes the view end.
+
+While a view is active:
+- All windows and captures are clipped to the view.
+- `goto` outside the view fails.
+- `^`/`$` in regex match at the view edges (in addition to usual line boundaries).
+- `line-start`/`line-end` pin to the view edges.
+
+`viewclear` deactivates the view (noop if already clear).
+
+**Examples**
+
+```bash
+viewset BOF+2b EOF-2b
+viewset cursor-100b cursor+100b
+viewclear
+```
+
+---
+
 ### `label <NAME>` / `goto <loc-expr>`
 
 * `label` stages `NAME := cursor` (commits on clause success). Up to 32 labels; LRU eviction on overflow.
@@ -307,6 +330,12 @@ fiskta take until "END" at line-start file.txt
 
 # Last 50 bytes of a file
 fiskta goto EOF take -50b file.txt
+
+# Extract content within a view
+fiskta viewset BOF+100b EOF-100b take to EOF file.txt
+
+# Find patterns within a specific range
+fiskta viewset cursor-1000b cursor+1000b find "ERROR" take +20b file.txt
 ```
 
 ---
@@ -324,7 +353,7 @@ fiskta goto EOF take -50b file.txt
 program   := clause { "::" clause } input
 clause    := { op }
 
-op        := find | findr | skip | take | label | goto
+op        := find | findr | skip | take | label | goto | viewset | viewclear
 
 find      := "find" [ "to" loc-expr ] STRING
 findr     := "findr" [ "to" loc-expr ] STRING
@@ -332,6 +361,8 @@ skip      := "skip" N ("b"|"l"|"c")
 take      := "take" ( signedN ("b"|"l"|"c") | "to" loc-expr | "until" STRING [ "at" at-expr ] )
 label     := "label" NAME
 goto      := "goto"  loc-expr
+viewset   := "viewset" loc-expr loc-expr
+viewclear := "viewclear"
 
 loc-expr  := loc [ offset ]
 loc       := "cursor" | "BOF" | "EOF" | NAME

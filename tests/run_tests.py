@@ -1511,6 +1511,239 @@ def tests():
         dict(id="regex-098-plus-quantifier-multiple-occurrences",
              tokens=["findr","(ab)+x","take","to","match-end"], input_file="-", stdin=b"ababx",
              expect=dict(stdout="ababx", exit=0)),
+
+        # ---------- Views Feature Tests ----------
+        # Basic view operations
+        dict(id="view-001-basic-viewset",
+             tokens=["viewset","BOF+2b","EOF-2b","take","100b"], input_file="overlap.txt",
+             expect=dict(stdout="cdefgh", exit=0)),
+
+        dict(id="view-002-viewclear",
+             tokens=["viewclear","take","3b"], input_file="overlap.txt",
+             expect=dict(stdout="abc", exit=0)),
+
+        dict(id="view-003-viewset-viewclear-sequence",
+             tokens=["viewset","BOF+2b","EOF-2b","viewclear","take","3b"], input_file="overlap.txt",
+             expect=dict(stdout="cde", exit=0)),  # cursor at position 2 from viewset
+
+        # View with find operations
+        dict(id="view-004-view-find-forward",
+             tokens=["viewset","BOF+2b","EOF-2b","find","def","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="def", exit=0)),
+
+        dict(id="view-005-view-find-backward",
+             tokens=["viewset","BOF+2b","EOF-2b","skip","5b","find","to","BOF","def","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="def", exit=0)),
+
+        dict(id="view-006-view-find-no-match",
+             tokens=["viewset","BOF","EOF-2b","find","X","take","+1b"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=2)),  # X is at EOF-1b, excluded from view
+
+        # View with regex operations
+        dict(id="view-007-view-findr-anchors",
+             tokens=["viewset","BOF+3b","EOF","findr","^HEADER","take","to","match-end"], input_file="-", stdin=b"ZZ\nHEADER\n",
+             expect=dict(stdout="HEADER", exit=0)),
+
+        dict(id="view-008-view-findr-no-match",
+             tokens=["viewset","BOF","EOF-1b","findr","^HEADER","take","+6b"], input_file="-", stdin=b"ZZ\nHEADER\n",
+             expect=dict(stdout="HEADER", exit=0)),  # HEADER is at EOF-1b, but view includes it
+
+        # View with goto operations
+        dict(id="view-009-goto-within-view",
+             tokens=["viewset","BOF+2b","EOF-2b","goto","BOF+3b","take","+2b"], input_file="overlap.txt",
+             expect=dict(stdout="fg", exit=0)),  # BOF+3b in view is position 5, take +2b gives fg
+
+        dict(id="view-010-goto-outside-view-fails",
+             tokens=["viewset","BOF+2b","EOF-2b","goto","BOF-1b","take","+2b"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=2)),
+
+        dict(id="view-011-goto-outside-view-eof",
+             tokens=["viewset","BOF+2b","EOF-2b","goto","EOF+1b","take","+2b"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=2)),
+
+        # View with take operations
+        dict(id="view-012-view-take-len-positive",
+             tokens=["viewset","BOF+2b","EOF-2b","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="cde", exit=0)),
+
+        dict(id="view-013-view-take-len-negative",
+             tokens=["viewset","BOF+2b","EOF-2b","skip","3b","take","-2b"], input_file="overlap.txt",
+             expect=dict(stdout="de", exit=0)),  # skip 3b puts cursor at position 5, take -2b gives de
+
+        dict(id="view-014-view-take-to",
+             tokens=["viewset","BOF+2b","EOF-2b","take","to","EOF-1b"], input_file="overlap.txt",
+             expect=dict(stdout="cdefg", exit=0)),  # EOF-1b in view is position 7, take to gives cdefg
+
+        dict(id="view-015-view-take-until",
+             tokens=["viewset","BOF+2b","EOF-2b","take","until","f"], input_file="overlap.txt",
+             expect=dict(stdout="cde", exit=0)),
+
+        # View with skip operations
+        dict(id="view-016-view-skip-bytes",
+             tokens=["viewset","BOF+2b","EOF-2b","skip","2b","take","+2b"], input_file="overlap.txt",
+             expect=dict(stdout="ef", exit=0)),
+
+        dict(id="view-017-view-skip-lines",
+             tokens=["viewset","BOF+2b","EOF-2b","skip","1l","take","+1l"], input_file="lines.txt",
+             expect=dict(stdout="L02 bb\n", exit=0)),
+
+        # View with line operations
+        dict(id="view-018-view-line-start",
+             tokens=["viewset","BOF+5b","EOF-2b","find","L03","goto","line-start","take","+1l"], input_file="lines.txt",
+             expect=dict(stdout="L03 ccc\n", exit=0)),
+
+        dict(id="view-019-view-line-end",
+             tokens=["viewset","BOF+5b","EOF-2b","find","L03","goto","line-end","take","+1l"], input_file="lines.txt",
+             expect=dict(stdout="L04 dddd\n", exit=0)),
+
+        # View with labels
+        dict(id="view-020-view-labels",
+             tokens=["viewset","BOF+2b","EOF-2b","label","MARK","skip","2b","goto","MARK","take","+2b"], input_file="overlap.txt",
+             expect=dict(stdout="cd", exit=0)),
+
+        # View atomicity
+        dict(id="view-021-view-atomic-success",
+             tokens=["viewset","BOF+2b","EOF-2b","take","+2b","::","take","+2b"], input_file="overlap.txt",
+             expect=dict(stdout="cdef", exit=0)),
+
+        dict(id="view-022-view-atomic-failure",
+             tokens=["viewset","BOF+2b","EOF-2b","take","+2b","find","XYZ","::","take","+2b"], input_file="overlap.txt",
+             expect=dict(stdout="ab", exit=0)),  # First clause fails, view not committed, second clause uses original cursor
+
+        # View edge cases
+        dict(id="view-023-empty-view",
+             tokens=["viewset","BOF+5b","BOF+5b","take","+10b"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=0)),  # Empty view, cursor clamped to hi
+
+        dict(id="view-024-view-beyond-file",
+             tokens=["viewset","BOF+100b","EOF+100b","take","+10b"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=0)),  # View beyond file bounds
+
+        dict(id="view-025-view-negative-bounds",
+             tokens=["viewset","BOF-10b","EOF+10b","take","+10b"], input_file="overlap.txt",
+             expect=dict(stdout="abcdefghij", exit=0)),  # Negative bounds clamped to file
+
+        # View with complex operations
+        dict(id="view-026-view-complex-extraction",
+             tokens=["viewset","BOF+6b","EOF-5b","find","world","take","to","match-end"], input_file="-", stdin=b"hello world test",
+             expect=dict(stdout="world", exit=0)),
+
+        dict(id="view-027-view-multi-clause",
+             tokens=["viewset","BOF+2b","EOF-2b","take","+2b","::","viewclear","take","+2b"], input_file="overlap.txt",
+             expect=dict(stdout="cdef", exit=0)),  # First clause commits view, second clears it but cursor is at position 4
+
+        # View with regex anchors
+        dict(id="view-028-view-regex-bol",
+             tokens=["viewset","BOF+3b","EOF","findr","^HEADER","take","to","match-end"], input_file="-", stdin=b"ZZ\nHEADER\n",
+             expect=dict(stdout="HEADER", exit=0)),
+
+        dict(id="view-029-view-regex-eol",
+             tokens=["viewset","BOF","EOF-3b","findr","ZZ$","take","to","match-end"], input_file="-", stdin=b"ZZ\nHEADER\n",
+             expect=dict(stdout="", exit=2)),  # ZZ$ doesn't match in view [0, EOF-3b)
+
+        # View with match invalidation
+        dict(id="view-030-view-match-invalidation",
+             tokens=["find","def","viewset","BOF+2b","EOF-2b","take","to","match-end"], input_file="overlap.txt",
+             expect=dict(stdout="def", exit=0)),  # Match is still valid, def is at position 3
+
+        # View with cursor clamping
+        dict(id="view-031-view-cursor-clamping",
+             tokens=["skip","5b","viewset","BOF+2b","EOF-2b","take","+2b"], input_file="overlap.txt",
+             expect=dict(stdout="fg", exit=0)),  # Cursor at position 5, clamped to view [2,8), take +2b gives fg
+
+        # View with take until and at expressions
+        dict(id="view-032-view-take-until-at",
+             tokens=["viewset","BOF+2b","EOF-2b","take","until","f","at","match-start","+1b"], input_file="overlap.txt",
+             expect=dict(stdout="cdef", exit=0)),  # take until f, then at match-start+1b gives cdef
+
+        # View with line offsets
+        dict(id="view-033-view-line-offsets",
+             tokens=["viewset","BOF+5b","EOF-2b","find","L03","take","to","line-start","+1l"], input_file="lines.txt",
+             expect=dict(stdout="L03 ccc\n", exit=0)),
+
+        # View with character operations
+        dict(id="view-034-view-chars",
+             tokens=["viewset","BOF+2b","EOF-2b","take","+3c"], input_file="overlap.txt",
+             expect=dict(stdout="bcd", exit=0)),  # BOF+2b is position 2, take +3c gives bcd
+
+        dict(id="view-035-view-skip-chars",
+             tokens=["viewset","BOF+2b","EOF-2b","skip","2c","take","+2c"], input_file="overlap.txt",
+             expect=dict(stdout="cd", exit=0)),  # skip 2c from position 2 gives position 4, take +2c gives cd
+
+        # View with binary data
+        dict(id="view-036-view-binary",
+             tokens=["viewset","BOF+5b","EOF-5b","find","BINARY_DATA","take","+11b"], input_file="binary-data.bin",
+             expect=dict(stdout="BINARY_DATA", exit=0)),
+
+        # View with unicode
+        dict(id="view-037-view-unicode",
+             tokens=["viewset","BOF+6b","EOF-6b","find","世界","take","+6b"], input_file="unicode-test.txt",
+             expect=dict(stdout="世界", exit=0)),
+
+        # View with CRLF
+        dict(id="view-038-view-crlf",
+             tokens=["viewset","BOF+2b","EOF-2b","take","+1l"], input_file="crlf-comprehensive.txt",
+             expect=dict(stdout="ne1\r\n", exit=0)),  # BOF+2b is position 2, take +1l gives ne1\r\n
+
+        # View with large files
+        dict(id="view-039-view-large-file",
+             tokens=["viewset","BOF+1000b","EOF-1000b","find","NEEDLE","take","+6b"], input_file="big-forward.bin",
+             expect=dict(stdout="NEEDLE", exit=0)),
+
+        # View with repeated patterns
+        dict(id="view-040-view-repeated-patterns",
+             tokens=["viewset","BOF+50b","EOF-50b","find","PATTERN","take","+7b"], input_file="repeated-patterns.txt",
+             expect=dict(stdout="PATTERN", exit=0)),
+
+        # View with nested sections
+        dict(id="view-041-view-nested-sections",
+             tokens=["viewset","BOF+10b","EOF-10b","find","BEGIN_SECTION_A","take","until","END_SECTION_A"], input_file="nested-sections.txt",
+             expect=dict(stdout="", exit=2)),  # BEGIN_SECTION_A not found in view [10, EOF-10b)
+
+        # View with edge cases
+        dict(id="view-042-view-edge-whitespace",
+             tokens=["viewset","BOF+5b","EOF-5b","find","spaces at end","take","+1l"], input_file="edge-cases.txt",
+             expect=dict(stdout="with spaces at end   \n", exit=0)),  # BOF+5b skips "Line ", find gives "with spaces at end   \n"
+
+        # View with stdin
+        dict(id="view-043-view-stdin",
+             tokens=["viewset","BOF+2b","EOF-2b","take","+3b"], input_file="-", stdin=b"Hello World",
+             expect=dict(stdout="llo", exit=0)),
+
+        # View with complex multi-operation sequences
+        dict(id="view-044-view-complex-sequence",
+             tokens=["viewset","BOF+2b","EOF-2b","find","def","label","MARK","skip","1b","goto","MARK","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="def", exit=0)),
+
+        # View with regex and views
+        dict(id="view-045-view-regex-complex",
+             tokens=["viewset","BOF+2b","EOF-2b","findr","\\w+","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="cde", exit=0)),
+
+        # View with take until and views
+        dict(id="view-046-view-take-until-complex",
+             tokens=["viewset","BOF+2b","EOF-2b","take","until","f","at","line-start"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=0)),  # take until f at line-start gives empty range
+
+        # View with multiple viewset operations
+        dict(id="view-047-view-multiple-viewsets",
+             tokens=["viewset","BOF+2b","EOF-2b","viewset","BOF+3b","EOF-3b","take","+2b"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=0)),  # Second viewset creates empty view [3,7), cursor clamped to 7, take +2b gives empty
+
+        # View with viewclear and subsequent operations
+        dict(id="view-048-view-clear-subsequent",
+             tokens=["viewset","BOF+2b","EOF-2b","viewclear","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="cde", exit=0)),  # Cursor still at position 2 from viewset
+
+        # View with empty file
+        dict(id="view-049-view-empty-file",
+             tokens=["viewset","BOF+1b","EOF-1b","take","+1b"], input_file="empty.txt",
+             expect=dict(stdout="", exit=0)),
+
+        # View with single byte file
+        dict(id="view-050-view-single-byte",
+             tokens=["viewset","BOF","EOF","take","+1b"], input_file="overlap.txt",
+             expect=dict(stdout="a", exit=0)),
     ]
 
 def main():

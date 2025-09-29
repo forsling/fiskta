@@ -209,6 +209,33 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                         idx++;
                     }
                 }
+            } else if (strcmp(cmd, "viewset") == 0) {
+                idx++;
+                // Skip two location expressions
+                if (idx < token_count) {
+                    const char* loc_token = tokens[idx];
+                    if (is_valid_label_name(loc_token)) {
+                        plan->max_name_count++;
+                    }
+                    idx++;
+                    // Skip offset if present
+                    if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
+                        idx++;
+                    }
+                }
+                if (idx < token_count) {
+                    const char* loc_token = tokens[idx];
+                    if (is_valid_label_name(loc_token)) {
+                        plan->max_name_count++;
+                    }
+                    idx++;
+                    // Skip offset if present
+                    if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
+                        idx++;
+                    }
+                }
+            } else if (strcmp(cmd, "viewclear") == 0) {
+                idx++; // no additional tokens
             } else {
                 idx++; // skip unknown token
             }
@@ -312,6 +339,19 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
                 if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
                     idx++; // skip offset
                 }
+            } else if (strcmp(cmd, "viewset") == 0) {
+                if (idx < token_count)
+                    idx++; // skip first location
+                if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
+                    idx++; // skip offset
+                }
+                if (idx < token_count)
+                    idx++; // skip second location
+                if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
+                    idx++; // skip offset
+                }
+            } else if (strcmp(cmd, "viewclear") == 0) {
+                // no additional tokens
             }
         }
 
@@ -507,6 +547,25 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.go.to, prg, max_name_count);
         if (err != E_OK)
             return err;
+
+    } else if (strcmp(cmd, "viewset") == 0) {
+        op->kind = OP_VIEWSET;
+
+        if (*idx >= token_count)
+            return E_PARSE;
+        enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.viewset.a, prg, max_name_count);
+        if (err != E_OK)
+            return err;
+
+        if (*idx >= token_count)
+            return E_PARSE;
+        err = parse_loc_expr_build(tokens, idx, token_count, &op->u.viewset.b, prg, max_name_count);
+        if (err != E_OK)
+            return err;
+
+    } else if (strcmp(cmd, "viewclear") == 0) {
+        op->kind = OP_VIEWCLEAR;
+        // No additional parsing needed
 
     } else {
         return E_PARSE;

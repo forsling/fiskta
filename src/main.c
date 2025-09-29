@@ -134,6 +134,9 @@ static void vm_reset_full(VM* vm)
     vm->last_match.valid = false;
     vm->last_match.start = 0;
     vm->last_match.end = 0;
+    vm->view.active = false;
+    vm->view.lo = 0;
+    vm->view.hi = 0;
     vm->gen_counter = 0;
 
     // Reset all labels
@@ -169,6 +172,8 @@ static void print_usage(void)
     printf("                              from the match; cursor moves only if B > cursor\n");
     printf("  label <name>                Mark current position with label\n");
     printf("  goto <location>             Jump to labeled position\n");
+    printf("  viewset <L1> <L2>           Limit all ops to [min(L1,L2), max(L1,L2))\n");
+    printf("  viewclear                   Clear view; return to full file\n");
     printf("\n");
     printf("UNITS:\n");
     printf("  b                           Bytes\n");
