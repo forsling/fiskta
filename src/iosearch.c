@@ -864,10 +864,10 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
         // current/previous chars at position pos
         unsigned char curr_c = (pos < win_hi) ? io->buf[pos - block_lo] : 0;
         unsigned char next1 = 0, next2 = 0;
-        if (pos + 1 < win_hi) {
+        if (pos + 1 <= win_hi) {
             (void)peek_byte(io, pos + 1, win_hi, block_lo, block_hi, &next1);
         }
-        if (pos + 2 < win_hi) {
+        if (pos + 2 <= win_hi) {
             (void)peek_byte(io, pos + 2, win_hi, block_lo, block_hi, &next2);
         }
         unsigned char prev_char = have_prev ? prev_c : 0;

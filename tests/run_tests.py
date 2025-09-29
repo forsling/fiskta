@@ -1153,7 +1153,7 @@ def tests():
 
         dict(id="regex-022-eol-with-newline",
              tokens=["findr","def$","take","+3b"], input_file="-", stdin=b"abc def\n",
-             expect=dict(stdout="", exit=2)),  # Edge case: $ with trailing newline - needs refinement
+             expect=dict(stdout="def", exit=0)),  # $ matches before newline (line end behavior)
 
         # Alternation
         dict(id="regex-023-alternation",
@@ -1217,11 +1217,11 @@ def tests():
 
         dict(id="regex-037-line-end-pattern",
              tokens=["findr","hit$","take","+3b"], input_file="small.txt",
-             expect=dict(stdout="", exit=2)),  # $ matches string end, not line end
+             expect=dict(stdout="hit", exit=0)),  # $ matches before newline (line end behavior)
 
         dict(id="regex-038-complete-line-pattern",
              tokens=["findr","^ERROR hit$","take","+9b"], input_file="small.txt",
-             expect=dict(stdout="", exit=2)),  # ^ and $ match string boundaries, not line boundaries
+             expect=dict(stdout="ERROR hit", exit=0)),  # ^ and $ match line boundaries
 
         # Binary data patterns
         dict(id="regex-039-binary-pattern",
@@ -1660,7 +1660,7 @@ def tests():
 
         dict(id="view-029-view-regex-eol",
              tokens=["viewset","BOF","EOF-3b","findr","ZZ$","take","to","match-end"], input_file="-", stdin=b"ZZ\nHEADER\n",
-             expect=dict(stdout="", exit=2)),  # ZZ$ doesn't match in view [0, EOF-3b)
+             expect=dict(stdout="ZZ", exit=0)),  # ZZ$ matches before newline (line end behavior)
 
         # View with match invalidation
         dict(id="view-030-view-match-invalidation",
