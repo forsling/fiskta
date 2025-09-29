@@ -38,7 +38,7 @@ static const char* find_inline_offset_start(const char* s)
 static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op, Program* prg,
     char* str_pool, size_t* str_pool_off, size_t str_pool_cap);
 static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg);
-static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, AtExpr* at, Program* prg);
+static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* at, Program* prg);
 static enum Err parse_unsigned_number(const char* token, i32* sign, u64* n, enum Unit* unit);
 static enum Err parse_signed_number(const char* token, i64* offset, enum Unit* unit);
 // find_or_add_name removed - use find_or_add_name_build with arena allocation instead
@@ -624,7 +624,7 @@ static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, L
     return E_OK;
 }
 
-static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, AtExpr* at, Program* prg)
+static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* at, Program* prg)
 {
     if (*idx >= token_count)
         return E_PARSE;
@@ -656,16 +656,19 @@ static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, At
 
     // Parse base location
     if (strcmp(token, "match-start") == 0) {
-        at->at = LOC_MATCH_START;
+        at->base = LOC_MATCH_START;
     } else if (strcmp(token, "match-end") == 0) {
-        at->at = LOC_MATCH_END;
+        at->base = LOC_MATCH_END;
     } else if (strcmp(token, "line-start") == 0) {
-        at->at = LOC_LINE_START;
+        at->base = LOC_LINE_START;
     } else if (strcmp(token, "line-end") == 0) {
-        at->at = LOC_LINE_END;
+        at->base = LOC_LINE_END;
     } else {
         return E_PARSE;
     }
+    
+    // AtExpr never uses named labels, so set name_idx to -1
+    at->name_idx = -1;
 
     // Support detached offset as next token (e.g., "line-start -2l")
     if (*idx < token_count) {
