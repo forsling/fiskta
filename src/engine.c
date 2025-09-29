@@ -91,11 +91,29 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     const size_t ranges_bytes = total_ranges * sizeof(Range);
     const size_t labels_bytes = total_labels * sizeof(LabelWrite);
 
+    // Determine max compiled regex size across program to size regex scratch.
+    int max_nins = 0;
+    for (i32 ci = 0; ci < prg->clause_count; ++ci) {
+        const Clause* C = &prg->clauses[ci];
+        for (i32 oi = 0; oi < C->op_count; ++oi) {
+            const Op* op = &C->ops[oi];
+            if (op->kind == OP_FINDR && op->u.findr.prog) {
+                if (op->u.findr.prog->nins > max_nins) max_nins = op->u.findr.prog->nins;
+            }
+        }
+    }
+    int re_threads_cap = max_nins > 0 ? 4 * max_nins : 32;
+    if (re_threads_cap < 32) re_threads_cap = 32;
+    const size_t re_thr_bytes = (size_t)re_threads_cap * sizeof(ReThread);
+    const size_t re_seen_bytes_each = (size_t)(max_nins > 0 ? max_nins : 32);
+
     // Account for alignment padding between slices
     size_t total = a_align(search_buf_cap, 1)
         + a_align(counts_bytes, alignof(unsigned short))
         + a_align(ranges_bytes, alignof(Range))
         + a_align(labels_bytes, alignof(LabelWrite))
+        + a_align(re_thr_bytes, alignof(ReThread)) * 2
+        + a_align(re_seen_bytes_each, 1) * 2
         + 64; // small cushion like main.c
 
     // Allocate single block
@@ -112,8 +130,13 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     unsigned short* counts_slab = (unsigned short*)arena_alloc(&arena, counts_bytes, alignof(unsigned short));
     Range* ranges_pool = (Range*)arena_alloc(&arena, ranges_bytes, alignof(Range));
     LabelWrite* labels_pool = (LabelWrite*)arena_alloc(&arena, labels_bytes, alignof(LabelWrite));
+    ReThread* re_curr_thr = (ReThread*)arena_alloc(&arena, re_thr_bytes, alignof(ReThread));
+    ReThread* re_next_thr = (ReThread*)arena_alloc(&arena, re_thr_bytes, alignof(ReThread));
+    unsigned char* seen_curr = (unsigned char*)arena_alloc(&arena, re_seen_bytes_each, 1);
+    unsigned char* seen_next = (unsigned char*)arena_alloc(&arena, re_seen_bytes_each, 1);
 
-    if (!search_buf || !counts_slab || !ranges_pool || !labels_pool) {
+    if (!search_buf || !counts_slab || !ranges_pool || !labels_pool
+        || !re_curr_thr || !re_next_thr || !seen_curr || !seen_next) {
         free(block);
         return E_OOM;
     }
@@ -125,6 +148,8 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
         free(block);
         return err;
     }
+    io_set_regex_scratch(&io, re_curr_thr, re_next_thr, re_threads_cap,
+                         seen_curr, seen_next, (size_t)re_seen_bytes_each);
 
     VM vm = { 0 };
     vm.cursor = 0;
@@ -283,7 +308,13 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
 
     case OP_SKIP: {
         if (op->u.skip.unit == UNIT_BYTES) {
-            *c_cursor = vclamp(c_view, io, *c_cursor + op->u.skip.n);
+            i64 cur = vclamp(c_view, io, *c_cursor);
+            if (op->u.skip.n > (u64)INT64_MAX) {
+                cur = veof(c_view, io);
+            } else {
+                apply_byte_saturation(&cur, (i64)op->u.skip.n, c_view, io, CLAMP_VIEW);
+            }
+            *c_cursor = cur;
         } else if (op->u.skip.unit == UNIT_LINES) {
             // Skip by lines
             i64 current_line_start;
@@ -321,10 +352,15 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
         if (op->u.take_len.unit == UNIT_BYTES) {
             if (op->u.take_len.sign > 0) {
                 start = vclamp(c_view, io, *c_cursor);
-                end = vclamp(c_view, io, start + op->u.take_len.n);
+                end   = start;
+                if (op->u.take_len.n > (u64)INT64_MAX) end = veof(c_view, io);
+                else apply_byte_saturation(&end, (i64)op->u.take_len.n, c_view, io, CLAMP_VIEW);
             } else {
-                end = vclamp(c_view, io, *c_cursor);
-                start = clamp64(end - op->u.take_len.n, vbof(c_view), end);
+                end   = vclamp(c_view, io, *c_cursor);
+                start = end;
+                if (op->u.take_len.n > (u64)INT64_MAX) start = vbof(c_view);
+                else apply_byte_saturation(&start, -(i64)op->u.take_len.n, c_view, io, CLAMP_VIEW);
+                start = clamp64(start, vbof(c_view), end);
             }
         } else if (op->u.take_len.unit == UNIT_LINES) {
             // Take by lines
@@ -473,7 +509,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
             return err;
         
         // Check if target is outside view bounds
-        if (c_view->active && (*c_cursor < c_view->lo || *c_cursor > c_view->hi)) {
+        if (c_view->active && (*c_cursor < c_view->lo || *c_cursor >= c_view->hi)) {
             return E_LOC_RESOLVE;
         }
         

@@ -16,6 +16,7 @@ typedef struct {
     i32   sum_findr_ops;
     i32   re_ins_estimate;     // sum over patterns of ~4*len + 8
     i32   re_classes_estimate; // count '[' occurrences
+    i32   re_ins_estimate_max; // max over patterns (for scratch sizing)
 } ParsePlan;
 
 // Helper function to find inline offset start
@@ -123,7 +124,11 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                     const char* pat = tokens[idx];
                     size_t L = strlen(pat);
                     plan->sum_findr_ops++;
-                    plan->re_ins_estimate     += (i32)(4*L + 8);
+                    i32 est = (i32)(4*L + 8);
+                    plan->re_ins_estimate     += est;
+                    if (est > plan->re_ins_estimate_max) {
+                        plan->re_ins_estimate_max = est;
+                    }
                     // crude class count estimate: count '[' and escape sequences that create classes
                     for (const char* p=pat; *p; ++p) {
                         if (*p=='[') plan->re_classes_estimate++;

@@ -5,6 +5,7 @@
 #include "iosearch.h"
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>  // for off_t
 
 #ifdef _WIN32
 #include <fcntl.h>
@@ -54,7 +55,7 @@ enum Err io_open_arena2(File* io, const char* path,
 
         // Copy stdin to temp file in chunks
         unsigned char buf[256 * 1024]; // 256 KiB chunks
-        size_t total_read = 0;
+        // size will be determined with ftello after writing
 
         while (1) {
             size_t n = fread(buf, 1, sizeof(buf), stdin);
@@ -71,14 +72,17 @@ enum Err io_open_arena2(File* io, const char* path,
                 fclose(io->f);
                 return E_IO;
             }
-            total_read += n;
+            /* no running size_t accumulator needed */
         }
 
-        io->size = (i64)total_read;
         if (fflush(io->f) != 0) {
             fclose(io->f);
             return E_IO;
         }
+        if (fseeko(io->f, 0, SEEK_END) != 0) { fclose(io->f); return E_IO; }
+        off_t sz = ftello(io->f);
+        if (sz < 0) { fclose(io->f); return E_IO; }
+        io->size = (i64)sz;
         rewind(io->f);
     } else {
         io->f = fopen(path, "rb");
@@ -110,6 +114,13 @@ enum Err io_open_arena2(File* io, const char* path,
         io->line_idx[i].lf_counts = counts_slab + (size_t)i * (size_t)IDX_SUB_MAX;
         io->line_idx[i].sub_count = 0;
     }
+
+    // Regex scratch not set yet
+    io->re.curr = NULL;
+    io->re.next = NULL;
+    io->re.cap  = 0;
+    io->re.seen_curr = io->re.seen_next = NULL;
+    io->re.seen_bytes = 0;
 
     return E_OK;
 }
@@ -713,7 +724,6 @@ static enum Err bmh_forward(const unsigned char* text, size_t text_len,
 // --------------------------
 // Regex streaming NFA engine
 // --------------------------
-typedef struct { int pc; i64 start; } ReThread;
 typedef struct { ReThread* v; int n, cap; } ReList;
 
 static inline int cls_has(const ReClass* c, unsigned char ch){
@@ -795,14 +805,18 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
     if (win_hi > io->size) win_hi = io->size;
     if (win_lo >= win_hi) return E_NO_MATCH;
 
-    // Forward scan only; for DIR_BWD, remember rightmost match
-    int nins = re->nins;
-    int cap  = nins * 4;
-    if (cap < 32) cap = 32;
-    ReThread* curr_buf = (ReThread*)alloca((size_t)cap * sizeof(ReThread));
-    ReThread* next_buf = (ReThread*)alloca((size_t)cap * sizeof(ReThread));
-    unsigned char* seen_curr = (unsigned char*)alloca((size_t)nins);
-    unsigned char* seen_next = (unsigned char*)alloca((size_t)nins);
+    // Use arena-backed scratch provided at startup
+    const int nins = re->nins;
+    const int cap  = io->re.cap;
+    if (cap <= 0 || !io->re.curr || !io->re.next || !io->re.seen_curr || !io->re.seen_next)
+        return E_OOM;
+    if ((size_t)nins > io->re.seen_bytes)
+        return E_OOM;
+
+    ReThread* curr_buf  = io->re.curr;
+    ReThread* next_buf  = io->re.next;
+    unsigned char* seen_curr = io->re.seen_curr;
+    unsigned char* seen_next = io->re.seen_next;
     ReList curr, next;
     rlist_init(&curr, curr_buf, cap);
     rlist_init(&next, next_buf, cap);

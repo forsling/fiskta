@@ -4,6 +4,9 @@
 #include "reprog.h"
 #include <stdio.h>
 
+// Regex thread state (exposed so startup code can size/allocate scratch)
+typedef struct { int pc; i64 start; } ReThread;
+
 // Line indexing constants (tunable via environment variables)
 enum {
     IDX_BLOCK = 1 * 1024 * 1024, // 1 MiB index block
@@ -35,6 +38,16 @@ typedef struct {
     // Bounded LRU cache of line indices
     LineBlockIdx line_idx[IDX_MAX_BLOCKS];
     u64 line_idx_gen;
+
+    // Arena-backed regex scratch (set once at startup)
+    struct {
+        ReThread* curr;
+        ReThread* next;
+        int       cap;          // capacity in ReThread entries for curr/next each
+        unsigned char* seen_curr;
+        unsigned char* seen_next;
+        size_t   seen_bytes;    // bytes available in seen_* (must be >= re->nins)
+    } re;
 } File;
 
 enum Dir { DIR_FWD = +1,
@@ -47,6 +60,12 @@ enum Err io_open_arena2(File* io, const char* path,
 void io_close(File* io);
 void io_reset_full(File* io);
 enum Err io_emit(File* io, i64 start, i64 end, FILE* out);
+
+// Provide preallocated regex scratch to File (no mallocs during search).
+static inline void io_set_regex_scratch(File* io,
+    ReThread* curr, ReThread* next, int cap,
+    unsigned char* seen_curr, unsigned char* seen_next, size_t seen_bytes)
+{ io->re.curr=curr; io->re.next=next; io->re.cap=cap; io->re.seen_curr=seen_curr; io->re.seen_next=seen_next; io->re.seen_bytes=seen_bytes; }
 
 static inline i64 io_size(const File* io) { return io->size; }
 

@@ -18,6 +18,7 @@ typedef struct {
     i32   sum_findr_ops;
     i32   re_ins_estimate;
     i32   re_classes_estimate;
+    i32   re_ins_estimate_max; // NEW: for regex scratch sizing
 } ParsePlan;
 
 // Minimal ops-string splitter for quoted CLI usage
@@ -48,7 +49,7 @@ static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
         size_t len = (size_t)(s - start);
         if (len) {
             if (off + len + 1 >= sizeof(buf))
-                break; // truncate defensively
+                return -1; // return error instead of silent truncation
             memcpy(buf + off, start, len);
             buf[off + len] = '\0';
             out[n++] = buf + off;
@@ -266,12 +267,23 @@ int main(int argc, char** argv)
     const char* in_path = "-"; // Default to stdin
 
     // Check if last argument is a file path (not an operation)
-    // This is a simple heuristic: if it doesn't start with a known operation keyword, treat it as a file
-    // But be more careful - only treat it as a file if it looks like a file path (contains '.', '/', or is '-')
+    // Improved heuristic: only treat as file if it contains path separators, is "-", or actually exists
     if (argc > 2) {
         const char* last_arg = argv[argc - 1];
-        if (strcmp(last_arg, "-") == 0 || strchr(last_arg, '.') != NULL || strchr(last_arg, '/') != NULL) {
-            // Last argument looks like a file path
+        bool treat_as_file = false;
+        
+        if (strcmp(last_arg, "-") == 0 || strchr(last_arg, '/') != NULL || strchr(last_arg, '\\') != NULL) {
+            treat_as_file = true;
+        } else {
+            // Check if it actually exists as a file
+            FILE* test_file = fopen(last_arg, "rb");
+            if (test_file) {
+                fclose(test_file);
+                treat_as_file = true;
+            }
+        }
+        
+        if (treat_as_file) {
             in_path = last_arg;
             token_count = argc - 2;
         }
@@ -281,6 +293,10 @@ int main(int argc, char** argv)
     char* splitv[256];
     if (token_count == 1 && strchr(tokens[0], ' ')) {
         i32 n = split_ops_string(tokens[0], splitv, (i32)(sizeof splitv / sizeof splitv[0]));
+        if (n == -1) {
+            fprintf(stderr, "fiskta: operations string too long (max 4096 bytes)\n");
+            return 2;
+        }
         if (n > 0) {
             tokens = splitv;
             token_count = n;
@@ -307,6 +323,11 @@ int main(int argc, char** argv)
     const size_t re_prog_bytes = (size_t)plan.sum_findr_ops * sizeof(ReProg);
     const size_t re_ins_bytes  = (size_t)plan.re_ins_estimate * sizeof(ReInst);
     const size_t re_cls_bytes  = (size_t)plan.re_classes_estimate * sizeof(ReClass);
+    // Regex runtime scratch (arena-backed):
+    // Choose per-run thread capacity as ~4x max nins (like old logic), min 32.
+    int re_threads_cap = plan.re_ins_estimate_max > 0 ? 4 * plan.re_ins_estimate_max : 32;
+    if (re_threads_cap < 32) re_threads_cap = 32;
+    const size_t re_threads_bytes = (size_t)re_threads_cap * sizeof(ReThread);
 
     // 3) One allocation
     size_t search_buf_size = a_align(search_buf_cap, alignof(unsigned char));
@@ -320,9 +341,14 @@ int main(int argc, char** argv)
     size_t re_ins_size  = a_align(re_ins_bytes,  alignof(ReInst));
     size_t re_cls_size  = a_align(re_cls_bytes,  alignof(ReClass));
     size_t str_pool_size = a_align(str_pool_bytes, alignof(char));
+    // Two thread buffers + two seen arrays sized to max estimated nins
+    size_t re_seen_bytes_each = (size_t)(plan.re_ins_estimate_max > 0 ? plan.re_ins_estimate_max : 32);
+    size_t re_seen_size = a_align(re_seen_bytes_each, 1) * 2;
+    size_t re_thrbufs_size = a_align(re_threads_bytes, alignof(ReThread)) * 2;
 
-    size_t total = search_buf_size + counts_size + clauses_size + ops_size + names_size + ranges_size + labels_size
-                 + re_prog_size + re_ins_size + re_cls_size + str_pool_size + 64; // small cushion
+    size_t total = search_buf_size + counts_size + clauses_size + ops_size + names_size
+                 + ranges_size + labels_size + re_prog_size + re_ins_size + re_cls_size
+                 + str_pool_size + re_thrbufs_size + re_seen_size + 64; // small cushion
 
     void* block = malloc(total);
     if (!block) {
@@ -340,11 +366,17 @@ int main(int argc, char** argv)
     char(*names_buf)[17] = arena_alloc(&A, names_bytes, alignof(char));
     Range* ranges_pool = arena_alloc(&A, ranges_bytes, alignof(Range));
     LabelWrite* labels_pool = arena_alloc(&A, labels_bytes, alignof(LabelWrite));
+    ReThread* re_curr_thr = arena_alloc(&A, re_threads_bytes, alignof(ReThread));
+    ReThread* re_next_thr = arena_alloc(&A, re_threads_bytes, alignof(ReThread));
+    unsigned char* seen_curr = arena_alloc(&A, re_seen_bytes_each, 1);
+    unsigned char* seen_next = arena_alloc(&A, re_seen_bytes_each, 1);
     ReProg* re_progs = arena_alloc(&A, re_prog_bytes, alignof(ReProg));
     ReInst*  re_ins  = arena_alloc(&A, re_ins_bytes,  alignof(ReInst));
     ReClass* re_cls  = arena_alloc(&A, re_cls_bytes,  alignof(ReClass));
     char* str_pool = arena_alloc(&A, str_pool_bytes, alignof(char));
-    if (!search_buf || !counts_slab || !clauses_buf || !ops_buf || !names_buf || !ranges_pool || !labels_pool || !re_progs || !re_ins || !re_cls || !str_pool) {
+    if (!search_buf || !counts_slab || !clauses_buf || !ops_buf || !names_buf || !ranges_pool || !labels_pool
+        || !re_curr_thr || !re_next_thr || !seen_curr || !seen_next
+        || !re_progs || !re_ins || !re_cls || !str_pool) {
         die(E_OOM, "arena carve");
         free(block);
         return 2;
@@ -389,6 +421,9 @@ int main(int argc, char** argv)
         free(block);
         return 2;
     }
+    // Provide regex scratch (seen arrays sized by max-estimated nins)
+    io_set_regex_scratch(&io, re_curr_thr, re_next_thr, re_threads_cap,
+                         seen_curr, seen_next, (size_t)re_seen_bytes_each);
 
     // 7) Run engine using precomputed scratch pools with short-circuit behavior
     VM vm = { 0 };
