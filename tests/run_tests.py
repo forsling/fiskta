@@ -1356,159 +1356,180 @@ def tests():
              tokens=["findr","Line\\d+\\r\\n","take","+7b"], input_file="crlf-comprehensive.txt",
              expect=dict(stdout="Line1\r\n", exit=0)),
 
+        # CRLF EOL anchor tests - these would have caught the bug!
+        dict(id="regex-067-crlf-eol-anchor",
+             tokens=["findr","Line1$","take","+5b"], input_file="crlf-comprehensive.txt",
+             expect=dict(stdout="Line1", exit=0)),  # $ should match before \r\n
+
+        dict(id="regex-068-crlf-eol-anchor-second-line",
+             tokens=["findr","Line2$","take","+5b"], input_file="crlf-comprehensive.txt",
+             expect=dict(stdout="Line2", exit=0)),  # $ should match before \r\n
+
+        dict(id="regex-069-crlf-eol-anchor-last-line",
+             tokens=["findr","Line3$","take","+5b"], input_file="crlf-comprehensive.txt",
+             expect=dict(stdout="Line3", exit=0)),  # $ should match before \r\n
+
+        dict(id="regex-070-crlf-eol-anchor-no-final-lf",
+             tokens=["findr","Line3$","take","+5b"], input_file="crlf-no-final-lf.txt",
+             expect=dict(stdout="Line3", exit=0)),  # $ should match at EOF when no final \r\n
+
+        dict(id="regex-071-crlf-mixed-eol-anchor",
+             tokens=["findr","CRLF line$","take","+9b"], input_file="mixed-line-endings.txt",
+             expect=dict(stdout="CRLF line", exit=0)),  # $ should match before \r\n in mixed file
+
         # Complex regex with multiple features
-        dict(id="regex-067-complex-features",
+        dict(id="regex-072-complex-features",
              tokens=["findr","^\\w+\\s+\\d+\\s+\\w+\\s*$","take","+13b"], input_file="-", stdin=b"hello 123 world",
              expect=dict(stdout="hello 123 wor", exit=0)),
 
         # Regex with alternation and quantifiers
-        dict(id="regex-068-alternation-quantified",
+        dict(id="regex-073-alternation-quantified",
              tokens=["findr","(cat|dog)+","take","+6b"], input_file="-", stdin=b"catdogcat",
              expect=dict(stdout="catdog", exit=0)),  # Groups () treated as literal characters
 
         # Regex with anchors and classes
-        dict(id="regex-069-anchor-classes",
+        dict(id="regex-074-anchor-classes",
              tokens=["findr","^[A-Z]+\\s+[a-z]+$","take","+8b"], input_file="-", stdin=b"HELLO world",
              expect=dict(stdout="HELLO wo", exit=0)),
 
         # Final comprehensive test
-        dict(id="regex-070-comprehensive",
+        dict(id="regex-075-comprehensive",
              tokens=["findr","^\\w+\\s+\\d+\\s+\\w+\\s*$","take","+13b"], input_file="-", stdin=b"hello 123 world",
              expect=dict(stdout="hello 123 wor", exit=0)),
 
         # NEW TESTS FOR GROUPING FUNCTIONALITY
         # Basic grouping
-        dict(id="regex-071-basic-grouping",
+        dict(id="regex-076-basic-grouping",
              tokens=["findr","(a)","take","+1b"], input_file="-", stdin=b"abc",
              expect=dict(stdout="a", exit=0)),
 
         # Grouping with alternation
-        dict(id="regex-072-grouping-alternation",
+        dict(id="regex-077-grouping-alternation",
              tokens=["findr","(a|b)","take","+1b"], input_file="-", stdin=b"abc",
              expect=dict(stdout="a", exit=0)),
 
         # Nested grouping
-        dict(id="regex-073-nested-grouping",
+        dict(id="regex-078-nested-grouping",
              tokens=["findr","((a))","take","+1b"], input_file="-", stdin=b"abc",
              expect=dict(stdout="a", exit=0)),
 
         # Complex grouping with alternation
-        dict(id="regex-074-complex-grouping",
+        dict(id="regex-079-complex-grouping",
              tokens=["findr","(a|b)|c","take","+1b"], input_file="-", stdin=b"abc",
              expect=dict(stdout="a", exit=0)),
 
         # Grouping with multiple alternatives
-        dict(id="regex-075-grouping-multiple-alternatives",
+        dict(id="regex-080-grouping-multiple-alternatives",
              tokens=["findr","(a|b|c)","take","+1b"], input_file="-", stdin=b"abc",
              expect=dict(stdout="a", exit=0)),
 
         # Grouping with second alternative
-        dict(id="regex-076-grouping-second-alternative",
+        dict(id="regex-081-grouping-second-alternative",
              tokens=["findr","(a|b|c)","take","+1b"], input_file="-", stdin=b"bcd",
              expect=dict(stdout="b", exit=0)),
 
         # Grouping with third alternative
-        dict(id="regex-077-grouping-third-alternative",
+        dict(id="regex-082-grouping-third-alternative",
              tokens=["findr","(a|b|c)","take","+1b"], input_file="-", stdin=b"cde",
              expect=dict(stdout="c", exit=0)),
 
         # Deeply nested grouping
-        dict(id="regex-078-deeply-nested-grouping",
+        dict(id="regex-083-deeply-nested-grouping",
              tokens=["findr","(((a|b)|c)|d)","take","+1b"], input_file="-", stdin=b"abc",
              expect=dict(stdout="a", exit=0)),
 
         # Grouping with anchors
-        dict(id="regex-079-grouping-with-anchors",
+        dict(id="regex-084-grouping-with-anchors",
              tokens=["findr","^(a|b)$","take","+1b"], input_file="-", stdin=b"a",
              expect=dict(stdout="a", exit=0)),
 
         # Grouping with anchors - no match
-        dict(id="regex-080-grouping-with-anchors-no-match",
+        dict(id="regex-085-grouping-with-anchors-no-match",
              tokens=["findr","^(a|b)$","take","+1b"], input_file="-", stdin=b"ab",
              expect=dict(stdout="", exit=2)),
 
         # Grouping with character classes
-        dict(id="regex-081-grouping-with-classes",
+        dict(id="regex-086-grouping-with-classes",
              tokens=["findr","([a-z]|[0-9])","take","+1b"], input_file="-", stdin=b"abc123",
              expect=dict(stdout="a", exit=0)),
 
         # Grouping with character classes - digits
-        dict(id="regex-082-grouping-with-classes-digits",
+        dict(id="regex-087-grouping-with-classes-digits",
              tokens=["findr","([a-z]|[0-9])","take","+1b"], input_file="-", stdin=b"123abc",
              expect=dict(stdout="1", exit=0)),
 
         # Grouping with quantifiers (should use old parser)
-        dict(id="regex-083-grouping-with-quantifiers",
+        dict(id="regex-088-grouping-with-quantifiers",
              tokens=["findr","(a+)","take","+3b"], input_file="-", stdin=b"aaabc",
              expect=dict(stdout="aaa", exit=0)),
 
         # Grouping with alternation and quantifiers
-        dict(id="regex-084-grouping-alternation-quantifiers",
+        dict(id="regex-089-grouping-alternation-quantifiers",
              tokens=["findr","(a|b)+","take","+3b"], input_file="-", stdin=b"aaabc",
              expect=dict(stdout="aaa", exit=0)),
 
         # Complex grouping pattern
-        dict(id="regex-085-complex-grouping-pattern",
+        dict(id="regex-090-complex-grouping-pattern",
              tokens=["findr","(cat|dog)|(bird|fish)","take","+4b"], input_file="-", stdin=b"I have a cat",
              expect=dict(stdout="cat", exit=0)),
 
         # Grouping with second group
-        dict(id="regex-086-grouping-second-group",
+        dict(id="regex-091-grouping-second-group",
              tokens=["findr","(cat|dog)|(bird|fish)","take","+4b"], input_file="-", stdin=b"I have a bird",
              expect=dict(stdout="bird", exit=0)),
 
         # Empty group (should not match)
-        dict(id="regex-087-empty-group",
+        dict(id="regex-092-empty-group",
              tokens=["findr","()","take","+1b"], input_file="-", stdin=b"abc",
              expect=dict(stdout="", exit=2)),
 
         # Grouping with escape sequences
-        dict(id="regex-088-grouping-with-escapes",
+        dict(id="regex-093-grouping-with-escapes",
              tokens=["findr","(\\n|\\t)","take","+1b"], input_file="-", stdin=b"abc\ndef",
              expect=dict(stdout="\n", exit=0)),
 
         # Grouping with dot
-        dict(id="regex-089-grouping-with-dot",
+        dict(id="regex-094-grouping-with-dot",
              tokens=["findr","(.|a)","take","+1b"], input_file="-", stdin=b"abc",
              expect=dict(stdout="a", exit=0)),
 
         # Grouping with anchors and multiline
-        dict(id="regex-090-grouping-multiline",
+        dict(id="regex-095-grouping-multiline",
              tokens=["findr","^(a|b)","take","+1b"], input_file="-", stdin=b"abc\ndef",
              expect=dict(stdout="a", exit=0)),
 
         # Grouping with anchors and multiline - second line
-        dict(id="regex-091-grouping-multiline-second",
+        dict(id="regex-096-grouping-multiline-second",
              tokens=["findr","^(a|b)","take","+1b"], input_file="-", stdin=b"xyz\ndef",
              expect=dict(stdout="", exit=2)),
 
         # Grouping with anchors and multiline - after newline
-        dict(id="regex-092-grouping-multiline-after-newline",
+        dict(id="regex-097-grouping-multiline-after-newline",
              tokens=["findr","^(a|b)","take","+1b"], input_file="-", stdin=b"xyz\na",
              expect=dict(stdout="a", exit=0)),
 
         # Regression tests for grouped quantifiers (catch issues old implementation accidentally allowed)
-        dict(id="regex-093-star-quantifier-multiple-repeats",
+        dict(id="regex-098-star-quantifier-multiple-repeats",
              tokens=["findr","(ab)*x","take","to","match-end"], input_file="-", stdin=b"ababx",
              expect=dict(stdout="ababx", exit=0)),
 
-        dict(id="regex-094-question-quantifier-zero-occurrences",
+        dict(id="regex-099-question-quantifier-zero-occurrences",
              tokens=["findr","(ab)?x","take","to","match-end"], input_file="-", stdin=b"x",
              expect=dict(stdout="x", exit=0)),
 
-        dict(id="regex-095-question-quantifier-one-occurrence",
+        dict(id="regex-100-question-quantifier-one-occurrence",
              tokens=["findr","(ab)?x","take","to","match-end"], input_file="-", stdin=b"abx",
              expect=dict(stdout="abx", exit=0)),
 
-        dict(id="regex-096-question-quantifier-not-require-two",
+        dict(id="regex-101-question-quantifier-not-require-two",
              tokens=["findr","(ab)?x","take","to","match-end"], input_file="-", stdin=b"ababx",
              expect=dict(stdout="x", exit=0)),  # Should find first match, not require 2 occurrences
 
-        dict(id="regex-097-plus-quantifier-requires-one",
+        dict(id="regex-102-plus-quantifier-requires-one",
              tokens=["findr","(ab)+x"], input_file="-", stdin=b"x",
              expect=dict(stdout="", exit=2)),  # Should fail - requires at least one occurrence
 
-        dict(id="regex-098-plus-quantifier-multiple-occurrences",
+        dict(id="regex-103-plus-quantifier-multiple-occurrences",
              tokens=["findr","(ab)+x","take","to","match-end"], input_file="-", stdin=b"ababx",
              expect=dict(stdout="ababx", exit=0)),
 
