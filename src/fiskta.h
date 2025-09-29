@@ -56,16 +56,14 @@ enum Err {
 typedef struct {
     enum LocBase base; // LOC_NAME uses name_idx
     i32 name_idx; // index into program->names[], -1 otherwise
-    i32 sign; // +1 or -1
     enum Unit unit;
-    u64 n; // count (0 means no offset)
+    i64 n; // count (0 means no offset, negative for backward offsets)
 } LocExpr;
 
 typedef struct { // at-expr used only by TAKE_UNTIL
     enum LocBase at; // match-start/end or line-start/end
-    i32 sign;
     enum Unit unit;
-    u64 n; // count (0 means no offset)
+    i64 n; // count (0 means no offset, negative for backward offsets)
 } AtExpr;
 
 typedef struct ReProg ReProg;
@@ -97,8 +95,7 @@ typedef struct {
             enum Unit unit;
         } skip;
         struct {
-            i32 sign;
-            u64 n;
+            i64 n; // count (negative for backward offsets)
             enum Unit unit;
         } take_len;
         struct {

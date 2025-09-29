@@ -40,6 +40,7 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
 static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg);
 static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, AtExpr* at, Program* prg);
 static enum Err parse_signed_number(const char* token, i32* sign, u64* n, enum Unit* unit);
+static enum Err parse_signed_number_i64(const char* token, i64* n, enum Unit* unit);
 // find_or_add_name removed - use find_or_add_name_build with arena allocation instead
 static i32 find_or_add_name_build(Program* prg, const char* name);
 static bool is_valid_label_name(const char* name);
@@ -391,7 +392,6 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
             // Default to EOF
             op->u.find.to.base = LOC_EOF;
             op->u.find.to.name_idx = -1;
-            op->u.find.to.sign = 1;
             op->u.find.to.n = 0;
             op->u.find.to.unit = UNIT_BYTES;
         }
@@ -425,7 +425,6 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         } else {
             op->u.findr.to.base = LOC_EOF;
             op->u.findr.to.name_idx = -1;
-            op->u.findr.to.sign = 1;
             op->u.findr.to.n = 0;
             op->u.findr.to.unit = UNIT_BYTES;
         }
@@ -498,7 +497,7 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
             }
         } else {
             op->kind = OP_TAKE_LEN;
-            enum Err err = parse_signed_number(tokens[*idx], &op->u.take_len.sign, &op->u.take_len.n, &op->u.take_len.unit);
+            enum Err err = parse_signed_number_i64(tokens[*idx], &op->u.take_len.n, &op->u.take_len.unit);
             if (err != E_OK)
                 return err;
             (*idx)++;
@@ -574,14 +573,13 @@ static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, L
         base_token[base_len] = '\0';
 
         // Parse offset part
-        enum Err err = parse_signed_number(offset_start, &loc->sign, &loc->n, &loc->unit);
+        enum Err err = parse_signed_number_i64(offset_start, &loc->n, &loc->unit);
         if (err != E_OK)
             return err;
 
         token = base_token;
     } else {
         // No offset - initialize to defaults
-        loc->sign = 1;
         loc->n = 0;
         loc->unit = UNIT_BYTES; // default unit
     }
@@ -613,12 +611,10 @@ static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, L
 
     // Support detached offset as next token (e.g., "BOF +100b")
     if (*idx < token_count) {
-        i32 sign_tmp;
-        u64 n_tmp;
+        i64 n_tmp;
         enum Unit unit_tmp;
-        enum Err off_err = parse_signed_number(tokens[*idx], &sign_tmp, &n_tmp, &unit_tmp);
+        enum Err off_err = parse_signed_number_i64(tokens[*idx], &n_tmp, &unit_tmp);
         if (off_err == E_OK) {
-            loc->sign = sign_tmp;
             loc->n = n_tmp;
             loc->unit = unit_tmp;
             (*idx)++; // consume detached offset token
@@ -647,14 +643,13 @@ static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, At
         base_token[base_len] = '\0';
 
         // Parse offset part
-        enum Err err = parse_signed_number(offset_start, &at->sign, &at->n, &at->unit);
+        enum Err err = parse_signed_number_i64(offset_start, &at->n, &at->unit);
         if (err != E_OK)
             return err;
 
         token = base_token;
     } else {
         // No offset - initialize to defaults
-        at->sign = 1;
         at->n = 0;
         at->unit = UNIT_BYTES; // default unit
     }
@@ -674,12 +669,10 @@ static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, At
 
     // Support detached offset as next token (e.g., "line-start -2l")
     if (*idx < token_count) {
-        i32 sign_tmp;
-        u64 n_tmp;
+        i64 n_tmp;
         enum Unit unit_tmp;
-        enum Err off_err = parse_signed_number(tokens[*idx], &sign_tmp, &n_tmp, &unit_tmp);
+        enum Err off_err = parse_signed_number_i64(tokens[*idx], &n_tmp, &unit_tmp);
         if (off_err == E_OK) {
-            at->sign = sign_tmp;
             at->n = n_tmp;
             at->unit = unit_tmp;
             (*idx)++; // consume
@@ -751,6 +744,60 @@ static enum Err parse_signed_number(const char* token, i32* sign, u64* n, enum U
         return E_PARSE; // Extra characters
 
     *n = num;
+    return E_OK;
+}
+
+static enum Err parse_signed_number_i64(const char* token, i64* n, enum Unit* unit)
+{
+    if (!token || strlen(token) == 0)
+        return E_PARSE;
+
+    const char* p = token;
+
+    // Parse sign
+    i32 sign = 1;
+    if (*p == '+') {
+        sign = 1;
+        p++;
+    } else if (*p == '-') {
+        sign = -1;
+        p++;
+    }
+
+    // Parse number
+    if (!isdigit(*p))
+        return E_PARSE;
+
+    u64 num = 0;
+    while (isdigit(*p)) {
+        u64 new_num = num * 10 + (*p - '0');
+        if (new_num < num)
+            return E_PARSE; // Overflow
+        num = new_num;
+        p++;
+    }
+
+    // Parse unit
+    if (*p == 'b') {
+        *unit = UNIT_BYTES;
+        p++;
+    } else if (*p == 'l') {
+        *unit = UNIT_LINES;
+        p++;
+    } else if (*p == 'c') {
+        *unit = UNIT_CHARS;
+        p++;
+    } else {
+        return E_PARSE;
+    }
+
+    if (*p != '\0')
+        return E_PARSE; // Extra characters
+
+    // Convert to signed and apply sign
+    if (num > (u64)INT64_MAX)
+        return E_PARSE; // Overflow
+    *n = sign * (i64)num;
     return E_OK;
 }
 
