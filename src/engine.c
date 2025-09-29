@@ -13,7 +13,8 @@ enum Err io_open(File* io, const char* path,
     unsigned char* search_buf, size_t search_buf_cap);
 
 // Arena alignment helper with overflow protection
-static size_t safe_align(size_t x, size_t align) {
+static size_t safe_align(size_t x, size_t align)
+{
     size_t aligned = a_align(x, align);
     if (aligned < x) { // overflow check
         return SIZE_MAX; // signal overflow
@@ -27,13 +28,19 @@ static inline i64 veof(const View* v, const File* io) { return (v && v->active) 
 static inline i64 vclamp(const View* v, const File* io, i64 x) { return clamp64(x, vbof(v), veof(v, io)); }
 
 // Saturate byte add into range before addition (prevents overflow past clamp edges)
-static inline void apply_byte_saturation(i64* base, i64 delta, const View* v, const File* io, ClampPolicy cp){
+static inline void apply_byte_saturation(i64* base, i64 delta, const View* v, const File* io, ClampPolicy cp)
+{
     i64 lo = 0, hi = io_size((File*)io);
-    if (cp == CLAMP_VIEW) { lo = vbof(v); hi = veof(v, io); }
+    if (cp == CLAMP_VIEW) {
+        lo = vbof(v);
+        hi = veof(v, io);
+    }
     if (delta >= 0) {
-        if (*base > hi - delta) *base = hi - delta;
+        if (*base > hi - delta)
+            *base = hi - delta;
     } else {
-        if (*base < lo - delta) *base = lo - delta;
+        if (*base < lo - delta)
+            *base = lo - delta;
     }
     *base += delta;
 }
@@ -70,13 +77,13 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
     const LabelWrite* staged_labels, i32 staged_label_count, i64* out);
 static enum Err resolve_at_expr(const AtExpr* at, File* io, const Match* match, i64* out);
 static enum Err resolve_loc_expr_cp(
-  const LocExpr* loc, const Program* prg, File* io, const VM* vm,
-  const Match* staged_match, i64 staged_cursor,
-  const LabelWrite* staged_labels, i32 staged_label_count,
-  const View* c_view, ClampPolicy clamp, i64* out);
+    const LocExpr* loc, const Program* prg, File* io, const VM* vm,
+    const Match* staged_match, i64 staged_cursor,
+    const LabelWrite* staged_labels, i32 staged_label_count,
+    const View* c_view, ClampPolicy clamp, i64* out);
 static enum Err resolve_at_expr_cp(
-  const AtExpr* at, File* io, const Match* match,
-  const View* c_view, ClampPolicy clamp, i64* out);
+    const AtExpr* at, File* io, const Match* match,
+    const View* c_view, ClampPolicy clamp, i64* out);
 static void commit_labels(VM* vm, const Program* prg, const LabelWrite* label_writes, i32 label_count);
 
 enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
@@ -106,27 +113,32 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
         for (i32 oi = 0; oi < C->op_count; ++oi) {
             const Op* op = &C->ops[oi];
             if (op->kind == OP_FINDR && op->u.findr.prog) {
-                if (op->u.findr.prog->nins > max_nins) max_nins = op->u.findr.prog->nins;
+                if (op->u.findr.prog->nins > max_nins)
+                    max_nins = op->u.findr.prog->nins;
             }
         }
     }
     int re_threads_cap = max_nins > 0 ? 4 * max_nins : 32;
-    if (re_threads_cap < 32) re_threads_cap = 32;
+    if (re_threads_cap < 32)
+        re_threads_cap = 32;
     const size_t re_thr_bytes = (size_t)re_threads_cap * sizeof(ReThread);
     const size_t re_seen_bytes_each = (size_t)(max_nins > 0 ? max_nins : 32);
 
     // Account for alignment padding between slices
     size_t total = safe_align(search_buf_cap, 1);
-    if (total == SIZE_MAX) return E_OOM;
-    
+    if (total == SIZE_MAX)
+        return E_OOM;
+
     size_t re_thr_size = safe_align(re_thr_bytes, alignof(ReThread)) * 2;
-    if (re_thr_size == SIZE_MAX) return E_OOM;
+    if (re_thr_size == SIZE_MAX)
+        return E_OOM;
     total += re_thr_size;
-    
+
     size_t re_seen_size = safe_align(re_seen_bytes_each, 1) * 2;
-    if (re_seen_size == SIZE_MAX) return E_OOM;
+    if (re_seen_size == SIZE_MAX)
+        return E_OOM;
     total += re_seen_size;
-    
+
     total += 64; // small cushion like main.c
 
     // Allocate single block
@@ -158,7 +170,7 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
         return err;
     }
     io_set_regex_scratch(&io, re_curr_thr, re_next_thr, re_threads_cap,
-                         seen_curr, seen_next, (size_t)re_seen_bytes_each);
+        seen_curr, seen_next, (size_t)re_seen_bytes_each);
 
     VM vm = { 0 };
     vm.cursor = 0;
@@ -171,12 +183,12 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     enum Err last_err = E_OK;
 
     for (i32 i = 0; i < cc; i++) {
-        i32 rc=0, lc=0;
+        i32 rc = 0, lc = 0;
         clause_caps(&prg->clauses[i], &rc, &lc);
-        Range*      r_tmp  = rc ? alloca((size_t)rc * sizeof *r_tmp) : NULL;
+        Range* r_tmp = rc ? alloca((size_t)rc * sizeof *r_tmp) : NULL;
         LabelWrite* lw_tmp = lc ? alloca((size_t)lc * sizeof *lw_tmp) : NULL;
         err = execute_clause_with_scratch(&prg->clauses[i], prg, &io, &vm, out,
-                                          r_tmp, rc, lw_tmp, lc);
+            r_tmp, rc, lw_tmp, lc);
         if (err == E_OK) {
             successful_clauses++;
         } else {
@@ -322,11 +334,13 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
                 return err;
 
             // Pin to view bounds
-            if (current_line_start < vbof(c_view)) current_line_start = vbof(c_view);
+            if (current_line_start < vbof(c_view))
+                current_line_start = vbof(c_view);
 
-            if (op->u.skip.n > (u64)INT_MAX) return E_PARSE;
+            if (op->u.skip.n > (u64)INT_MAX)
+                return E_PARSE;
             err = io_step_lines_from(io, current_line_start,
-                                     (i32)op->u.skip.n, c_cursor);
+                (i32)op->u.skip.n, c_cursor);
             if (err != E_OK)
                 return err;
             *c_cursor = vclamp(c_view, io, *c_cursor);
@@ -351,14 +365,18 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
         if (op->u.take_len.unit == UNIT_BYTES) {
             if (op->u.take_len.sign > 0) {
                 start = vclamp(c_view, io, *c_cursor);
-                end   = start;
-                if (op->u.take_len.n > (u64)INT64_MAX) end = veof(c_view, io);
-                else apply_byte_saturation(&end, (i64)op->u.take_len.n, c_view, io, CLAMP_VIEW);
+                end = start;
+                if (op->u.take_len.n > (u64)INT64_MAX)
+                    end = veof(c_view, io);
+                else
+                    apply_byte_saturation(&end, (i64)op->u.take_len.n, c_view, io, CLAMP_VIEW);
             } else {
-                end   = vclamp(c_view, io, *c_cursor);
+                end = vclamp(c_view, io, *c_cursor);
                 start = end;
-                if (op->u.take_len.n > (u64)INT64_MAX) start = vbof(c_view);
-                else apply_byte_saturation(&start, -(i64)op->u.take_len.n, c_view, io, CLAMP_VIEW);
+                if (op->u.take_len.n > (u64)INT64_MAX)
+                    start = vbof(c_view);
+                else
+                    apply_byte_saturation(&start, -(i64)op->u.take_len.n, c_view, io, CLAMP_VIEW);
                 start = clamp64(start, vbof(c_view), end);
             }
         } else if (op->u.take_len.unit == UNIT_LINES) {
@@ -369,21 +387,24 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
                 return err;
 
             // Pin to view bounds
-            if (line_start < vbof(c_view)) line_start = vbof(c_view);
+            if (line_start < vbof(c_view))
+                line_start = vbof(c_view);
 
             if (op->u.take_len.sign > 0) {
                 start = line_start;
-                if (op->u.take_len.n > (u64)INT_MAX) return E_PARSE;
+                if (op->u.take_len.n > (u64)INT_MAX)
+                    return E_PARSE;
                 err = io_step_lines_from(io, line_start,
-                                         (i32)op->u.take_len.n, &end);
+                    (i32)op->u.take_len.n, &end);
                 if (err != E_OK)
                     return err;
                 end = vclamp(c_view, io, end);
             } else {
                 end = line_start;
-                if (op->u.take_len.n > (u64)INT_MAX) return E_PARSE;
+                if (op->u.take_len.n > (u64)INT_MAX)
+                    return E_PARSE;
                 err = io_step_lines_from(io, line_start,
-                                         -(i32)op->u.take_len.n, &start);
+                    -(i32)op->u.take_len.n, &start);
                 if (err != E_OK)
                     return err;
                 start = clamp64(start, vbof(c_view), end);
@@ -506,12 +527,12 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
         enum Err err = resolve_loc_expr_cp(&op->u.go.to, prg, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_NONE, c_cursor);
         if (err != E_OK)
             return err;
-        
+
         // Check if target is outside view bounds
         if (c_view->active && (*c_cursor < c_view->lo || *c_cursor >= c_view->hi)) {
             return E_LOC_RESOLVE;
         }
-        
+
         *c_cursor = clamp64(*c_cursor, 0, io_size(io));
         break;
     }
@@ -519,21 +540,23 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
     case OP_VIEWSET: {
         i64 a, b;
         enum Err err = resolve_loc_expr_cp(&op->u.viewset.a, prg, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_VIEW, &a);
-        if (err != E_OK) return err;
+        if (err != E_OK)
+            return err;
         err = resolve_loc_expr_cp(&op->u.viewset.b, prg, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_VIEW, &b);
-        if (err != E_OK) return err;
-        
+        if (err != E_OK)
+            return err;
+
         i64 lo = a < b ? a : b;
         i64 hi = a < b ? b : a;
-        
+
         // Stage view activation
         ((View*)c_view)->active = true;
         ((View*)c_view)->lo = lo;
         ((View*)c_view)->hi = hi;
-        
+
         // Clamp cursor into new view
         *c_cursor = vclamp(c_view, io, *c_cursor);
-        
+
         // Invalidate staged match if it straddles the view
         if (c_last_match->valid && (c_last_match->start < lo || c_last_match->end > hi)) {
             c_last_match->valid = false;
@@ -726,17 +749,23 @@ static enum Err resolve_at_expr(const AtExpr* at, File* io, const Match* match, 
 }
 
 static enum Err resolve_loc_expr_cp(
-  const LocExpr* loc, const Program* prg, File* io, const VM* vm,
-  const Match* staged_match, i64 staged_cursor,
-  const LabelWrite* staged_labels, i32 staged_label_count,
-  const View* c_view, ClampPolicy clamp, i64* out)
+    const LocExpr* loc, const Program* prg, File* io, const VM* vm,
+    const Match* staged_match, i64 staged_cursor,
+    const LabelWrite* staged_labels, i32 staged_label_count,
+    const View* c_view, ClampPolicy clamp, i64* out)
 {
     i64 base = 0;
 
     switch (loc->base) {
-    case LOC_CURSOR: base = staged_cursor; break;
-    case LOC_BOF:    base = vbof(c_view);  break;
-    case LOC_EOF:    base = veof(c_view, io); break;
+    case LOC_CURSOR:
+        base = staged_cursor;
+        break;
+    case LOC_BOF:
+        base = vbof(c_view);
+        break;
+    case LOC_EOF:
+        base = veof(c_view, io);
+        break;
     case LOC_NAME: {
         // Check staged labels first (overrides committed)
         bool found = false;
@@ -754,100 +783,151 @@ static enum Err resolve_loc_expr_cp(
                 found = true;
             }
         }
-        if (!found) return E_LOC_RESOLVE;
+        if (!found)
+            return E_LOC_RESOLVE;
         break;
     }
-    case LOC_MATCH_START: if (!staged_match->valid) return E_LOC_RESOLVE; base = staged_match->start; break;
-    case LOC_MATCH_END:   if (!staged_match->valid) return E_LOC_RESOLVE; base = staged_match->end;   break;
+    case LOC_MATCH_START:
+        if (!staged_match->valid)
+            return E_LOC_RESOLVE;
+        base = staged_match->start;
+        break;
+    case LOC_MATCH_END:
+        if (!staged_match->valid)
+            return E_LOC_RESOLVE;
+        base = staged_match->end;
+        break;
     case LOC_LINE_START: {
-        enum Err e = io_line_start(io, staged_cursor, &base); if (e!=E_OK) return e;
-        if (base < vbof(c_view)) base = vbof(c_view);
+        enum Err e = io_line_start(io, staged_cursor, &base);
+        if (e != E_OK)
+            return e;
+        if (base < vbof(c_view))
+            base = vbof(c_view);
         break;
     }
     case LOC_LINE_END: {
-        enum Err e = io_line_end(io, staged_cursor, &base); if (e!=E_OK) return e;
-        if (base > veof(c_view, io)) base = veof(c_view, io);
+        enum Err e = io_line_end(io, staged_cursor, &base);
+        if (e != E_OK)
+            return e;
+        if (base > veof(c_view, io))
+            base = veof(c_view, io);
         break;
     }
-    default: return E_PARSE;
+    default:
+        return E_PARSE;
     }
 
     if (loc->has_off) {
         if (loc->unit == UNIT_BYTES) {
             if (loc->n > (u64)INT64_MAX) {
                 base = (clamp == CLAMP_VIEW)
-                    ? (loc->sign>0 ? veof(c_view, io) : vbof(c_view))
-                    : (loc->sign>0 ? io_size(io)     : 0);
+                    ? (loc->sign > 0 ? veof(c_view, io) : vbof(c_view))
+                    : (loc->sign > 0 ? io_size(io) : 0);
             } else {
-                i64 delta = loc->sign>0 ? (i64)loc->n : -(i64)loc->n;
-                apply_byte_saturation(&base, delta, c_view, io, clamp==CLAMP_FILE ? CLAMP_FILE : clamp);
+                i64 delta = loc->sign > 0 ? (i64)loc->n : -(i64)loc->n;
+                apply_byte_saturation(&base, delta, c_view, io, clamp == CLAMP_FILE ? CLAMP_FILE : clamp);
             }
         } else if (loc->unit == UNIT_LINES) {
-            if (loc->n > (u64)INT_MAX) return E_PARSE;
-            i32 d = loc->sign>0 ? (i32)loc->n : -(i32)loc->n;
-            enum Err e = io_step_lines_from(io, base, d, &base); if (e!=E_OK) return e;
+            if (loc->n > (u64)INT_MAX)
+                return E_PARSE;
+            i32 d = loc->sign > 0 ? (i32)loc->n : -(i32)loc->n;
+            enum Err e = io_step_lines_from(io, base, d, &base);
+            if (e != E_OK)
+                return e;
         } else { // UNIT_CHARS
-            if (loc->n > (u64)INT_MAX) return E_PARSE;
-            i64 cs; enum Err e = io_char_start(io, base, &cs); if (e!=E_OK) return e;
-            i32 d = loc->sign>0 ? (i32)loc->n : -(i32)loc->n;
-            e = io_step_chars_from(io, cs, d, &cs); if (e!=E_OK) return e;
+            if (loc->n > (u64)INT_MAX)
+                return E_PARSE;
+            i64 cs;
+            enum Err e = io_char_start(io, base, &cs);
+            if (e != E_OK)
+                return e;
+            i32 d = loc->sign > 0 ? (i32)loc->n : -(i32)loc->n;
+            e = io_step_chars_from(io, cs, d, &cs);
+            if (e != E_OK)
+                return e;
             base = cs;
         }
     }
 
-    if (clamp == CLAMP_VIEW)      *out = vclamp(c_view, io, base);
-    else if (clamp == CLAMP_FILE) *out = clamp64(base, 0, io_size(io));
-    else                          *out = base;
+    if (clamp == CLAMP_VIEW)
+        *out = vclamp(c_view, io, base);
+    else if (clamp == CLAMP_FILE)
+        *out = clamp64(base, 0, io_size(io));
+    else
+        *out = base;
     return E_OK;
 }
 
 static enum Err resolve_at_expr_cp(
-  const AtExpr* at, File* io, const Match* match,
-  const View* c_view, ClampPolicy clamp, i64* out)
+    const AtExpr* at, File* io, const Match* match,
+    const View* c_view, ClampPolicy clamp, i64* out)
 {
     i64 base = 0;
     switch (at->at) {
-    case LOC_MATCH_START: base = match->start; break;
-    case LOC_MATCH_END:   base = match->end;   break;
+    case LOC_MATCH_START:
+        base = match->start;
+        break;
+    case LOC_MATCH_END:
+        base = match->end;
+        break;
     case LOC_LINE_START: {
-        enum Err e = io_line_start(io, match->start, &base); if (e!=E_OK) return e;
-        if (base < vbof(c_view)) base = vbof(c_view);
+        enum Err e = io_line_start(io, match->start, &base);
+        if (e != E_OK)
+            return e;
+        if (base < vbof(c_view))
+            base = vbof(c_view);
         break;
     }
     case LOC_LINE_END: {
-        enum Err e = io_line_end(io, match->end, &base); if (e!=E_OK) return e;
-        if (base > veof(c_view, io)) base = veof(c_view, io);
+        enum Err e = io_line_end(io, match->end, &base);
+        if (e != E_OK)
+            return e;
+        if (base > veof(c_view, io))
+            base = veof(c_view, io);
         break;
     }
-    default: return E_PARSE;
+    default:
+        return E_PARSE;
     }
 
     if (at->has_off) {
         if (at->unit == UNIT_BYTES) {
             if (at->n > (u64)INT64_MAX) {
                 base = (clamp == CLAMP_VIEW)
-                    ? (at->sign>0 ? veof(c_view, io) : vbof(c_view))
-                    : (at->sign>0 ? io_size(io)     : 0);
+                    ? (at->sign > 0 ? veof(c_view, io) : vbof(c_view))
+                    : (at->sign > 0 ? io_size(io) : 0);
             } else {
-                i64 delta = at->sign>0 ? (i64)at->n : -(i64)at->n;
-                apply_byte_saturation(&base, delta, c_view, io, clamp==CLAMP_FILE ? CLAMP_FILE : clamp);
+                i64 delta = at->sign > 0 ? (i64)at->n : -(i64)at->n;
+                apply_byte_saturation(&base, delta, c_view, io, clamp == CLAMP_FILE ? CLAMP_FILE : clamp);
             }
         } else if (at->unit == UNIT_LINES) {
-            if (at->n > (u64)INT_MAX) return E_PARSE;
-            i32 d = at->sign>0 ? (i32)at->n : -(i32)at->n;
-            enum Err e = io_step_lines_from(io, base, d, &base); if (e!=E_OK) return e;
+            if (at->n > (u64)INT_MAX)
+                return E_PARSE;
+            i32 d = at->sign > 0 ? (i32)at->n : -(i32)at->n;
+            enum Err e = io_step_lines_from(io, base, d, &base);
+            if (e != E_OK)
+                return e;
         } else { // UNIT_CHARS
-            if (at->n > (u64)INT_MAX) return E_PARSE;
-            i64 cs; enum Err e = io_char_start(io, base, &cs); if (e!=E_OK) return e;
-            i32 d = at->sign>0 ? (i32)at->n : -(i32)at->n;
-            e = io_step_chars_from(io, cs, d, &cs); if (e!=E_OK) return e;
+            if (at->n > (u64)INT_MAX)
+                return E_PARSE;
+            i64 cs;
+            enum Err e = io_char_start(io, base, &cs);
+            if (e != E_OK)
+                return e;
+            i32 d = at->sign > 0 ? (i32)at->n : -(i32)at->n;
+            e = io_step_chars_from(io, cs, d, &cs);
+            if (e != E_OK)
+                return e;
             base = cs;
         }
     }
 
-    if (clamp == CLAMP_VIEW)      *out = vclamp(c_view, io, base);
-    else if (clamp == CLAMP_FILE) *out = clamp64(base, 0, io_size(io));
-    else                          *out = base;
+    if (clamp == CLAMP_VIEW)
+        *out = vclamp(c_view, io, base);
+    else if (clamp == CLAMP_FILE)
+        *out = clamp64(base, 0, io_size(io));
+    else
+        *out = base;
     return E_OK;
 }
 
@@ -856,7 +936,7 @@ static void commit_labels(VM* vm, const Program* prg, const LabelWrite* label_wr
     for (i32 i = 0; i < label_count; i++) {
         i32 name_idx = label_writes[i].name_idx;
         i64 pos = label_writes[i].pos;
-        
+
         // Direct assignment - no eviction needed
         vm->label_pos[name_idx] = pos;
         vm->label_set[name_idx] = 1;

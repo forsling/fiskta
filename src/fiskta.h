@@ -75,11 +75,13 @@ typedef struct ReProg ReProg;
 // View state (staged per clause; committed on clause success)
 typedef struct {
     bool active;
-    i64  lo, hi; // half-open [lo, hi)
+    i64 lo, hi; // half-open [lo, hi)
 } View;
 
 // Clamp policy
-typedef enum { CLAMP_NONE, CLAMP_FILE, CLAMP_VIEW } ClampPolicy;
+typedef enum { CLAMP_NONE,
+    CLAMP_FILE,
+    CLAMP_VIEW } ClampPolicy;
 
 typedef struct {
     union {
@@ -89,7 +91,7 @@ typedef struct {
         } find;
         struct {
             LocExpr to;
-            char* pattern;   // raw pattern text (from pool)
+            char* pattern; // raw pattern text (from pool)
             struct ReProg* prog; // compiled program (arena-backed), set during setup
         } findr;
         struct {
@@ -152,7 +154,7 @@ typedef struct {
     View view;
 
     // Direct label mapping (128 slots, no eviction)
-    i64 label_pos[128];           // name_idx -> position mapping
+    i64 label_pos[128]; // name_idx -> position mapping
     unsigned char label_set[128]; // 0/1 flags for which labels are set
 } VM;
 

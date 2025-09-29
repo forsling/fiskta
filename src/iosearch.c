@@ -5,7 +5,7 @@
 #include "iosearch.h"
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h>  // for off_t
+#include <sys/types.h> // for off_t
 
 #ifdef _WIN32
 #include <fcntl.h>
@@ -77,9 +77,15 @@ enum Err io_open(File* io, const char* path,
             fclose(io->f);
             return E_IO;
         }
-        if (fseeko(io->f, 0, SEEK_END) != 0) { fclose(io->f); return E_IO; }
+        if (fseeko(io->f, 0, SEEK_END) != 0) {
+            fclose(io->f);
+            return E_IO;
+        }
         off_t sz = ftello(io->f);
-        if (sz < 0) { fclose(io->f); return E_IO; }
+        if (sz < 0) {
+            fclose(io->f);
+            return E_IO;
+        }
         io->size = (i64)sz;
         rewind(io->f);
     } else {
@@ -115,7 +121,7 @@ enum Err io_open(File* io, const char* path,
     // Regex scratch not set yet
     io->re.curr = NULL;
     io->re.next = NULL;
-    io->re.cap  = 0;
+    io->re.cap = 0;
     io->re.seen_curr = io->re.seen_next = NULL;
     io->re.seen_bytes = 0;
 
@@ -136,7 +142,8 @@ void io_close(File* io)
 // Full reset of File state for clause execution
 void io_reset_full(File* io)
 {
-    if (!io) return;
+    if (!io)
+        return;
     if (io->f) {
         // 64-bit safe seek to BOF
         if (fseeko(io->f, 0, SEEK_SET) != 0) {
@@ -710,70 +717,91 @@ static enum Err bmh_forward(const unsigned char* text, size_t text_len,
 // --------------------------
 // Regex streaming NFA engine
 // --------------------------
-typedef struct { ReThread* v; int n, cap; } ReList;
+typedef struct {
+    ReThread* v;
+    int n, cap;
+} ReList;
 
-static inline int cls_has(const ReClass* c, unsigned char ch){
-    return (c->bits[ch>>3] >> (ch & 7)) & 1;
+static inline int cls_has(const ReClass* c, unsigned char ch)
+{
+    return (c->bits[ch >> 3] >> (ch & 7)) & 1;
 }
 
-static void rlist_init(ReList* L, ReThread* buf, int cap){ L->v = buf; L->n = 0; L->cap = cap; }
-static inline void rlist_clear(ReList* L){ L->n = 0; }
-static inline void seen_clear(unsigned char* seen, int n){ memset(seen, 0, (size_t)n); }
+static void rlist_init(ReList* L, ReThread* buf, int cap)
+{
+    L->v = buf;
+    L->n = 0;
+    L->cap = cap;
+}
+static inline void rlist_clear(ReList* L) { L->n = 0; }
+static inline void seen_clear(unsigned char* seen, int n) { memset(seen, 0, (size_t)n); }
 
 // Ordered epsilon-closure push. Sets *match_found if RI_MATCH reachable for current pos and min_start.
 // Returns E_OOM if thread list capacity is exceeded.
 static enum Err add_thread_ordered(const ReProg* P, ReList* L, int pc, i64 start,
-                               i64 pos, i64 win_lo, i64 win_hi, i64 file_size,
-                               unsigned char* seen, int* match_found, i64 min_start,
-                               unsigned char curr_char, unsigned char prev_char,
-                               int at_bol, int at_eol)
+    i64 pos, i64 win_lo, i64 win_hi, i64 file_size,
+    unsigned char* seen, int* match_found, i64 min_start,
+    unsigned char curr_char, unsigned char prev_char,
+    int at_bol, int at_eol)
 {
-    while (1){
-        if (pc < 0 || pc >= P->nins) return E_OK;
-        if (seen[pc]) return E_OK;
+    while (1) {
+        if (pc < 0 || pc >= P->nins)
+            return E_OK;
+        if (seen[pc])
+            return E_OK;
         ReInst* I = &P->ins[pc];
-        switch (I->op){
-            case RI_SPLIT:
-                // IMPORTANT: mark as seen before processing split
-                seen[pc] = 1;
-                // IMPORTANT: X first (preferred), then Y
-                enum Err err = add_thread_ordered(P, L, I->x, start, pos, win_lo, win_hi, file_size, seen, match_found, min_start, curr_char, prev_char, at_bol, at_eol);
-                if (err != E_OK) return err;
-                pc = I->y; // continue tail-call
+        switch (I->op) {
+        case RI_SPLIT:
+            // IMPORTANT: mark as seen before processing split
+            seen[pc] = 1;
+            // IMPORTANT: X first (preferred), then Y
+            enum Err err = add_thread_ordered(P, L, I->x, start, pos, win_lo, win_hi, file_size, seen, match_found, min_start, curr_char, prev_char, at_bol, at_eol);
+            if (err != E_OK)
+                return err;
+            pc = I->y; // continue tail-call
+            continue;
+        case RI_JMP:
+            seen[pc] = 1; // mark as seen before jumping
+            pc = I->x;
+            continue;
+        case RI_BOL:
+            if (at_bol) {
+                pc++;
                 continue;
-            case RI_JMP:
-                seen[pc] = 1; // mark as seen before jumping
-                pc = I->x; continue;
-            case RI_BOL:
-                if (at_bol) { pc++; continue; }
-                return E_OK;
-            case RI_EOL:
-                if (at_eol) { pc++; continue; }
-                return E_OK;
-            case RI_MATCH:
-                if (start == min_start) *match_found = 1;
-                // Add the thread to the list so consumption step can detect it
-                if (L->n >= L->cap) {
-                    return E_OOM; // Thread list is full
-                }
-                L->v[L->n].pc = pc;
-                L->v[L->n].start = start;
-                L->n++;
-                seen[pc] = 1;
-                return E_OK;
-            case RI_CHAR:
-            case RI_ANY:
-            case RI_CLASS:
-                // consuming; add once
-                if (L->n >= L->cap) {
-                    return E_OOM; // Thread list is full
-                }
-                L->v[L->n].pc = pc;
-                L->v[L->n].start = start;
-                L->n++;
-                seen[pc] = 1;
-                return E_OK;
-            default: return E_OK;
+            }
+            return E_OK;
+        case RI_EOL:
+            if (at_eol) {
+                pc++;
+                continue;
+            }
+            return E_OK;
+        case RI_MATCH:
+            if (start == min_start)
+                *match_found = 1;
+            // Add the thread to the list so consumption step can detect it
+            if (L->n >= L->cap) {
+                return E_OOM; // Thread list is full
+            }
+            L->v[L->n].pc = pc;
+            L->v[L->n].start = start;
+            L->n++;
+            seen[pc] = 1;
+            return E_OK;
+        case RI_CHAR:
+        case RI_ANY:
+        case RI_CLASS:
+            // consuming; add once
+            if (L->n >= L->cap) {
+                return E_OOM; // Thread list is full
+            }
+            L->v[L->n].pc = pc;
+            L->v[L->n].start = start;
+            L->n++;
+            seen[pc] = 1;
+            return E_OK;
+        default:
+            return E_OK;
         }
     }
 }
@@ -781,10 +809,14 @@ static enum Err add_thread_ordered(const ReProg* P, ReList* L, int pc, i64 start
 enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
     const ReProg* re, enum Dir dir, i64* ms, i64* me)
 {
-    if (!re || re->nins <= 0) return E_PARSE;
-    if (win_lo < 0) win_lo = 0;
-    if (win_hi > io->size) win_hi = io->size;
-    if (win_lo >= win_hi) return E_NO_MATCH;
+    if (!re || re->nins <= 0)
+        return E_PARSE;
+    if (win_lo < 0)
+        win_lo = 0;
+    if (win_hi > io->size)
+        win_hi = io->size;
+    if (win_lo >= win_hi)
+        return E_NO_MATCH;
 
     // Tail byte prefetching for cheap lookahead
     unsigned char tail1 = 0, tail2 = 0;
@@ -792,14 +824,14 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
 
     // Use arena-backed scratch provided at startup
     const int nins = re->nins;
-    const int cap  = io->re.cap;
+    const int cap = io->re.cap;
     if (cap <= 0 || !io->re.curr || !io->re.next || !io->re.seen_curr || !io->re.seen_next)
         return E_OOM;
     if ((size_t)nins > io->re.seen_bytes)
         return E_OOM;
 
-    ReThread* curr_buf  = io->re.curr;
-    ReThread* next_buf  = io->re.next;
+    ReThread* curr_buf = io->re.curr;
+    ReThread* next_buf = io->re.next;
     unsigned char* seen_curr = io->re.seen_curr;
     unsigned char* seen_next = io->re.seen_next;
     ReList curr, next;
@@ -809,7 +841,8 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
     seen_clear(seen_next, nins);
 
     i64 best_ms = -1, best_me = -1;
-    i64 min_start = 0; int have_min = 0;
+    i64 min_start = 0;
+    int have_min = 0;
 
     i64 pos = win_lo;
     i64 block_lo = win_lo, block_hi = win_lo;
@@ -820,67 +853,95 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
 
     // Initialize previous character correctly for anchor semantics
     if (win_lo > 0) {
-        if (fseeko(io->f, win_lo - 1, SEEK_SET) != 0) return E_IO;
+        if (fseeko(io->f, win_lo - 1, SEEK_SET) != 0)
+            return E_IO;
         unsigned char b;
         size_t n_read = fread(&b, 1, 1, io->f);
-        if (n_read == 1) { prev_c = b; have_prev = 1; }
+        if (n_read == 1) {
+            prev_c = b;
+            have_prev = 1;
+        }
     }
 
-    for (;;){
+    for (;;) {
         // Refill buffer if needed for consumption step
-        if (pos == block_hi && pos < win_hi){
+        if (pos == block_hi && pos < win_hi) {
             block_lo = pos;
             block_hi = block_lo + (i64)io->buf_cap;
-            if (block_hi > win_hi) block_hi = win_hi;
-            if (fseeko(io->f, block_lo, SEEK_SET) != 0) return E_IO;
+            if (block_hi > win_hi)
+                block_hi = win_hi;
+            if (fseeko(io->f, block_lo, SEEK_SET) != 0)
+                return E_IO;
             n = fread(io->buf, 1, (size_t)(block_hi - block_lo), io->f);
-            if (n == 0 && ferror(io->f)) return E_IO;
+            if (n == 0 && ferror(io->f))
+                return E_IO;
             block_hi = block_lo + (i64)n; // clamp to bytes actually in buf
-            
+
             // Prefetch up to two "tail" bytes beyond the block for cheap lookahead
-            tail1 = tail2 = 0; tails = 0;
+            tail1 = tail2 = 0;
+            tails = 0;
             if (block_hi < win_hi) {
-                if (fseeko(io->f, block_hi, SEEK_SET) != 0) return E_IO;
+                if (fseeko(io->f, block_hi, SEEK_SET) != 0)
+                    return E_IO;
                 unsigned char t[2];
                 size_t m = fread(t, 1, (size_t)((win_hi - block_hi) >= 2 ? 2 : 1), io->f);
-                if (m >= 1) { tail1 = t[0]; tails = 1; }
-                if (m >= 2) { tail2 = t[1]; tails = 2; }
+                if (m >= 1) {
+                    tail1 = t[0];
+                    tails = 1;
+                }
+                if (m >= 2) {
+                    tail2 = t[1];
+                    tails = 2;
+                }
             }
         }
 
         // current/previous chars at position pos
         unsigned char curr_c = (pos < win_hi) ? io->buf[pos - block_lo] : 0;
-        
+
         // Compute next1/next2 using tail bytes for cheap lookahead
         unsigned char next1 = 0, next2 = 0;
-        if (pos + 1 < block_hi) next1 = io->buf[pos + 1 - block_lo];
-        else if (pos + 1 == block_hi && tails >= 1) next1 = tail1;
-        
-        if (pos + 2 < block_hi) next2 = io->buf[pos + 2 - block_lo];
-        else if (pos + 2 == block_hi && tails >= 1) next2 = tail1;
-        else if (pos + 2 == block_hi + 1 && tails >= 2) next2 = tail2;
-        
+        if (pos + 1 < block_hi)
+            next1 = io->buf[pos + 1 - block_lo];
+        else if (pos + 1 == block_hi && tails >= 1)
+            next1 = tail1;
+
+        if (pos + 2 < block_hi)
+            next2 = io->buf[pos + 2 - block_lo];
+        else if (pos + 2 == block_hi && tails >= 1)
+            next2 = tail1;
+        else if (pos + 2 == block_hi + 1 && tails >= 2)
+            next2 = tail2;
+
         unsigned char prev_char = have_prev ? prev_c : 0;
-        
+
         // Compute anchor booleans once per loop
         int at_bol = (pos == win_lo) || (have_prev && prev_c == '\n');
-        int at_eol = (pos == win_hi) ||
-                     (pos + 1 == win_hi) ||  // at last character of file
-                     (next1 == '\n') ||
-                     (next1 == '\r' && next2 == '\n');  // CRLF-aware
+        int at_eol = (pos == win_hi) || (pos + 1 == win_hi) || // at last character of file
+            (next1 == '\n') || (next1 == '\r' && next2 == '\n'); // CRLF-aware
 
         // If no active threads, start a new leftmost attempt at pos
-        if (curr.n == 0){
-            have_min = 1; min_start = pos;
+        if (curr.n == 0) {
+            have_min = 1;
+            min_start = pos;
             seen_clear(seen_curr, nins);
             int match_found = 0;
             enum Err err = add_thread_ordered(re, &curr, 0, pos, pos, win_lo, win_hi, io->size,
-                               seen_curr, &match_found, min_start, curr_c, prev_char, at_bol, at_eol);
-            if (err != E_OK) return err;
-            if (match_found){
+                seen_curr, &match_found, min_start, curr_c, prev_char, at_bol, at_eol);
+            if (err != E_OK)
+                return err;
+            if (match_found) {
                 // epsilon-only match (no consumption): end == pos
-                if (dir == DIR_FWD){ *ms = min_start; *me = pos; return E_OK; }
-                else { best_ms = min_start; best_me = pos; /* reset for later starts */ curr.n = 0; have_min = 0; }
+                if (dir == DIR_FWD) {
+                    *ms = min_start;
+                    *me = pos;
+                    return E_OK;
+                } else {
+                    best_ms = min_start;
+                    best_me = pos; /* reset for later starts */
+                    curr.n = 0;
+                    have_min = 0;
+                }
             }
         } else {
             seen_clear(seen_curr, nins);
@@ -888,54 +949,68 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
             int match_found = 0;
             unsigned char curr_char = curr_c;
             // prev_char already computed above
-            for (int k=0;k<curr.n;k++){
+            for (int k = 0; k < curr.n; k++) {
                 // IMPORTANT: keep global min_start
                 enum Err err = add_thread_ordered(re, &curr, curr.v[k].pc, curr.v[k].start, pos, win_lo, win_hi, io->size,
-                                   seen_curr, &match_found, min_start, curr_char, prev_char, at_bol, at_eol);
-                if (err != E_OK) return err;
+                    seen_curr, &match_found, min_start, curr_char, prev_char, at_bol, at_eol);
+                if (err != E_OK)
+                    return err;
             }
-            if (match_found){
+            if (match_found) {
                 // epsilon-only match at current pos
-                if (dir == DIR_FWD){ *ms = min_start; *me = pos; return E_OK; }
-                else { best_ms = min_start; best_me = pos; curr.n = 0; have_min = 0; }
+                if (dir == DIR_FWD) {
+                    *ms = min_start;
+                    *me = pos;
+                    return E_OK;
+                } else {
+                    best_ms = min_start;
+                    best_me = pos;
+                    curr.n = 0;
+                    have_min = 0;
+                }
             }
         }
 
-        if (pos == win_hi) break; // nothing to consume
+        if (pos == win_hi)
+            break; // nothing to consume
 
         unsigned char c = curr_c;
         // Build next from curr by consuming c
         rlist_clear(&next);
         seen_clear(seen_next, nins);
 
-        for (int i=0;i<curr.n;i++){
+        for (int i = 0; i < curr.n; i++) {
             int pc = curr.v[i].pc;
             i64 st = curr.v[i].start;
             // Only proceed for threads at current leftmost start
-            if (have_min && st > min_start) continue;
+            if (have_min && st > min_start)
+                continue;
             ReInst* I = &re->ins[pc];
-            switch (I->op){
-                case RI_CHAR:
-                    if (c == I->ch) {
-                        enum Err err = add_thread_ordered(re, &next, pc+1, st, pos+1, win_lo, win_hi, io->size, seen_next, &(int){0}, min_start, c, prev_char, at_bol, at_eol);
-                        if (err != E_OK) return err;
-                    }
-                    break;
-                case RI_ANY:
-                    if (c != '\n') { // dot ≠ newline
-                        enum Err err = add_thread_ordered(re, &next, pc+1, st, pos+1, win_lo, win_hi, io->size, seen_next, &(int){0}, min_start, c, prev_char, at_bol, at_eol);
-                        if (err != E_OK) return err;
-                    }
-                    break;
-                case RI_CLASS:
-                    if (I->cls_idx >= 0 && I->cls_idx < re->nclasses && cls_has(&re->classes[I->cls_idx], c)) {
-                        enum Err err = add_thread_ordered(re, &next, pc+1, st, pos+1, win_lo, win_hi, io->size, seen_next, &(int){0}, min_start, c, prev_char, at_bol, at_eol);
-                        if (err != E_OK) return err;
-                    }
-                    break;
-                default:
-                    // Shouldn't be here; closure should have removed epsilons
-                    break;
+            switch (I->op) {
+            case RI_CHAR:
+                if (c == I->ch) {
+                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol);
+                    if (err != E_OK)
+                        return err;
+                }
+                break;
+            case RI_ANY:
+                if (c != '\n') { // dot ≠ newline
+                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol);
+                    if (err != E_OK)
+                        return err;
+                }
+                break;
+            case RI_CLASS:
+                if (I->cls_idx >= 0 && I->cls_idx < re->nclasses && cls_has(&re->classes[I->cls_idx], c)) {
+                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol);
+                    if (err != E_OK)
+                        return err;
+                }
+                break;
+            default:
+                // Shouldn't be here; closure should have removed epsilons
+                break;
             }
         }
 
@@ -955,22 +1030,30 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
                 *me = pos + 1;
                 return E_OK;
             } else {
-                best_ms = min_start; best_me = pos + 1;
-                curr.n = 0; have_min = 0; // reset for later leftmost starts
+                best_ms = min_start;
+                best_me = pos + 1;
+                curr.n = 0;
+                have_min = 0; // reset for later leftmost starts
             }
         }
 
         // Advance: swap lists (do NOT swap raw buffers; swap the structs)
-        ReList tmpL = curr; curr = next; next = tmpL;
-        unsigned char* tmpb = seen_curr; seen_curr = seen_next; seen_next = tmpb;
+        ReList tmpL = curr;
+        curr = next;
+        next = tmpL;
+        unsigned char* tmpb = seen_curr;
+        seen_curr = seen_next;
+        seen_next = tmpb;
         // advance and carry previous char
         prev_c = curr_c;
         have_prev = (pos < win_hi);
         pos++;
     }
 
-    if (dir == DIR_BWD && best_ms >= 0){
-        *ms = best_ms; *me = best_me; return E_OK;
+    if (dir == DIR_BWD && best_ms >= 0) {
+        *ms = best_ms;
+        *me = best_me;
+        return E_OK;
     }
     return E_NO_MATCH;
 }

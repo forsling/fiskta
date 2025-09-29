@@ -12,10 +12,10 @@ typedef struct {
     i32 needle_count;
     size_t needle_bytes;
     // Regex planning
-    i32   sum_findr_ops;
-    i32   re_ins_estimate;     // sum over patterns of ~4*len + 8
-    i32   re_classes_estimate; // count '[' occurrences
-    i32   re_ins_estimate_max; // max over patterns (for scratch sizing)
+    i32 sum_findr_ops;
+    i32 re_ins_estimate; // sum over patterns of ~4*len + 8
+    i32 re_classes_estimate; // count '[' occurrences
+    i32 re_ins_estimate_max; // max over patterns (for scratch sizing)
 } ParsePlan;
 
 // Helper function to find inline offset start
@@ -109,24 +109,27 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                     idx++;
                     if (idx < token_count) {
                         idx++;
-                        if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) idx++;
+                        if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-'))
+                            idx++;
                     }
                 }
                 if (idx < token_count) {
                     const char* pat = tokens[idx];
                     size_t L = strlen(pat);
                     plan->sum_findr_ops++;
-                    i32 est = (i32)(4*L + 8);
-                    plan->re_ins_estimate     += est;
+                    i32 est = (i32)(4 * L + 8);
+                    plan->re_ins_estimate += est;
                     if (est > plan->re_ins_estimate_max) {
                         plan->re_ins_estimate_max = est;
                     }
                     // crude class count estimate: count '[' and escape sequences that create classes
-                    for (const char* p=pat; *p; ++p) {
-                        if (*p=='[') plan->re_classes_estimate++;
-                        if (*p=='\\' && p[1] && strchr("dDwWsS", p[1])) plan->re_classes_estimate++;
+                    for (const char* p = pat; *p; ++p) {
+                        if (*p == '[')
+                            plan->re_classes_estimate++;
+                        if (*p == '\\' && p[1] && strchr("dDwWsS", p[1]))
+                            plan->re_classes_estimate++;
                     }
-                    plan->needle_count++;                 // account string storage (shared pool)
+                    plan->needle_count++; // account string storage (shared pool)
                     plan->needle_bytes += L;
                     idx++;
                 }
@@ -236,9 +239,9 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
     *in_path_out = in_path;
 
     // Initialize program with preallocated buffers
-    prg->clauses     = clauses_buf;
+    prg->clauses = clauses_buf;
     prg->clause_count = 0;
-    prg->name_count   = 0;
+    prg->name_count = 0;
 
     // Track string pool usage
     size_t str_pool_off = 0;
@@ -410,28 +413,31 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         *str_pool_off += needle_len;
 
     } else if (strcmp(cmd, "findr") == 0) {
-            op->kind = OP_FINDR;
+        op->kind = OP_FINDR;
 
-            if (*idx < token_count && strcmp(tokens[*idx], "to") == 0) {
-                (*idx)++;
-                enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.findr.to, prg);
-                if (err != E_OK)
-                    return err;
-            } else {
-                op->u.findr.to.base = LOC_EOF;
-                op->u.findr.to.name_idx = -1;
-                op->u.findr.to.has_off = false;
-            }
-            if (*idx >= token_count) return E_PARSE;
-            const char* pat = tokens[*idx];
+        if (*idx < token_count && strcmp(tokens[*idx], "to") == 0) {
             (*idx)++;
-            if (strlen(pat) == 0) return E_BAD_NEEDLE;
-            size_t plen = strlen(pat) + 1;
-            if (*str_pool_off + plen > str_pool_cap) return E_OOM;
-            op->u.findr.pattern = str_pool + *str_pool_off;
-            strcpy(op->u.findr.pattern, pat);
-            *str_pool_off += plen;
-            op->u.findr.prog = NULL;
+            enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.findr.to, prg);
+            if (err != E_OK)
+                return err;
+        } else {
+            op->u.findr.to.base = LOC_EOF;
+            op->u.findr.to.name_idx = -1;
+            op->u.findr.to.has_off = false;
+        }
+        if (*idx >= token_count)
+            return E_PARSE;
+        const char* pat = tokens[*idx];
+        (*idx)++;
+        if (strlen(pat) == 0)
+            return E_BAD_NEEDLE;
+        size_t plen = strlen(pat) + 1;
+        if (*str_pool_off + plen > str_pool_cap)
+            return E_OOM;
+        op->u.findr.pattern = str_pool + *str_pool_off;
+        strcpy(op->u.findr.pattern, pat);
+        *str_pool_off += plen;
+        op->u.findr.prog = NULL;
 
     } else if (strcmp(cmd, "skip") == 0) {
         op->kind = OP_SKIP;
