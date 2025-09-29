@@ -649,7 +649,7 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
     }
 
     // Apply offset if present
-    if (loc->has_off) {
+    if (loc->n != 0) {
         if (loc->unit == UNIT_BYTES) {
             // clamp u64 -> i64 delta safely
             if (loc->n > (u64)INT64_MAX) {
@@ -714,7 +714,7 @@ static enum Err resolve_at_expr(const AtExpr* at, File* io, const Match* match, 
     }
 
     // Apply offset if present
-    if (at->has_off) {
+    if (at->n != 0) {
         if (at->unit == UNIT_BYTES) {
             if (at->n > (u64)INT64_MAX) {
                 base = (at->sign > 0) ? io_size(io) : 0;
@@ -817,7 +817,7 @@ static enum Err resolve_loc_expr_cp(
         return E_PARSE;
     }
 
-    if (loc->has_off) {
+    if (loc->n != 0) {
         if (loc->unit == UNIT_BYTES) {
             if (loc->n > (u64)INT64_MAX) {
                 base = (clamp == CLAMP_VIEW)
@@ -890,7 +890,7 @@ static enum Err resolve_at_expr_cp(
         return E_PARSE;
     }
 
-    if (at->has_off) {
+    if (at->n != 0) {
         if (at->unit == UNIT_BYTES) {
             if (at->n > (u64)INT64_MAX) {
                 base = (clamp == CLAMP_VIEW)
