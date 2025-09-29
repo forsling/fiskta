@@ -1,0 +1,227 @@
+Awesome project—this is tight and thoughtfully documented. I read through the README and every source file you shared. Below are concrete bugs and edge-case gotchas, grouped by file, with targeted patches.
+
+---
+
+# High-impact correctness bugs
+
+## 1) Signed overflow in byte math (skip/take length)
+
+**Where:** `engine.c` in `OP_SKIP` (bytes) and `OP_TAKE_LEN` (bytes)
+
+You do `*c_cursor + n` and `end - n` with `n` as `u64`. In C, `i64 +/- u64` promotes to unsigned and can wrap before you clamp, producing wrong ranges and sometimes empty emits.
+
+**Fix:** reuse your existing `apply_byte_saturation` (great helper!) to do saturated add/sub within the view/file.
+
+**Patch (engine.c):**
+
+```diff
+@@ case OP_SKIP: {
+-        if (op->u.skip.unit == UNIT_BYTES) {
+-            *c_cursor = vclamp(c_view, io, *c_cursor + op->u.skip.n);
++        if (op->u.skip.unit == UNIT_BYTES) {
++            i64 cur = vclamp(c_view, io, *c_cursor);
++            if (op->u.skip.n > (u64)INT64_MAX) {
++                cur = veof(c_view, io);
++            } else {
++                apply_byte_saturation(&cur, (i64)op->u.skip.n, c_view, io, CLAMP_VIEW);
++            }
++            *c_cursor = cur;
+@@ case OP_TAKE_LEN: {
+-        if (op->u.take_len.unit == UNIT_BYTES) {
+-            if (op->u.take_len.sign > 0) {
+-                start = vclamp(c_view, io, *c_cursor);
+-                end = vclamp(c_view, io, start + op->u.take_len.n);
+-            } else {
+-                end = vclamp(c_view, io, *c_cursor);
+-                start = clamp64(end - op->u.take_len.n, vbof(c_view), end);
+-            }
++        if (op->u.take_len.unit == UNIT_BYTES) {
++            if (op->u.take_len.sign > 0) {
++                start = vclamp(c_view, io, *c_cursor);
++                end   = start;
++                if (op->u.take_len.n > (u64)INT64_MAX) end = veof(c_view, io);
++                else apply_byte_saturation(&end, (i64)op->u.take_len.n, c_view, io, CLAMP_VIEW);
++            } else {
++                end   = vclamp(c_view, io, *c_cursor);
++                start = end;
++                if (op->u.take_len.n > (u64)INT64_MAX) start = vbof(c_view);
++                else apply_byte_saturation(&start, -(i64)op->u.take_len.n, c_view, io, CLAMP_VIEW);
++                start = clamp64(start, vbof(c_view), end);
++            }
+```
+
+---
+
+## 2) `goto` can land at `view.hi` (outside half-open view)
+
+**Where:** `engine.c`, `OP_GOTO`
+
+README: view is half-open `[lo, hi)`. You currently allow `cursor == hi`.
+
+**Patch:**
+
+```diff
+-        if (c_view->active && (*c_cursor < c_view->lo || *c_cursor > c_view->hi)) {
++        if (c_view->active && (*c_cursor < c_view->lo || *c_cursor >= c_view->hi)) {
+             return E_LOC_RESOLVE;
+         }
+```
+
+---
+
+## 3) Stdin spooling size can overflow on 32-bit or very large input
+
+**Where:** `iosearch.c`, `io_open_arena2` (stdin path)
+
+You accumulate `total_read` in `size_t` and then set `io->size = (i64)total_read`. On 32-bit, this overflows at 4 GiB+. Even on 64-bit, measuring via `ftello` is simpler and safer.
+
+**Patch:**
+
+```diff
+-        size_t total_read = 0;
++        // size will be determined with ftello after writing
+@@
+-            total_read += n;
++            /* no running size_t accumulator needed */
+@@
+-        io->size = (i64)total_read;
+-        if (fflush(io->f) != 0) {
++        if (fflush(io->f) != 0) {
+             fclose(io->f);
+             return E_IO;
+         }
+-        rewind(io->f);
++        if (fseeko(io->f, 0, SEEK_END) != 0) { fclose(io->f); return E_IO; }
++        off_t sz = ftello(io->f);
++        if (sz < 0) { fclose(io->f); return E_IO; }
++        io->size = (i64)sz;
++        rewind(io->f);
+```
+
+---
+
+## 4) CLI “is this last arg a file?” heuristic misclassifies needles like `"."`
+
+**Where:** `main.c`
+
+Heuristic treats any last arg with `.` as a path. That breaks commands like:
+
+```
+fiskta find "." take +1b -
+```
+
+and anything whose *needle* ends with `.log`, etc.
+
+**Minimal fix (don’t over-engineer):**
+
+* Only auto-treat as file if last arg is `"-"`, contains a path separator, **or** actually exists/openable.
+* Include Windows `\\` too.
+
+**Patch (replace the `// Check if last argument is a file path` block):**
+
+```diff
+-    if (argc > 2) {
+-        const char* last_arg = argv[argc - 1];
+-        if (strcmp(last_arg, "-") == 0 || strchr(last_arg, '.') != NULL || strchr(last_arg, '/') != NULL) {
+-            in_path = last_arg;
+-            token_count = argc - 2;
+-        }
+-    }
++    if (argc > 2) {
++        const char* last_arg = argv[argc - 1];
++        bool treat_as_file = false;
++        if (strcmp(last_arg, "-") == 0 || strchr(last_arg, '/') || strchr(last_arg, '\\')) {
++            treat_as_file = true;
++        } else {
++            FILE* tf = fopen(last_arg, "rb");
++            if (tf) { fclose(tf); treat_as_file = true; }
++        }
++        if (treat_as_file) {
++            in_path = last_arg;
++            token_count = argc - 2;
++        }
++    }
+```
+
+---
+
+# Medium-impact issues / robustness
+
+## 5) Potential stack blowup with large regex programs
+
+**Where:** `iosearch.c`, `io_findr_window`
+
+You `alloca` thread lists with `cap = nins * 4`. With long patterns (or many `SPLIT`s), `nins` can be large → hundreds of KB/MB on the stack.
+
+**Remedy:** switch to a small stack buffer and heap fallback when `cap*sizeof(ReThread)` (or `nins` for the `seen_*` arrays) exceeds a threshold.
+
+**Sketch:**
+
+```c
+size_t threads_bytes = (size_t)cap * sizeof(ReThread);
+size_t seen_bytes    = (size_t)nins;
+
+ReThread *curr_buf, *next_buf;
+unsigned char *seen_curr, *seen_next;
+
+if (threads_bytes + threads_bytes + seen_bytes + seen_bytes <= 128*1024) {
+    curr_buf  = alloca(threads_bytes);
+    next_buf  = alloca(threads_bytes);
+    seen_curr = alloca(seen_bytes);
+    seen_next = alloca(seen_bytes);
+} else {
+    curr_buf  = malloc(threads_bytes);
+    next_buf  = malloc(threads_bytes);
+    seen_curr = malloc(seen_bytes);
+    seen_next = malloc(seen_bytes);
+    if (!curr_buf || !next_buf || !seen_curr || !seen_next) { /* E_OOM */ }
+    /* ... and free at end ... */
+}
+```
+
+## 6) `split_ops_string` truncates silently at 4096 bytes
+
+**Where:** `main.c`
+
+It’s fine for a convenience path, but when truncation happens you “just” break, which later yields parse errors that look unrelated. Consider returning an explicit error when `buf` would overflow, so you can surface “operations string too long”.
+
+---
+
+# Low-level / behavior nits
+
+* **`OP_VIEWCLEAR`**: you stage `hi = io_size(io)` — fine; just noting that you treat an inactive view as unconstrained everywhere else, so `hi` isn’t observed after `active=false`.
+
+* **Dead code / drift:** `normalize_no_match` and `resolve_loc_expr` (the non-`_cp` variant) are currently unused; if intentional, fine—otherwise wire them or drop to avoid confusion.
+
+* **Usage string:** `goto <location>  Jump to labeled position`—it jumps to any location base (BOF/EOF/etc.), not just labels. Tiny doc polish.
+
+---
+
+# Semantics cross-checks against README (good news)
+
+* `find` forward/backward window selection rules match the code (Boyer-Moore forward; block-scanned backward with rightmost selection).
+* `take until` implements the “forward only, `[cursor, B)`, cursor moves only if non-empty” law exactly.
+* `^/$` in regex honor view edges; your NFA treats `^` at `win_lo` and `$` at `win_hi` correctly.
+* UTF-8 “permissive” character stepping: invalid bytes count as 1 and you never split a multibyte sequence—behavior matches the doc.
+
+---
+
+# Optional tiny cleanups
+
+* In `resolve_loc_expr_cp(… LOC_LINE_END …)` you clamp `base > veof` down to `veof`. For symmetry with half-open view, `base` equal to `veof` is fine (and you already allow it). Nothing to change—just confirming the intent.
+
+---
+
+# Quick test ideas to catch the fixed bugs
+
+1. **Overflow forward skip:** `printf "x" | fiskta skip 9223372036854775807b take 1b -` → before fix, UB or wrap; after fix, empty.
+2. **Overflow backward take:** `fiskta goto EOF take -9223372036854775807b file` → should emit whole file, not empty.
+3. **View/goto edge:** `fiskta viewset BOF EOF-1b goto EOF -` → should now fail with `E_LOC_RESOLVE`.
+4. **CLI heuristic:** `fiskta find "." take +1b -` → should read stdin (not try to open a file named `.`).
+5. **Huge stdin:** pipe >4 GiB into `-` and ensure `io->size` equals actual size (requires system with disk space, ofc).
+6. **Big regex:** craft a pattern with many alternations; ensure no stack crash after heap fallback.
+
+---
+
+If you want, I can bundle these patches into a single diff/PR-style patch (or add a minimal unit test scaffold) — just say the word and tell me your preferred build setup.
+

@@ -750,8 +750,14 @@ static bool is_valid_label_name(const char* name)
         return false;
     }
 
-    for (const char* p = name; *p; p++) {
-        if (!isupper(*p) && *p != '_' && *p != '-') {
+    // First character must be uppercase
+    if (!isupper(name[0])) {
+        return false;
+    }
+
+    // Remaining characters can be uppercase, underscore, hyphen, or digit
+    for (const char* p = name + 1; *p; p++) {
+        if (!isupper(*p) && *p != '_' && *p != '-' && !isdigit(*p)) {
             return false;
         }
     }
