@@ -5,7 +5,10 @@
 #include <stdio.h>
 
 // Regex thread state (exposed so startup code can size/allocate scratch)
-typedef struct { int pc; i64 start; } ReThread;
+typedef struct {
+    int pc;
+    i64 start;
+} ReThread;
 
 // Line indexing constants (tunable via environment variables)
 enum {
@@ -42,10 +45,10 @@ typedef struct {
     struct {
         ReThread* curr;
         ReThread* next;
-        int       cap;          // capacity in ReThread entries for curr/next each
+        int cap; // capacity in ReThread entries for curr/next each
         unsigned char* seen_curr;
         unsigned char* seen_next;
-        size_t   seen_bytes;    // bytes available in seen_* (must be >= re->nins)
+        size_t seen_bytes; // bytes available in seen_* (must be >= re->nins)
     } re;
 } File;
 
@@ -63,7 +66,14 @@ enum Err io_emit(File* io, i64 start, i64 end, FILE* out);
 static inline void io_set_regex_scratch(File* io,
     ReThread* curr, ReThread* next, int cap,
     unsigned char* seen_curr, unsigned char* seen_next, size_t seen_bytes)
-{ io->re.curr=curr; io->re.next=next; io->re.cap=cap; io->re.seen_curr=seen_curr; io->re.seen_next=seen_next; io->re.seen_bytes=seen_bytes; }
+{
+    io->re.curr = curr;
+    io->re.next = next;
+    io->re.cap = cap;
+    io->re.seen_curr = seen_curr;
+    io->re.seen_next = seen_next;
+    io->re.seen_bytes = seen_bytes;
+}
 
 static inline i64 io_size(const File* io) { return io->size; }
 
