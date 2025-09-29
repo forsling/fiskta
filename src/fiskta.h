@@ -55,16 +55,10 @@ enum Err {
 
 typedef struct {
     enum LocBase base; // LOC_NAME uses name_idx
+    enum Unit unit;
+    i64 offset;
     i32 name_idx; // index into program->names[], -1 otherwise
-    enum Unit unit;
-    i64 offset;
 } LocExpr;
-
-typedef struct { // at-expr used only by TAKE_UNTIL
-    enum LocBase at; // match-start/end or line-start/end
-    enum Unit unit;
-    i64 offset;
-} AtExpr;
 
 typedef struct ReProg ReProg;
 
@@ -104,7 +98,7 @@ typedef struct {
         struct {
             char* needle;
             bool has_at;
-            AtExpr at;
+            LocExpr at;
         } take_until;
         struct {
             i32 name_idx;

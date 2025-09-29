@@ -75,14 +75,14 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
 static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* io,
     const VM* vm, const Match* staged_match, i64 staged_cursor,
     const LabelWrite* staged_labels, i32 staged_label_count, i64* out);
-static enum Err resolve_at_expr(const AtExpr* at, File* io, const Match* match, i64* out);
+static enum Err resolve_at_expr(const LocExpr* at, File* io, const Match* match, i64* out);
 static enum Err resolve_loc_expr_cp(
     const LocExpr* loc, const Program* prg, File* io, const VM* vm,
     const Match* staged_match, i64 staged_cursor,
     const LabelWrite* staged_labels, i32 staged_label_count,
     const View* c_view, ClampPolicy clamp, i64* out);
 static enum Err resolve_at_expr_cp(
-    const AtExpr* at, File* io, const Match* match,
+    const LocExpr* at, File* io, const Match* match,
     const View* c_view, ClampPolicy clamp, i64* out);
 static void commit_labels(VM* vm, const Program* prg, const LabelWrite* label_writes, i32 label_count);
 
@@ -686,11 +686,11 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
     return E_OK;
 }
 
-static enum Err resolve_at_expr(const AtExpr* at, File* io, const Match* match, i64* out)
+static enum Err resolve_at_expr(const LocExpr* at, File* io, const Match* match, i64* out)
 {
     i64 base;
 
-    switch (at->at) {
+    switch (at->base) {
     case LOC_MATCH_START:
         base = match->start;
         break;
@@ -864,11 +864,11 @@ static enum Err resolve_loc_expr_cp(
 }
 
 static enum Err resolve_at_expr_cp(
-    const AtExpr* at, File* io, const Match* match,
+    const LocExpr* at, File* io, const Match* match,
     const View* c_view, ClampPolicy clamp, i64* out)
 {
     i64 base = 0;
-    switch (at->at) {
+    switch (at->base) {
     case LOC_MATCH_START:
         base = match->start;
         break;
