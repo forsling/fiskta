@@ -161,7 +161,7 @@ viewclear
 
 ### `label <NAME>` / `goto <loc-expr>`
 
-* `label` stages `NAME := cursor` (commits on clause success). Up to 32 labels; LRU eviction on overflow.
+* `label` stages `NAME := cursor` (commits on clause success). Up to 128 labels; no eviction.
 * `goto` resolves a location and sets the cursor.
 
 **Examples**

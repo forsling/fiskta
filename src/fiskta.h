@@ -151,14 +151,9 @@ typedef struct {
     Match last_match;
     View view;
 
-    // labels (LRU of 32)
-    struct {
-        i32 name_idx;
-        i64 pos;
-        u64 gen;
-        bool in_use;
-    } labels[32];
-    u64 gen_counter;
+    // Direct label mapping (128 slots, no eviction)
+    i64 label_pos[128];           // name_idx -> position mapping
+    unsigned char label_set[128]; // 0/1 flags for which labels are set
 } VM;
 
 // Staged capture range

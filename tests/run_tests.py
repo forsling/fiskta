@@ -335,10 +335,10 @@ def tests():
                 "label","A21","::","label","A22","::","label","A23","::","label","A24","::",
                 "label","A25","::","label","A26","::","label","A27","::","label","A28","::",
                 "label","A29","::","label","A30","::","label","A31","::","label","A32","::",
-                # add A33 (evict LRU A01), then try goto A01
+                # add A33 (no eviction with direct mapping), then goto A01 succeeds
                 "label","A33","goto","A01","take","+1b"
              ], input_file="labels-evict.txt",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="0", exit=0)),
 
         # ---------- Bounds & clamps ----------
         dict(id="clamp-001-skip-clamps",
@@ -761,7 +761,7 @@ def tests():
                  "label","A29","::","label","A30","::","label","A31","::","label","A32","::",
                  "label","A33","goto","A01","take","+1b"
              ], input_file="labels-evict.txt",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="0", exit=0)),
 
         dict(id="lru-102-simple-reuse",
              tokens=["label","TEST","take","+1b"], input_file="labels-evict.txt",
