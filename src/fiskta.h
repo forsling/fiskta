@@ -58,16 +58,14 @@ typedef struct {
     i32 name_idx; // index into program->names[], -1 otherwise
     i32 sign; // +1 or -1
     enum Unit unit;
-    bool has_off;
-    u64 n; // count
+    u64 n; // count (0 means no offset)
 } LocExpr;
 
 typedef struct { // at-expr used only by TAKE_UNTIL
     enum LocBase at; // match-start/end or line-start/end
     i32 sign;
     enum Unit unit;
-    bool has_off;
-    u64 n;
+    u64 n; // count (0 means no offset)
 } AtExpr;
 
 typedef struct ReProg ReProg;

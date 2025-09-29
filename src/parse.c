@@ -391,7 +391,9 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
             // Default to EOF
             op->u.find.to.base = LOC_EOF;
             op->u.find.to.name_idx = -1;
-            op->u.find.to.has_off = false;
+            op->u.find.to.sign = 1;
+            op->u.find.to.n = 0;
+            op->u.find.to.unit = UNIT_BYTES;
         }
 
         // Parse needle
@@ -423,7 +425,9 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         } else {
             op->u.findr.to.base = LOC_EOF;
             op->u.findr.to.name_idx = -1;
-            op->u.findr.to.has_off = false;
+            op->u.findr.to.sign = 1;
+            op->u.findr.to.n = 0;
+            op->u.findr.to.unit = UNIT_BYTES;
         }
         if (*idx >= token_count)
             return E_PARSE;
@@ -573,11 +577,13 @@ static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, L
         enum Err err = parse_signed_number(offset_start, &loc->sign, &loc->n, &loc->unit);
         if (err != E_OK)
             return err;
-        loc->has_off = true;
 
         token = base_token;
     } else {
-        loc->has_off = false;
+        // No offset - initialize to defaults
+        loc->sign = 1;
+        loc->n = 0;
+        loc->unit = UNIT_BYTES; // default unit
     }
 
     // Parse base location
@@ -612,7 +618,6 @@ static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, L
         enum Unit unit_tmp;
         enum Err off_err = parse_signed_number(tokens[*idx], &sign_tmp, &n_tmp, &unit_tmp);
         if (off_err == E_OK) {
-            loc->has_off = true;
             loc->sign = sign_tmp;
             loc->n = n_tmp;
             loc->unit = unit_tmp;
@@ -645,11 +650,13 @@ static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, At
         enum Err err = parse_signed_number(offset_start, &at->sign, &at->n, &at->unit);
         if (err != E_OK)
             return err;
-        at->has_off = true;
 
         token = base_token;
     } else {
-        at->has_off = false;
+        // No offset - initialize to defaults
+        at->sign = 1;
+        at->n = 0;
+        at->unit = UNIT_BYTES; // default unit
     }
 
     // Parse base location
@@ -672,7 +679,6 @@ static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, At
         enum Unit unit_tmp;
         enum Err off_err = parse_signed_number(tokens[*idx], &sign_tmp, &n_tmp, &unit_tmp);
         if (off_err == E_OK) {
-            at->has_off = true;
             at->sign = sign_tmp;
             at->n = n_tmp;
             at->unit = unit_tmp;
