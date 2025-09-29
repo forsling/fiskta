@@ -102,7 +102,7 @@ static void die(enum Err e, const char* msg)
         fprintf(stderr, "fiskta: %s (%s)\n", msg, err_str(e));
     else
         fprintf(stderr, "fiskta: %s\n", err_str(e));
-    exit(e == E_OK ? 0 : 1);
+    exit(e == E_OK ? 0 : 2);
 }
 
 // Arena alignment helper with overflow protection
@@ -447,7 +447,7 @@ int main(int argc, char** argv)
     free(block);
 
     if (ok == 0) {
-        die(last_err, "execution error");
+        fprintf(stderr, "fiskta: execution error (%s)\n", err_str(last_err));
         return 2;
     }
     return 0;
