@@ -725,7 +725,8 @@ static inline void seen_clear(unsigned char* seen, int n){ memset(seen, 0, (size
 static enum Err add_thread_ordered(const ReProg* P, ReList* L, int pc, i64 start,
                                i64 pos, i64 win_lo, i64 win_hi, i64 file_size,
                                unsigned char* seen, int* match_found, i64 min_start,
-                               unsigned char curr_char, unsigned char prev_char)
+                               unsigned char curr_char, unsigned char prev_char,
+                               unsigned char next_char)
 {
     while (1){
         if (pc < 0 || pc >= P->nins) return E_OK;
@@ -736,7 +737,7 @@ static enum Err add_thread_ordered(const ReProg* P, ReList* L, int pc, i64 start
                 // IMPORTANT: mark as seen before processing split
                 seen[pc] = 1;
                 // IMPORTANT: X first (preferred), then Y
-                enum Err err = add_thread_ordered(P, L, I->x, start, pos, win_lo, win_hi, file_size, seen, match_found, min_start, curr_char, prev_char);
+                enum Err err = add_thread_ordered(P, L, I->x, start, pos, win_lo, win_hi, file_size, seen, match_found, min_start, curr_char, prev_char, next_char);
                 if (err != E_OK) return err;
                 pc = I->y; // continue tail-call
                 continue;
@@ -750,8 +751,11 @@ static enum Err add_thread_ordered(const ReProg* P, ReList* L, int pc, i64 start
                 }
                 return E_OK;
             case RI_EOL:
-                // $ matches at window end or before a newline
-                if (pos == win_hi || curr_char == '\n') {
+                // $ matches at: window end, or BEFORE LF, or BEFORE CRLF
+                // In this NFA, "before newline" means the *next* byte is LF.
+                if (pos == win_hi ||
+                    next_char == '\n' ||
+                    (next_char == '\n' && curr_char == '\r')) {
                     pc++; continue;
                 }
                 return E_OK;
@@ -841,6 +845,7 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
 
         // current/previous chars at position pos
         unsigned char curr_c = (pos < win_hi) ? io->buf[pos - block_lo] : 0;
+        unsigned char next_c = (pos+1 < win_hi) ? io->buf[pos + 1 - block_lo] : 0;
         unsigned char prev_char = have_prev ? prev_c : 0;
 
         // If no active threads, start a new leftmost attempt at pos
@@ -849,7 +854,7 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
             seen_clear(seen_curr, nins);
             int match_found = 0;
             enum Err err = add_thread_ordered(re, &curr, 0, pos, pos, win_lo, win_hi, io->size,
-                               seen_curr, &match_found, min_start, curr_c, prev_char);
+                               seen_curr, &match_found, min_start, curr_c, prev_char, next_c);
             if (err != E_OK) return err;
             if (match_found){
                 // epsilon-only match (no consumption): end == pos
@@ -865,7 +870,7 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
             for (int k=0;k<curr.n;k++){
                 // IMPORTANT: keep global min_start
                 enum Err err = add_thread_ordered(re, &curr, curr.v[k].pc, curr.v[k].start, pos, win_lo, win_hi, io->size,
-                                   seen_curr, &match_found, min_start, curr_char, prev_char);
+                                   seen_curr, &match_found, min_start, curr_char, prev_char, next_c);
                 if (err != E_OK) return err;
             }
             if (match_found){
@@ -891,19 +896,19 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
             switch (I->op){
                 case RI_CHAR:
                     if (c == I->ch) {
-                        enum Err err = add_thread_ordered(re, &next, pc+1, st, pos+1, win_lo, win_hi, io->size, seen_next, &(int){0}, min_start, c, prev_char);
+                        enum Err err = add_thread_ordered(re, &next, pc+1, st, pos+1, win_lo, win_hi, io->size, seen_next, &(int){0}, min_start, c, prev_char, next_c);
                         if (err != E_OK) return err;
                     }
                     break;
                 case RI_ANY:
                     if (c != '\n') { // dot ≠ newline
-                        enum Err err = add_thread_ordered(re, &next, pc+1, st, pos+1, win_lo, win_hi, io->size, seen_next, &(int){0}, min_start, c, prev_char);
+                        enum Err err = add_thread_ordered(re, &next, pc+1, st, pos+1, win_lo, win_hi, io->size, seen_next, &(int){0}, min_start, c, prev_char, next_c);
                         if (err != E_OK) return err;
                     }
                     break;
                 case RI_CLASS:
                     if (I->cls_idx >= 0 && I->cls_idx < re->nclasses && cls_has(&re->classes[I->cls_idx], c)) {
-                        enum Err err = add_thread_ordered(re, &next, pc+1, st, pos+1, win_lo, win_hi, io->size, seen_next, &(int){0}, min_start, c, prev_char);
+                        enum Err err = add_thread_ordered(re, &next, pc+1, st, pos+1, win_lo, win_hi, io->size, seen_next, &(int){0}, min_start, c, prev_char, next_c);
                         if (err != E_OK) return err;
                     }
                     break;
