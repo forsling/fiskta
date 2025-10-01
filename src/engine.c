@@ -231,7 +231,7 @@ enum Err execute_clause_with_scratch(const Clause* clause,
     if (err == E_OK) {
         for (i32 i = 0; i < range_count; i++) {
             if (ranges[i].kind == RANGE_FILE) {
-                err = io_emit(io, ranges[i].start, ranges[i].end, out);
+                err = io_emit(io, ranges[i].file.start, ranges[i].file.end, out);
             } else {
                 // RANGE_LIT: write literal bytes
                 if ((size_t)fwrite(ranges[i].lit.p, 1, (size_t)ranges[i].lit.n, out) != (size_t)ranges[i].lit.n)
@@ -433,8 +433,8 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         if (*range_count >= *range_cap)
             return E_OOM;
         (*ranges)[*range_count].kind = RANGE_FILE;
-        (*ranges)[*range_count].start = start;
-        (*ranges)[*range_count].end = end;
+        (*ranges)[*range_count].file.start = start;
+        (*ranges)[*range_count].file.end = end;
         (*range_count)++;
         if (start != end) {
             *c_cursor = start > end ? start : end;
@@ -462,8 +462,8 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         if (*range_count >= *range_cap)
             return E_OOM;
         (*ranges)[*range_count].kind = RANGE_FILE;
-        (*ranges)[*range_count].start = start;
-        (*ranges)[*range_count].end = end;
+        (*ranges)[*range_count].file.start = start;
+        (*ranges)[*range_count].file.end = end;
         (*range_count)++;
 
         if (start != end) {
@@ -502,8 +502,8 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         if (*range_count >= *range_cap)
             return E_OOM;
         (*ranges)[*range_count].kind = RANGE_FILE;
-        (*ranges)[*range_count].start = vclamp(c_view, io, *c_cursor);
-        (*ranges)[*range_count].end = dst;
+        (*ranges)[*range_count].file.start = vclamp(c_view, io, *c_cursor);
+        (*ranges)[*range_count].file.end = dst;
         (*range_count)++;
 
         // Move cursor only if non-empty

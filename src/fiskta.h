@@ -153,8 +153,12 @@ typedef struct {
 typedef enum { RANGE_FILE, RANGE_LIT } RangeKind;
 typedef struct {
     RangeKind kind;
-    i64 start, end;   // used when kind == RANGE_FILE
-    String lit;       // used when kind == RANGE_LIT
+    union {
+        struct {
+            i64 start, end;   // used when kind == RANGE_FILE
+        } file;
+        String lit;           // used when kind == RANGE_LIT
+    };
 } Range;
 
 enum { FW_WIN = 8 * 1024 * 1024,
