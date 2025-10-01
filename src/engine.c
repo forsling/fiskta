@@ -46,6 +46,12 @@ static inline void apply_byte_saturation(i64* base, i64 delta, const View* v, co
 }
 
 // Count capacity needs for a clause
+// Helper for overflow-safe size arithmetic
+static int add_ovf(size_t a, size_t b, size_t* out) {
+    if (SIZE_MAX - a < b) return 1;
+    *out = a + b; return 0;
+}
+
 void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap)
 {
     i32 rc = 0, lc = 0;
@@ -72,10 +78,6 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
     Range** ranges, i32* range_count, i32* range_cap,
     LabelWrite** label_writes, i32* label_count, i32* label_cap,
     const View* c_view);
-static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* io,
-    const VM* vm, const Match* staged_match, i64 staged_cursor,
-    const LabelWrite* staged_labels, i32 staged_label_count, i64* out);
-static enum Err resolve_at_expr(const LocExpr* at, File* io, const Match* match, i64* out);
 static enum Err resolve_loc_expr_cp(
     const LocExpr* loc, File* io, const VM* vm,
     const Match* staged_match, i64 staged_cursor,
@@ -132,14 +134,17 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     size_t re_thr_size = safe_align(re_thr_bytes, alignof(ReThread)) * 2;
     if (re_thr_size == SIZE_MAX)
         return E_OOM;
-    total += re_thr_size;
+    if (add_ovf(total, re_thr_size, &total))
+        return E_OOM;
 
     size_t re_seen_size = safe_align(re_seen_bytes_each, 1) * 2;
     if (re_seen_size == SIZE_MAX)
         return E_OOM;
-    total += re_seen_size;
+    if (add_ovf(total, re_seen_size, &total))
+        return E_OOM;
 
-    total += 64; // small cushion like main.c
+    if (add_ovf(total, 64, &total)) // small cushion like main.c
+        return E_OOM;
 
     // Allocate single block
     void* block = malloc(total);
@@ -366,17 +371,11 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
             if (op->u.take_len.offset > 0) {
                 start = vclamp(c_view, io, *c_cursor);
                 end = start;
-                if (op->u.take_len.offset > INT64_MAX)
-                    end = veof(c_view, io);
-                else
-                    apply_byte_saturation(&end, op->u.take_len.offset, c_view, io, CLAMP_VIEW);
+                apply_byte_saturation(&end, op->u.take_len.offset, c_view, io, CLAMP_VIEW);
             } else {
                 end = vclamp(c_view, io, *c_cursor);
                 start = end;
-                if (op->u.take_len.offset < -INT64_MAX)
-                    start = vbof(c_view);
-                else
-                    apply_byte_saturation(&start, op->u.take_len.offset, c_view, io, CLAMP_VIEW);
+                apply_byte_saturation(&start, op->u.take_len.offset, c_view, io, CLAMP_VIEW);
                 start = clamp64(start, vbof(c_view), end);
             }
         } else if (op->u.take_len.unit == UNIT_LINES) {
@@ -580,6 +579,8 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
     return E_OK;
 }
 
+#if 0
+// Unused function - kept for reference
 static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* io,
     const VM* vm, const Match* staged_match, i64 staged_cursor,
     const LabelWrite* staged_labels, i32 staged_label_count, i64* out)
@@ -651,15 +652,7 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
     // Apply offset if present
     if (loc->offset != 0) {
         if (loc->unit == UNIT_BYTES) {
-            // clamp i64 delta safely
-            if (loc->offset > INT64_MAX) {
-                // saturate at extremes
-                base = io_size(io);
-            } else if (loc->offset < -INT64_MAX) {
-                base = 0;
-            } else {
-                base += loc->offset;
-            }
+            base += loc->offset;
         } else if (loc->unit == UNIT_LINES) {
             if (loc->offset > INT_MAX || loc->offset < -INT_MAX)
                 return E_PARSE;
@@ -686,6 +679,10 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
     return E_OK;
 }
 
+#endif
+
+#if 0
+// Unused function - kept for reference
 static enum Err resolve_at_expr(const LocExpr* at, File* io, const Match* match, i64* out)
 {
     i64 base;
@@ -717,13 +714,7 @@ static enum Err resolve_at_expr(const LocExpr* at, File* io, const Match* match,
     // Apply offset if present
     if (at->offset != 0) {
         if (at->unit == UNIT_BYTES) {
-            if (at->offset > INT64_MAX) {
-                base = io_size(io);
-            } else if (at->offset < -INT64_MAX) {
-                base = 0;
-            } else {
-                base += at->offset;
-            }
+            base += at->offset;
         } else if (at->unit == UNIT_LINES) {
             if (at->offset > INT_MAX || at->offset < -INT_MAX)
                 return E_PARSE;
@@ -746,9 +737,7 @@ static enum Err resolve_at_expr(const LocExpr* at, File* io, const Match* match,
         }
     }
 
-    *out = clamp64(base, 0, io_size(io));
-    return E_OK;
-}
+#endif
 
 static enum Err resolve_loc_expr_cp(
     const LocExpr* loc, File* io, const VM* vm,
@@ -821,17 +810,7 @@ static enum Err resolve_loc_expr_cp(
 
     if (loc->offset != 0) {
         if (loc->unit == UNIT_BYTES) {
-            if (loc->offset > INT64_MAX) {
-                base = (clamp == CLAMP_VIEW)
-                    ? (loc->offset > 0 ? veof(c_view, io) : vbof(c_view))
-                    : (loc->offset > 0 ? io_size(io) : 0);
-            } else if (loc->offset < -INT64_MAX) {
-                base = (clamp == CLAMP_VIEW)
-                    ? vbof(c_view)
-                    : 0;
-            } else {
-                apply_byte_saturation(&base, loc->offset, c_view, io, clamp == CLAMP_FILE ? CLAMP_FILE : clamp);
-            }
+            apply_byte_saturation(&base, loc->offset, c_view, io, clamp == CLAMP_FILE ? CLAMP_FILE : clamp);
         } else if (loc->unit == UNIT_LINES) {
             if (loc->offset > INT_MAX || loc->offset < -INT_MAX)
                 return E_PARSE;
@@ -897,17 +876,7 @@ static enum Err resolve_at_expr_cp(
 
     if (at->offset != 0) {
         if (at->unit == UNIT_BYTES) {
-            if (at->offset > INT64_MAX) {
-                base = (clamp == CLAMP_VIEW)
-                    ? (at->offset > 0 ? veof(c_view, io) : vbof(c_view))
-                    : (at->offset > 0 ? io_size(io) : 0);
-            } else if (at->offset < -INT64_MAX) {
-                base = (clamp == CLAMP_VIEW)
-                    ? vbof(c_view)
-                    : 0;
-            } else {
-                apply_byte_saturation(&base, at->offset, c_view, io, clamp == CLAMP_FILE ? CLAMP_FILE : clamp);
-            }
+            apply_byte_saturation(&base, at->offset, c_view, io, clamp == CLAMP_FILE ? CLAMP_FILE : clamp);
         } else if (at->unit == UNIT_LINES) {
             if (at->offset > INT_MAX || at->offset < -INT_MAX)
                 return E_PARSE;

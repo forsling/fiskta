@@ -1,4 +1,4 @@
-# fiskta — FInd SKip TAke
+# fiskta — (fi)nd (sk)ip (ta)ke
 
 Minimal streaming text extractor with a cursor-first model and atomic clauses. Zero dependencies.
 
@@ -8,7 +8,7 @@ Minimal streaming text extractor with a cursor-first model and atomic clauses. Z
 
 ---
 
-## Operations (exhaustive, quick to learn)
+## Operations
 
 All commands end with `<file|->`. Units: `b` = bytes, `l` = lines (LF `0x0A`; CR is just a byte), `c` = UTF-8 code points.
 
@@ -48,10 +48,13 @@ Search using **regular expressions** within a window from the **cursor** to `L` 
 * **Character Classes:** `\d` (digits), `\w` (word chars), `\s` (whitespace), `[a-z]`, `[^0-9]`
 * **Quantifiers:** `*` (0+), `+` (1+), `?` (0-1), `{n}` (exactly n), `{n,m}` (n to m), `{n,}` (n+)
 * **Grouping:** `( ... )` (group subpatterns), `(a|b)+` (quantified groups)
-* **Anchors:** `^` (line start), `$` (line end)
+* **Anchors:** `^` (line start), `$` (line end). `^`/`$` also match at view edges when a view is active.
 * **Alternation:** `|` (OR)
 * **Escape Sequences:** `\n`, `\t`, `\r`, `\f`, `\v`, `\0`
 * **Special:** `.` (any char except newline)
+
+Regex character classes (`\w`, `\d`, `\s`, etc.) are ASCII/byte-oriented.
+Unit `c` (UTF-8 code points) affects `take/skip` slicing only.
 
 **Examples**
 
@@ -260,7 +263,7 @@ LABEL-3l
 
 ## Lines (unit `l`)
 
-* Lines end at LF (`0x0A`) or EOF; CR (`0x0D`) is just a byte.
+* Lines end at LF (`0x0A`) or EOF. Regex anchors also treat CRLF pairs as a line break for `$` convenience.
 * Line captures anchor at the **line start** of the cursor's line.
 * `take +Nl` → from that line start forward by N complete lines.
   `take -Nl` → the previous N complete lines ending at that line start.
@@ -375,7 +378,7 @@ signedN   := ["+"|"-"] N
 
 # Lexical
 N         := DIGIT { DIGIT }
-NAME      := UPPER { UPPER | "_" | "-" } ; length ≤ 16
+NAME      := UPPER { UPPER | DIGIT | "_" | "-" } ; length ≤ 16
 STRING    := shell-quoted non-empty byte string
 UPPER     := "A"…"Z"
 DIGIT     := "0"…"9"

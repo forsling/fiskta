@@ -1,1 +1,2 @@
-Fix regex $ not matching end of line.
+Print/echo command
+Better benchmarking

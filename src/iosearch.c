@@ -7,6 +7,11 @@
 #include <string.h>
 #include <sys/types.h> // for off_t
 
+#if defined(_WIN32) && !defined(__MINGW32__) && !defined(__MINGW64__)
+#define fseeko _fseeki64
+#define ftello _ftelli64
+#endif
+
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
@@ -160,7 +165,7 @@ void io_reset_full(File* io)
         io->line_idx[i].block_lo = 0;
         io->line_idx[i].block_hi = 0;
         io->line_idx[i].sub_count = 0;
-        // Don't reset lf_counts pointer - it's managed by arena
+        // Don't reset lf_counts array - it's embedded in the struct
     }
 }
 

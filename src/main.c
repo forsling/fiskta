@@ -21,42 +21,74 @@ typedef struct {
     i32 re_ins_estimate_max; // NEW: for regex scratch sizing
 } ParsePlan;
 
-// Minimal ops-string splitter for quoted CLI usage
+// Helper for overflow-safe size arithmetic
+static int add_ovf(size_t a, size_t b, size_t* out) {
+    if (SIZE_MAX - a < b) return 1;
+    *out = a + b; return 0;
+}
+
+// Quote-aware ops-string splitter for CLI usage
+// Note: one-shot scratch; tokens invalidated after next call
 static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
 {
-    static char buf[4096]; // one-shot scratch; fine for our CLI
-    i32 n = 0;
-    size_t off = 0;
+    static char buf[4096];
+    size_t boff = 0;
+    i32 ntok = 0;
 
-    while (*s && n < max_tokens) {
-        while (*s == ' ' || *s == '\t')
-            s++;
-        if (!*s)
-            break;
+    enum { S_WS, S_TOKEN, S_SQ, S_DQ } st = S_WS;
+    const char* p = s;
 
-        if (s[0] == ':' && s[1] == ':') { // "::" token
-            out[n++] = (char*)"::";
-            s += 2;
+    while (*p) {
+        // recognize '::' as a standalone token regardless of state if we're not inside quotes
+        if ((st == S_WS || st == S_TOKEN) && p[0] == ':' && p[1] == ':') {
+            if (st == S_TOKEN) { buf[boff++] = '\0'; if (ntok < max_tokens) ntok++; }
+            if (ntok < max_tokens) out[ntok++] = (char*)"::";
+            st = S_WS; p += 2; continue;
+        }
+
+        unsigned char c = (unsigned char)*p;
+        if (st == S_WS) {
+            if (c == ' ' || c == '\t') { p++; continue; }
+            if (c == '\'') { st = S_SQ; p++; if (boff+1 >= sizeof buf) return -1; out[ntok] = &buf[boff]; continue; }
+            if (c == '"')  { st = S_DQ; p++; if (boff+1 >= sizeof buf) return -1; out[ntok] = &buf[boff]; continue; }
+            // start token
+            st = S_TOKEN;
+            if (ntok >= max_tokens) return -1;
+            out[ntok] = &buf[boff];
             continue;
-        }
-
-        const char* start = s;
-        while (*s && *s != ' ' && *s != '\t') {
-            if (s[0] == ':' && s[1] == ':')
-                break;
-            s++;
-        }
-        size_t len = (size_t)(s - start);
-        if (len) {
-            if (off + len + 1 >= sizeof(buf))
-                return -1; // return error instead of silent truncation
-            memcpy(buf + off, start, len);
-            buf[off + len] = '\0';
-            out[n++] = buf + off;
-            off += len + 1;
+        } else if (st == S_TOKEN) {
+            if (c == ' ' || c == '\t') {
+                buf[boff++] = '\0'; ntok++; st = S_WS; p++; continue;
+            }
+            if (c == '\'') { st = S_SQ; p++; continue; }
+            if (c == '"')  { st = S_DQ; p++; continue; }
+            if (c == '\\' && p[1]) { 
+                if (boff+1 >= sizeof buf) return -1; 
+                buf[boff++] = (char)p[1]; p += 2; continue; 
+            }
+            if (boff+1 >= sizeof buf) return -1; 
+            buf[boff++] = (char)c; p++; continue;
+        } else if (st == S_SQ) { // single quotes: no escapes
+            if (c == '\'') { st = S_TOKEN; p++; continue; }
+            if (boff+1 >= sizeof buf) return -1; 
+            buf[boff++] = (char)c; p++; continue;
+        } else { // S_DQ
+            if (c == '"') { st = S_TOKEN; p++; continue; }
+            if (c == '\\' && p[1]) { // standard simple escapes
+                unsigned char esc = (unsigned char)p[1];
+                if (boff+1 >= sizeof buf) return -1; 
+                buf[boff++] = (char)esc; p += 2; continue;
+            }
+            if (boff+1 >= sizeof buf) return -1; 
+            buf[boff++] = (char)c; p++; continue;
         }
     }
-    return n;
+
+    if (st == S_TOKEN || st == S_SQ || st == S_DQ) {
+        buf[boff++] = '\0';
+        if (ntok < max_tokens) ntok++;
+    }
+    return ntok;
 }
 
 #ifdef _WIN32
@@ -117,27 +149,6 @@ static size_t safe_align(size_t x, size_t align)
     return aligned;
 }
 
-// Normalize "no match" into one code
-static inline enum Err normalize_no_match(enum Err e)
-{
-    switch (e) {
-    case E_NO_MATCH:
-/* Add any aliases your engine might use for "no match": */
-#ifdef E_REGEX_NO_MATCH
-    case E_REGEX_NO_MATCH:
-#endif
-#ifdef E_WINDOW_NO_MATCH
-    case E_WINDOW_NO_MATCH:
-#endif
-#ifdef E_SEARCH_NOT_FOUND
-    case E_SEARCH_NOT_FOUND:
-#endif
-        return E_NO_MATCH;
-    default:
-        return e;
-    }
-}
-
 static void print_usage(void)
 {
     printf("fiskta (FInd SKip TAke) Text Extraction Tool\n");
@@ -180,7 +191,7 @@ static void print_usage(void)
     printf("  Special: . (any char except newline)\n");
     printf("\n");
     printf("LABELS:\n");
-    printf("  NAME                        UPPERCASE, ≤16 chars, [A-Z_-]\n");
+    printf("  NAME                        UPPERCASE, ≤16 chars, [A-Z0-9_-] (first must be A-Z)\n");
     printf("\n");
     printf("LOCATIONS:\n");
     printf("  cursor                      Current cursor position\n");
@@ -329,9 +340,19 @@ int main(int argc, char** argv)
     size_t re_seen_size = safe_align(re_seen_bytes_each, 1) * 2;
     size_t re_thrbufs_size = safe_align(re_threads_bytes, alignof(ReThread)) * 2;
 
-    size_t total = search_buf_size + clauses_size + ops_size
-        + re_prog_size + re_ins_size + re_cls_size
-        + str_pool_size + re_thrbufs_size + re_seen_size + 64; // small cushion
+    size_t total = search_buf_size;
+    if (add_ovf(total, clauses_size, &total) ||
+        add_ovf(total, ops_size, &total) ||
+        add_ovf(total, re_prog_size, &total) ||
+        add_ovf(total, re_ins_size, &total) ||
+        add_ovf(total, re_cls_size, &total) ||
+        add_ovf(total, str_pool_size, &total) ||
+        add_ovf(total, re_thrbufs_size, &total) ||
+        add_ovf(total, re_seen_size, &total) ||
+        add_ovf(total, 64, &total)) { // small cushion
+        die(E_OOM, "arena size overflow");
+        return 2;
+    }
 
     void* block = malloc(total);
     if (!block) {
@@ -435,3 +456,4 @@ int main(int argc, char** argv)
     }
     return 0;
 }
+
