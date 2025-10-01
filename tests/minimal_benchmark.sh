@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-# Minimal working benchmark for fiskta
-# Usage: ./minimal_benchmark.sh [options]
+# fiskta Benchmark Script
+# Usage: ./benchmark.sh [options]
 
 # Default values
 SMALL_MB=1

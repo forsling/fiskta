@@ -1,18 +1,15 @@
 # fiskta Benchmarking System
 
-A comprehensive benchmarking suite for the fiskta text extraction tool, featuring multi-scale testing, comparative analysis, and multiple output formats.
+A clean, reliable benchmarking suite for the fiskta text extraction tool with millisecond precision timing.
 
 ## Features
 
-- **Multi-scale Testing**: Test performance across different file sizes (1MB, 10MB, 100MB+)
-- **Comprehensive Test Coverage**: Simple find, regex search, throughput, UTF-8 processing, and more
-- **Comparative Analysis**: Compare against standard tools (grep, awk, sed)
-- **Multiple Output Formats**: Human-readable, CSV, JSON, Markdown
-- **Statistical Analysis**: Min/max/average with proper warmup runs
-- **Memory Profiling**: Peak memory usage and efficiency metrics
-- **Regression Detection**: Automated performance regression detection
-- **Visualization**: Python-based analysis with charts and graphs
-- **CI/CD Ready**: Easy integration with automated testing
+- **Millisecond Precision**: High-accuracy timing measurements
+- **Multi-scale Testing**: Test performance across different file sizes (1MB, 10MB+)
+- **Statistical Analysis**: Multiple runs with proper warmup
+- **Multiple Output Formats**: Human-readable and JSON
+- **Performance Analysis**: Throughput calculations and scaling analysis
+- **Clean Implementation**: Simple, reliable, easy to understand
 
 ## Quick Start
 
@@ -22,10 +19,10 @@ A comprehensive benchmarking suite for the fiskta text extraction tool, featurin
 ./tests/benchmark.sh
 
 # Run with different file sizes
-./tests/benchmark.sh --small 1 --medium 10 --large 100
+./tests/benchmark.sh --small 1 --medium 10
 
-# Run with comparative analysis
-./tests/benchmark.sh --compare --format json --output results.json
+# JSON output for analysis
+./tests/benchmark.sh --format json
 ```
 
 ### Using Configuration Presets

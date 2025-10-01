@@ -10,7 +10,7 @@ echo
 
 # Run benchmark and extract JSON
 echo "Running benchmark..."
-JSON_OUTPUT=$(./tests/minimal_benchmark.sh --format json 2>/dev/null | sed -n '/^{/,/^}/p')
+JSON_OUTPUT=$(./tests/benchmark.sh --format json 2>/dev/null | sed -n '/^{/,/^}/p')
 
 echo "Performance Results (millisecond precision):"
 echo "---------------------------------------------"
