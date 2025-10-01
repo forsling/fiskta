@@ -1,4 +1,3 @@
-// fiskta.h
 #pragma once
 #define _FILE_OFFSET_BITS 64
 
@@ -12,7 +11,6 @@ typedef uint64_t u64;
 typedef int32_t i32;
 typedef uint32_t u32;
 
-// Length-carrying string (handles embedded NULs)
 typedef struct { const char* p; i32 n; } String;
 
 enum Unit {
@@ -58,7 +56,7 @@ enum Err {
 };
 
 typedef struct {
-    enum LocBase base; // LOC_NAME uses name_idx
+    enum LocBase base;
     enum Unit unit;
     i64 offset;
     i32 name_idx; // index into program->names[], -1 otherwise
@@ -66,16 +64,16 @@ typedef struct {
 
 typedef struct ReProg ReProg;
 
-// View state (staged per clause; committed on clause success)
 typedef struct {
     bool active;
     i64 lo, hi; // half-open [lo, hi)
 } View;
 
-// Clamp policy
-typedef enum { CLAMP_NONE,
+typedef enum { 
+    CLAMP_NONE,
     CLAMP_FILE,
-    CLAMP_VIEW } ClampPolicy;
+    CLAMP_VIEW 
+} ClampPolicy;
 
 typedef struct {
     union {
@@ -85,8 +83,8 @@ typedef struct {
         } find;
         struct {
             LocExpr to;
-            String pattern; // raw pattern text (from pool)
-            struct ReProg* prog; // compiled program (arena-backed), set during setup
+            String pattern;
+            struct ReProg* prog;
         } findr;
         struct {
             u64 n;
@@ -133,7 +131,6 @@ typedef struct {
     Clause* clauses;
     i32 clause_count;
     i32 clause_cap;
-    /* Static name table (UPPER / '_' / '-', ≤16 chars + NUL) */
     char names[128][17];
     i32 name_count;
 } Program;
@@ -144,25 +141,22 @@ typedef struct {
 } Match;
 
 typedef struct {
-    // global state
     i64 cursor;
     Match last_match;
     View view;
 
-    // Direct label mapping (128 slots, no eviction)
     i64 label_pos[128]; // name_idx -> position mapping
     unsigned char label_set[128]; // 0/1 flags for which labels are set
 } VM;
 
-// Staged capture range
+// Staged capture range or literal string
 typedef enum { RANGE_FILE, RANGE_LIT } RangeKind;
 typedef struct {
     RangeKind kind;
-    i64 start, end;  // used when kind == RANGE_FILE
+    i64 start, end;   // used when kind == RANGE_FILE
     String lit;       // used when kind == RANGE_LIT
 } Range;
 
-// ---- constants (tuneable, but fixed here) ----
 enum { FW_WIN = 8 * 1024 * 1024,
     BK_BLK = 4 * 1024 * 1024,
     OVERLAP_MIN = 4 * 1024,

@@ -18,7 +18,7 @@ static inline void arena_init(Arena* a, void* mem, size_t cap)
 static inline void* arena_alloc(Arena* a, size_t n, size_t align)
 {
     size_t a0 = align ? align : alignof(max_align_t);
-    // require power-of-two alignment; return NULL if not (defensive)
+    // require power-of-two alignment; return NULL if not
     if ((a0 & (a0 - 1)) != 0)
         return NULL;
     size_t p = a_align(a->off, a0);

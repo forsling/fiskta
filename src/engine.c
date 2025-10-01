@@ -1,4 +1,3 @@
-// engine.c
 #include "arena.h"
 #include "fiskta.h"
 #include "iosearch.h"
@@ -7,8 +6,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Forward declarations
-// LabelWrite typedef moved to fiskta.h
 enum Err io_open(File* io, const char* path,
     unsigned char* search_buf, size_t search_buf_cap);
 
@@ -16,7 +13,7 @@ enum Err io_open(File* io, const char* path,
 static size_t safe_align(size_t x, size_t align)
 {
     size_t aligned = a_align(x, align);
-    if (aligned < x) { // overflow check
+    if (aligned < x) {
         return SIZE_MAX; // signal overflow
     }
     return aligned;
@@ -45,7 +42,6 @@ static inline void apply_byte_saturation(i64* base, i64 delta, const View* v, co
     *base += delta;
 }
 
-// Count capacity needs for a clause
 // Helper for overflow-safe size arithmetic
 static int add_ovf(size_t a, size_t b, size_t* out) {
     if (SIZE_MAX - a < b) return 1;
@@ -147,12 +143,10 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     if (add_ovf(total, 64, &total)) // small cushion like main.c
         return E_OOM;
 
-    // Allocate single block
     void* block = malloc(total);
     if (!block)
         return E_OOM;
 
-    // Initialize arena
     Arena arena;
     arena_init(&arena, block, total);
 
@@ -168,7 +162,6 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
         return E_OOM;
     }
 
-    // Open I/O with arena-backed buffers
     File io = { 0 };
     enum Err err = io_open(&io, in_path, search_buf, search_buf_cap);
     if (err != E_OK) {
@@ -181,7 +174,6 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     VM vm = { 0 };
     vm.cursor = 0;
     vm.last_match.valid = false;
-    // Initialize label arrays
     memset(vm.label_set, 0, sizeof(vm.label_set));
 
     // Execute each clause independently
@@ -212,7 +204,6 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     return err;
 }
 
-// NEW signature: no allocations inside
 enum Err execute_clause_with_scratch(const Clause* clause,
     void* io_ptr, VM* vm, FILE* out,
     Range* ranges, i32 ranges_cap,
@@ -221,7 +212,7 @@ enum Err execute_clause_with_scratch(const Clause* clause,
     File* io = (File*)io_ptr;
     i64 c_cursor = vm->cursor;
     Match c_last_match = vm->last_match;
-    View c_view = vm->view; // staged view for this clause
+    View c_view = vm->view;
 
     i32 range_count = 0;
     i32 label_count = 0;
@@ -445,8 +436,6 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         (*ranges)[*range_count].start = start;
         (*ranges)[*range_count].end = end;
         (*range_count)++;
-
-        // Update cursor (Cursor Law)
         if (start != end) {
             *c_cursor = start > end ? start : end;
         }
@@ -477,7 +466,6 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         (*ranges)[*range_count].end = end;
         (*range_count)++;
 
-        // Update cursor (Cursor Law: empty span = no move)
         if (start != end) {
             *c_cursor = vclamp(c_view, io, end);
         }
@@ -518,7 +506,7 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         (*ranges)[*range_count].end = dst;
         (*range_count)++;
 
-        // Cursor law: move only if non-empty
+        // Move cursor only if non-empty
         if (dst > *c_cursor) {
             *c_cursor = dst;
         }
@@ -581,7 +569,6 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         ((View*)c_view)->active = false;
         ((View*)c_view)->lo = 0;
         ((View*)c_view)->hi = io_size(io);
-        // Cursor unchanged
         break;
     }
 
@@ -592,7 +579,6 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         Range* r = &(*ranges)[(*range_count)++];
         r->kind = RANGE_LIT;
         r->lit = op->u.print.string;
-        // Print doesn't move cursor
         break;
     }
 
@@ -602,166 +588,6 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
 
     return E_OK;
 }
-
-#if 0
-// Unused function - kept for reference
-static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* io,
-    const VM* vm, const Match* staged_match, i64 staged_cursor,
-    const LabelWrite* staged_labels, i32 staged_label_count, i64* out)
-{
-    i64 base;
-
-    switch (loc->base) {
-    case LOC_CURSOR:
-        base = staged_cursor;
-        break;
-    case LOC_BOF:
-        base = 0;
-        break;
-    case LOC_EOF:
-        base = io_size(io);
-        break;
-    case LOC_NAME: {
-        // Look up label in staged labels first (staged labels override committed ones)
-        bool found = false;
-        for (i32 i = 0; i < staged_label_count; i++) {
-            if (staged_labels[i].name_idx == loc->name_idx) {
-                base = staged_labels[i].pos;
-                found = true;
-                break;
-            }
-        }
-
-        // If not found in staged labels, check committed labels
-        if (!found) {
-            if (vm->label_set[loc->name_idx]) {
-                base = vm->label_pos[loc->name_idx];
-                found = true;
-            }
-        }
-
-        if (!found)
-            return E_LOC_RESOLVE;
-        break;
-    }
-    case LOC_MATCH_START:
-        if (!staged_match->valid)
-            return E_LOC_RESOLVE;
-        base = staged_match->start;
-        break;
-    case LOC_MATCH_END:
-        if (!staged_match->valid)
-            return E_LOC_RESOLVE;
-        base = staged_match->end;
-        break;
-    case LOC_LINE_START: {
-        // relative to cursor
-        enum Err err = io_line_start(io, staged_cursor, &base);
-        if (err != E_OK)
-            return err;
-        break;
-    }
-    case LOC_LINE_END: {
-        // io_line_end expects a byte inside the line
-        i64 ref = staged_cursor;
-        enum Err err = io_line_end(io, ref, &base);
-        if (err != E_OK)
-            return err;
-        break;
-    }
-    default:
-        return E_PARSE;
-    }
-
-    // Apply offset if present
-    if (loc->offset != 0) {
-        if (loc->unit == UNIT_BYTES) {
-            base += loc->offset;
-        } else if (loc->unit == UNIT_LINES) {
-            if (loc->offset > INT_MAX || loc->offset < -INT_MAX)
-                return E_PARSE;
-            i32 delta = (i32)loc->offset;
-            enum Err err = io_step_lines_from(io, base, delta, &base);
-            if (err != E_OK)
-                return err;
-        } else { // UNIT_CHARS
-            if (loc->offset > INT_MAX || loc->offset < -INT_MAX)
-                return E_PARSE;
-            i64 char_base;
-            enum Err err = io_char_start(io, base, &char_base);
-            if (err != E_OK)
-                return err;
-            i32 delta = (i32)loc->offset;
-            err = io_step_chars_from(io, char_base, delta, &char_base);
-            if (err != E_OK)
-                return err;
-            base = char_base;
-        }
-    }
-
-    *out = clamp64(base, 0, io_size(io));
-    return E_OK;
-}
-
-#endif
-
-#if 0
-// Unused function - kept for reference
-static enum Err resolve_at_expr(const LocExpr* at, File* io, const Match* match, i64* out)
-{
-    i64 base;
-
-    switch (at->base) {
-    case LOC_MATCH_START:
-        base = match->start;
-        break;
-    case LOC_MATCH_END:
-        base = match->end;
-        break;
-    case LOC_LINE_START: {
-        enum Err err = io_line_start(io, match->start, &base);
-        if (err != E_OK)
-            return err;
-        break;
-    }
-    case LOC_LINE_END: {
-        i64 ref = match->end;
-        enum Err err = io_line_end(io, ref, &base);
-        if (err != E_OK)
-            return err;
-        break;
-    }
-    default:
-        return E_PARSE;
-    }
-
-    // Apply offset if present
-    if (at->offset != 0) {
-        if (at->unit == UNIT_BYTES) {
-            base += at->offset;
-        } else if (at->unit == UNIT_LINES) {
-            if (at->offset > INT_MAX || at->offset < -INT_MAX)
-                return E_PARSE;
-            i32 delta = (i32)at->offset;
-            enum Err err = io_step_lines_from(io, base, delta, &base);
-            if (err != E_OK)
-                return err;
-        } else { // UNIT_CHARS
-            if (at->offset > INT_MAX || at->offset < -INT_MAX)
-                return E_PARSE;
-            i64 char_base;
-            enum Err err = io_char_start(io, base, &char_base);
-            if (err != E_OK)
-                return err;
-            i32 delta = (i32)at->offset;
-            err = io_step_chars_from(io, char_base, delta, &char_base);
-            if (err != E_OK)
-                return err;
-            base = char_base;
-        }
-    }
-
-#endif
 
 static enum Err resolve_loc_expr_cp(
     const LocExpr* loc, File* io, const VM* vm,
@@ -938,7 +764,6 @@ static void commit_labels(VM* vm, const LabelWrite* label_writes, i32 label_coun
         i32 name_idx = label_writes[i].name_idx;
         i64 pos = label_writes[i].pos;
 
-        // Direct assignment - no eviction needed
         vm->label_pos[name_idx] = pos;
         vm->label_set[name_idx] = 1;
     }

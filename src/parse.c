@@ -1,4 +1,3 @@
-// parse.c
 #include "fiskta.h"
 #include <ctype.h>
 #include <stdlib.h>
@@ -32,9 +31,6 @@ static const char* find_inline_offset_start(const char* s)
     return NULL;
 }
 
-// Forward declarations
-// parse_clause removed - use parse_op_build with arena allocation instead
-// parse_op removed - use parse_op_build with arena allocation instead
 static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op, Program* prg,
     char* str_pool, size_t* str_pool_off, size_t str_pool_cap);
 static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg);
@@ -42,21 +38,13 @@ static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, Lo
 static enum Err parse_string_to_bytes(const char* str, String* out_string, char* str_pool, size_t* str_pool_off, size_t str_pool_cap);
 static enum Err parse_unsigned_number(const char* token, i32* sign, u64* n, enum Unit* unit);
 static enum Err parse_signed_number(const char* token, i64* offset, enum Unit* unit);
-// find_or_add_name removed - use find_or_add_name_build with arena allocation instead
 static i32 find_or_add_name_build(Program* prg, const char* name);
 static bool is_valid_label_name(const char* name);
-
-// Function declarations
-// parse_program removed - use parse_build with arena allocation instead
-// parse_free removed - arena-based allocation doesn't need explicit freeing
 enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
 enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
     Clause* clauses_buf, Op* ops_buf,
     char* str_pool, size_t str_pool_cap);
 
-// parse_program removed - use parse_build with arena allocation instead
-
-// parse_free removed - arena-based allocation doesn't need explicit freeing
 
 enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out)
 {
@@ -175,7 +163,6 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                             }
                         }
                     } else {
-                        // Length form
                         plan->sum_take_ops++;
                         idx++; // skip number+unit
                     }
@@ -334,7 +321,7 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
                     idx++; // skip offset
                 }
             } else if (strcmp(cmd, "viewclear") == 0) {
-                // no additional tokens
+                // 2 no additional tokens
             } else if (strcmp(cmd, "print") == 0 || strcmp(cmd, "echo") == 0) {
                 idx++; // skip command token
                 if (idx < token_count)
@@ -342,7 +329,7 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
             }
         }
 
-        // Reset idx to clause start and parse for real
+        // 3 Reset idx to clause start and parse for real
         idx = clause_start;
         while (idx < token_count && strcmp(tokens[idx], "::") != 0) {
             Op* op = &clause->ops[clause->op_count];
@@ -702,12 +689,6 @@ static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, Lo
     return E_OK;
 }
 
-// parse_clause removed - use parse_op_build with arena allocation instead
-
-// parse_op removed - use parse_op_build with arena allocation instead
-
-// parse_loc_expr and parse_at_expr removed - use parse_loc_expr_build and parse_at_expr_build with arena allocation instead
-
 static enum Err parse_unsigned_number(const char* token, i32* sign, u64* n, enum Unit* unit)
 {
     if (!token || strlen(token) == 0)
@@ -821,8 +802,6 @@ static enum Err parse_signed_number(const char* token, i64* offset, enum Unit* u
     return E_OK;
 }
 
-// find_or_add_name removed - use find_or_add_name_build with arena allocation instead
-
 static bool is_valid_label_name(const char* name)
 {
     if (!name || strlen(name) == 0 || strlen(name) > 16) {
@@ -885,23 +864,23 @@ static enum Err parse_string_to_bytes(const char* str, String* out_string, char*
             switch (esc) {
             case 'n':
                 dst[dst_pos++] = '\n';
-                i++; // skip the escape character
+                i++;
                 break;
             case 't':
                 dst[dst_pos++] = '\t';
-                i++; // skip the escape character
+                i++;
                 break;
             case 'r':
                 dst[dst_pos++] = '\r';
-                i++; // skip the escape character
+                i++;
                 break;
             case '0':
                 dst[dst_pos++] = '\0';
-                i++; // skip the escape character
+                i++;
                 break;
             case '\\':
                 dst[dst_pos++] = '\\';
-                i++; // skip the escape character
+                i++;
                 break;
             default:
                 // Unknown escape - treat as literal backslash

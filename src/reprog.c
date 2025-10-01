@@ -1,4 +1,3 @@
-// reprog.c
 #include "reprog.h"
 #include <alloca.h>
 #include <ctype.h>
@@ -178,7 +177,6 @@ static enum Err parse_class(ReB* b, String pat, int* i_inout, int* out_cls_idx)
     return E_OK;
 }
 
-// Forward declaration
 static enum Err compile_piece(ReB* b, String pat, int* i_inout);
 
 // Compiles pat[0..len) into `b` without emitting RI_MATCH.
@@ -300,7 +298,7 @@ static enum Err compile_subpattern(ReB* b, String pat, int len)
     return E_OK;
 }
 
-// Legacy function - now just calls the new parser
+// Compile a single regex piece (atom + optional quantifier)
 static enum Err compile_piece(ReB* b, String pat, int* i_inout)
 {
     int i = *i_inout;
@@ -487,7 +485,7 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
 
         // Use canonical Thompson constructions based on quantifier
         if (q == '?') {
-            // ( ... )? - pre-split: split(take, skip)
+            // 4 ( ... )? - pre-split: split(take, skip)
             e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc);
             if (e != E_OK)
                 return e;
@@ -504,7 +502,7 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
 
             i = j + 2; // past '?'
         } else if (q == '*') {
-            // ( ... )* - pre-split + back-jump: split(take, next), body, jmp split
+            // 4 ( ... )* - pre-split + back-jump: split(take, next), body, jmp split
             e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc);
             if (e != E_OK)
                 return e;
@@ -644,7 +642,7 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
     } else {
         // Handle quantified patterns
         if (ak == A_BOL || ak == A_EOL)
-            return E_PARSE; // anchors can't be quantified
+            return E_PARSE; // 4 anchors can't be quantified
 
         if (min_count == 0 && max_count == 1) {
             // ? quantifier - greedy: split(take, cont), atom

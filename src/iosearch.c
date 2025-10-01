@@ -1,4 +1,3 @@
-// iosearch.c
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
@@ -17,11 +16,9 @@
 #include <io.h>
 #endif
 
-// Forward declarations for Boyer-Moore-Horspool algorithm
+// Forward declarations
 static enum Err bmh_forward(const unsigned char* text, size_t text_len,
     const unsigned char* needle, size_t nlen, i64* ms, i64* me);
-
-// Forward declaration for line indexing
 static enum Err get_line_block(File* io, i64 pos, LineBlockIdx** out);
 
 // UTF-8 helper functions
@@ -38,8 +35,6 @@ static inline i32 utf8_len_from_lead(unsigned char b)
         return 4;
     return 0; // invalid lead
 }
-
-// io_open removed - use io_open_arena2 with arena allocation instead
 
 enum Err io_open(File* io, const char* path,
     unsigned char* search_buf, size_t search_buf_cap)
@@ -75,7 +70,6 @@ enum Err io_open(File* io, const char* path,
                 fclose(io->f);
                 return E_IO;
             }
-            /* no running size_t accumulator needed */
         }
 
         if (fflush(io->f) != 0) {
@@ -98,7 +92,6 @@ enum Err io_open(File* io, const char* path,
         if (!io->f)
             return E_IO;
 
-        // Get file size
         if (fseeko(io->f, 0, SEEK_END) != 0) {
             fclose(io->f);
             return E_IO;
@@ -122,13 +115,6 @@ enum Err io_open(File* io, const char* path,
         io->line_idx[i].gen = 0;
         io->line_idx[i].sub_count = 0;
     }
-
-    // Regex scratch not set yet
-    io->re.curr = NULL;
-    io->re.next = NULL;
-    io->re.cap = 0;
-    io->re.seen_curr = io->re.seen_next = NULL;
-    io->re.seen_bytes = 0;
 
     return E_OK;
 }
@@ -215,7 +201,7 @@ enum Err io_line_start(File* io, i64 pos, i64* out)
         if (err != E_OK)
             return err;
 
-        // If we're before this block, move to previous block
+        //  If we're before this block, move to previous block
         if (cur_pos < block->block_lo) {
             cur_pos = block->block_lo - 1;
             continue;

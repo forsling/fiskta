@@ -1,4 +1,3 @@
-// main.c
 #include "arena.h"
 #include "fiskta.h"
 #include "iosearch.h"
@@ -18,7 +17,7 @@ typedef struct {
     i32 sum_findr_ops;
     i32 re_ins_estimate;
     i32 re_classes_estimate;
-    i32 re_ins_estimate_max; // NEW: for regex scratch sizing
+    i32 re_ins_estimate_max;
 } ParsePlan;
 
 // Helper for overflow-safe size arithmetic
@@ -74,7 +73,7 @@ static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
             buf[boff++] = (char)c; p++; continue;
         } else { // S_DQ
             if (c == '"') { st = S_TOKEN; p++; continue; }
-            if (c == '\\' && p[1]) { // standard simple escapes
+            if (c == '\\' && p[1]) { // 3 standard simple escapes
                 unsigned char esc = (unsigned char)p[1];
                 if (boff+1 >= sizeof buf) return -1; 
                 buf[boff++] = (char)esc; p += 2; continue;
@@ -96,7 +95,6 @@ static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
 #include <io.h>
 #endif
 
-// parse_program and parse_free removed - use parse_build with arena allocation instead
 enum Err engine_run(const Program*, const char*, FILE*);
 enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
 enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
@@ -142,9 +140,9 @@ static void die(enum Err e, const char* msg)
 static size_t safe_align(size_t x, size_t align)
 {
     size_t aligned = a_align(x, align);
-    if (aligned < x) { // overflow check
+    if (aligned < x) { // 4 overflow check
         die(E_OOM, "arena alignment overflow");
-        return 0; // unreachable
+        return 0; // 2 unreachable
     }
     return aligned;
 }
@@ -318,20 +316,19 @@ int main(int argc, char** argv)
     const size_t search_buf_cap = (FW_WIN > (BK_BLK + OVERLAP_MAX)) ? (size_t)FW_WIN : (size_t)(BK_BLK + OVERLAP_MAX);
     const size_t ops_bytes = (size_t)plan.total_ops * sizeof(Op);
     const size_t clauses_bytes = (size_t)plan.clause_count * sizeof(Clause);
-    const size_t str_pool_bytes = plan.needle_bytes; // String type doesn't need NUL terminators
-    // Per-clause ranges/labels are stack-allocated during execution
-    // Regex pools
+    const size_t str_pool_bytes = plan.needle_bytes;
+
     const size_t re_prog_bytes = (size_t)plan.sum_findr_ops * sizeof(ReProg);
     const size_t re_ins_bytes = (size_t)plan.re_ins_estimate * sizeof(ReInst);
     const size_t re_cls_bytes = (size_t)plan.re_classes_estimate * sizeof(ReClass);
-    // Regex runtime scratch (arena-backed):
+    
     // Choose per-run thread capacity as ~4x max nins (like old logic), min 32.
     int re_threads_cap = plan.re_ins_estimate_max > 0 ? 4 * plan.re_ins_estimate_max : 32;
     if (re_threads_cap < 32)
         re_threads_cap = 32;
     const size_t re_threads_bytes = (size_t)re_threads_cap * sizeof(ReThread);
 
-    // 3) One allocation
+    // 3) Allocation
     size_t search_buf_size = safe_align(search_buf_cap, alignof(unsigned char));
     size_t clauses_size = safe_align(clauses_bytes, alignof(Clause));
     size_t ops_size = safe_align(ops_bytes, alignof(Op));
@@ -353,7 +350,7 @@ int main(int argc, char** argv)
         add_ovf(total, str_pool_size, &total) ||
         add_ovf(total, re_thrbufs_size, &total) ||
         add_ovf(total, re_seen_size, &total) ||
-        add_ovf(total, 64, &total)) { // small cushion
+        add_ovf(total, 64, &total)) { // 3 small cushion
         die(E_OOM, "arena size overflow");
         return 2;
     }
@@ -425,7 +422,7 @@ int main(int argc, char** argv)
         free(block);
         return 2;
     }
-    // Provide regex scratch (seen arrays sized by max-estimated nins)
+
     io_set_regex_scratch(&io, re_curr_thr, re_next_thr, re_threads_cap,
         seen_curr, seen_next, (size_t)re_seen_bytes_each);
 
@@ -433,7 +430,7 @@ int main(int argc, char** argv)
     VM vm = { 0 };
     vm.cursor = 0;
     vm.last_match.valid = false;
-    // Initialize label arrays
+
     memset(vm.label_set, 0, sizeof(vm.label_set));
 
     i32 ok = 0;
