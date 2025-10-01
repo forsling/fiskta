@@ -1,7 +1,0 @@
-Can you explain this?
-echo -e "line1\nline2\nline3" | ./fiskta findr '^line2' take 1l -
-line2
-echo -e "line1\nline2\nline3" | ./fiskta findr 'line2$' take 1l -
-fiskta: execution error (no match in window)
-
-It seems like $ doesn't work properly (match line end)
