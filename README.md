@@ -164,14 +164,20 @@ viewclear
 
 ### `print` / `echo`
 
-`print STRING` — Emit the literal bytes in `STRING`. Uses the same quoting/escapes as needles.
+`print STRING` — Emit the literal bytes in `STRING`. Supports escape sequences: `\n` (newline), `\t` (tab), `\r` (carriage return), `\0` (null), `\\` (backslash).
 Output is staged and written only if the clause commits. Not affected by view.
 
 **Examples**
 
 ```bash
-print "###\n" :: find "ERR" take line :: print "\n"
-findr "^id=" take to line-end :: print "," :: ... :: print "\n"
+# Headers and footers with newlines
+print "=== BEGIN ===\n" :: find "ERR" take line :: print "=== END ===\n"
+
+# CSV-like format with tabs
+findr "^id=" take to line-end :: print "\t" :: findr "^name=" take to line-end :: print "\n"
+
+# Mixed escape sequences
+print "START\tMIDDLE\0END\n"
 ```
 
 ---

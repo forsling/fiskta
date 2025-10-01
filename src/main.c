@@ -176,6 +176,7 @@ static void print_usage(void)
     printf("  viewset <L1> <L2>           Limit all ops to [min(L1,L2), max(L1,L2))\n");
     printf("  viewclear                   Clear view; return to full file\n");
     printf("  print <string>              Emit literal bytes (alias: echo)\n");
+    printf("                              Supports escape sequences: \\n \\t \\r \\0 \\\\\n");
     printf("                              Participates in clause atomicity\n");
     printf("\n");
     printf("UNITS:\n");

@@ -858,22 +858,78 @@ static bool is_valid_label_name(const char* name)
 
 static enum Err parse_string_to_bytes(const char* str, Bytes* out_bytes, char* str_pool, size_t* str_pool_off, size_t str_pool_cap)
 {
-    // For now, we'll use strlen to get the length, but this should be replaced
-    // with proper string parsing that handles escapes and quotes
-    size_t len = strlen(str);
+    // Process escape sequences and calculate final length
+    size_t src_len = strlen(str);
+    size_t dst_len = 0;
     
-    // Check if we have space in the string pool (no NUL terminator needed for Bytes)
-    if (*str_pool_off + len > str_pool_cap)
+    // First pass: calculate the final length after processing escapes
+    for (size_t i = 0; i < src_len; i++) {
+        if (str[i] == '\\' && i + 1 < src_len) {
+            // Escape sequence
+            char esc = str[i + 1];
+            switch (esc) {
+            case 'n': case 't': case 'r': case '0': case '\\':
+                dst_len++;
+                i++; // skip the escape character
+                break;
+            default:
+                // Unknown escape - treat as literal backslash
+                dst_len++;
+                break;
+            }
+        } else {
+            dst_len++;
+        }
+    }
+    
+    // Check if we have space in the string pool
+    if (*str_pool_off + dst_len > str_pool_cap)
         return E_OOM;
     
-    // Copy the string to the pool
+    // Second pass: process escapes and copy to pool
     char* dst = str_pool + *str_pool_off;
-    memcpy(dst, str, len);
-    *str_pool_off += len;
+    size_t dst_pos = 0;
+    
+    for (size_t i = 0; i < src_len; i++) {
+        if (str[i] == '\\' && i + 1 < src_len) {
+            // Escape sequence
+            char esc = str[i + 1];
+            switch (esc) {
+            case 'n':
+                dst[dst_pos++] = '\n';
+                i++; // skip the escape character
+                break;
+            case 't':
+                dst[dst_pos++] = '\t';
+                i++; // skip the escape character
+                break;
+            case 'r':
+                dst[dst_pos++] = '\r';
+                i++; // skip the escape character
+                break;
+            case '0':
+                dst[dst_pos++] = '\0';
+                i++; // skip the escape character
+                break;
+            case '\\':
+                dst[dst_pos++] = '\\';
+                i++; // skip the escape character
+                break;
+            default:
+                // Unknown escape - treat as literal backslash
+                dst[dst_pos++] = '\\';
+                break;
+            }
+        } else {
+            dst[dst_pos++] = str[i];
+        }
+    }
+    
+    *str_pool_off += dst_len;
     
     // Return Bytes struct
     out_bytes->p = dst;
-    out_bytes->n = (i32)len;
+    out_bytes->n = (i32)dst_len;
     
     return E_OK;
 }
