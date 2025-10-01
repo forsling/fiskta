@@ -11,7 +11,7 @@ typedef uint64_t u64;
 typedef int32_t i32;
 typedef uint32_t u32;
 
-typedef struct { const char* p; i32 n; } String;
+typedef struct { const char* bytes; i32 len; } String;
 
 enum Unit {
     UNIT_BYTES,

@@ -234,7 +234,7 @@ enum Err execute_clause_with_scratch(const Clause* clause,
                 err = io_emit(io, ranges[i].file.start, ranges[i].file.end, out);
             } else {
                 // RANGE_LIT: write literal bytes
-                if ((size_t)fwrite(ranges[i].lit.p, 1, (size_t)ranges[i].lit.n, out) != (size_t)ranges[i].lit.n)
+                if ((size_t)fwrite(ranges[i].lit.bytes, 1, (size_t)ranges[i].lit.len, out) != (size_t)ranges[i].lit.len)
                     err = E_IO;
             }
             if (err != E_OK)
@@ -278,8 +278,8 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
 
         i64 ms, me;
         err = io_find_window(io, win_lo, win_hi,
-            (const unsigned char*)op->u.find.needle.p,
-            op->u.find.needle.n, dir, &ms, &me);
+            (const unsigned char*)op->u.find.needle.bytes,
+            op->u.find.needle.len, dir, &ms, &me);
         if (err != E_OK)
             return err;
 
@@ -476,8 +476,8 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         // Search forward from cursor to view end
         i64 ms, me;
         enum Err err = io_find_window(io, vclamp(c_view, io, *c_cursor), veof(c_view, io),
-            (const unsigned char*)op->u.take_until.needle.p,
-            op->u.take_until.needle.n, DIR_FWD, &ms, &me);
+            (const unsigned char*)op->u.take_until.needle.bytes,
+            op->u.take_until.needle.len, DIR_FWD, &ms, &me);
         if (err != E_OK)
             return err;
 

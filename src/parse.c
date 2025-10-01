@@ -895,8 +895,8 @@ static enum Err parse_string_to_bytes(const char* str, String* out_string, char*
     *str_pool_off += dst_len;
     
     // Return String struct
-    out_string->p = dst;
-    out_string->n = (i32)dst_len;
+    out_string->bytes = dst;
+    out_string->len = (i32)dst_len;
     
     return E_OK;
 }
