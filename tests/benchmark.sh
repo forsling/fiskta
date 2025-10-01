@@ -255,13 +255,20 @@ measure_one() {
         done
     fi
 
-    # Measure with time
+    # Measure with high precision timing
     set +e
     if [[ "$PROFILE" == "true" && $run_idx -eq 1 ]]; then
         # Profile only the first run
         perf record -g -o "perf_${label}.data" $cmd >"$t_out" 2>"$t_err"
     else
-        LC_ALL=C /usr/bin/time -v $cmd >"$t_out" 2>"$t_err"
+        # Use high precision timing instead of /usr/bin/time for better accuracy
+        local start_time=$(date +%s.%N)
+        $cmd >"$t_out" 2>"$t_err"
+        local end_time=$(date +%s.%N)
+        local wall_time=$(awk "BEGIN {printf \"%.6f\", $end_time - $start_time}")
+        
+        # Parse memory usage from /usr/bin/time output
+        LC_ALL=C /usr/bin/time -v $cmd >/dev/null 2>"$t_err" || true
     fi
     local exit_code=$?
     set -e

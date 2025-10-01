@@ -117,12 +117,12 @@ measure_test() {
             "$BIN" $ops "$dataset_path" >/dev/null 2>&1 || true
         fi
         
-        # Measure time
+        # Measure time with high precision
         local start_time=$(date +%s.%N)
         "$BIN" $ops "$dataset_path" >/dev/null 2>&1
         local end_time=$(date +%s.%N)
         
-        local duration=$(awk "BEGIN {printf \"%.3f\", $end_time - $start_time}")
+        local duration=$(awk "BEGIN {printf \"%.6f\", $end_time - $start_time}")
         times+=("$duration")
     done
     
@@ -131,9 +131,11 @@ measure_test() {
     for time in "${times[@]}"; do
         sum=$(awk "BEGIN {printf \"%.6f\", $sum + $time}")
     done
-    local avg=$(awk "BEGIN {printf \"%.3f\", $sum / ${#times[@]}}")
+    local avg=$(awk "BEGIN {printf \"%.6f\", $sum / ${#times[@]}}")
     
-    echo "  Average time: ${avg}s" >&2
+    # Convert to milliseconds for display
+    local avg_ms=$(awk "BEGIN {printf \"%.3f\", $avg * 1000}")
+    echo "  Average time: ${avg_ms}ms (${avg}s)" >&2
     
     # Store result
     echo "$test_name|$avg"
@@ -157,7 +159,12 @@ case "$FORMAT" in
         echo "Results Summary:"
         echo "================"
         while IFS='|' read -r name time; do
-            printf "%-25s: %6.3fs\n" "$name" "$time"
+            # Skip empty lines
+            if [[ -z "$name" || -z "$time" ]]; then
+                continue
+            fi
+            time_ms=$(awk "BEGIN {printf \"%.3f\", $time * 1000}")
+            printf "%-25s: %8.3fms (%6.6fs)\n" "$name" "$time_ms" "$time"
         done <<< "$results"
         ;;
     "json")
@@ -170,12 +177,18 @@ case "$FORMAT" in
         
         first=true
         while IFS='|' read -r name time; do
+            # Skip empty lines
+            if [[ -z "$name" || -z "$time" ]]; then
+                continue
+            fi
+            
             if [[ "$first" == "true" ]]; then
                 first=false
             else
                 echo ","
             fi
-            echo -n "      \"$name\": {\"time\": $time}"
+            time_ms=$(awk "BEGIN {printf \"%.3f\", $time * 1000}")
+            echo -n "      \"$name\": {\"time_s\": $time, \"time_ms\": $time_ms}"
         done <<< "$results"
         
         echo
