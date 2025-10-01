@@ -171,7 +171,7 @@ Output is staged and written only if the clause commits. Not affected by view.
 
 ```bash
 # Headers and footers with newlines
-print "=== BEGIN ===\n" :: find "ERR" take line :: print "=== END ===\n"
+print "=== BEGIN ===\n" :: find "ERR" take to line-end :: print "=== END ===\n"
 
 # CSV-like format with tabs
 findr "^id=" take to line-end :: print "\t" :: findr "^name=" take to line-end :: print "\n"
