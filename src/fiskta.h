@@ -167,7 +167,7 @@ typedef struct {
 } LabelWrite;
 
 void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap);
-enum Err execute_clause_with_scratch(const Clause* clause, const Program* prg,
+enum Err execute_clause_with_scratch(const Clause* clause,
     void* io, VM* vm, FILE* out,
     Range* ranges, i32 ranges_cap,
     LabelWrite* label_writes, i32 label_cap);

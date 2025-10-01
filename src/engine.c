@@ -67,7 +67,7 @@ void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap)
     *out_labels_cap = lc > 0 ? lc : 1;
 }
 
-static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
+static enum Err execute_op(const Op* op, File* io, VM* vm,
     i64* c_cursor, Match* c_last_match,
     Range** ranges, i32* range_count, i32* range_cap,
     LabelWrite** label_writes, i32* label_count, i32* label_cap,
@@ -77,14 +77,14 @@ static enum Err resolve_loc_expr(const LocExpr* loc, const Program* prg, File* i
     const LabelWrite* staged_labels, i32 staged_label_count, i64* out);
 static enum Err resolve_at_expr(const LocExpr* at, File* io, const Match* match, i64* out);
 static enum Err resolve_loc_expr_cp(
-    const LocExpr* loc, const Program* prg, File* io, const VM* vm,
+    const LocExpr* loc, File* io, const VM* vm,
     const Match* staged_match, i64 staged_cursor,
     const LabelWrite* staged_labels, i32 staged_label_count,
     const View* c_view, ClampPolicy clamp, i64* out);
 static enum Err resolve_at_expr_cp(
     const LocExpr* at, File* io, const Match* match,
     const View* c_view, ClampPolicy clamp, i64* out);
-static void commit_labels(VM* vm, const Program* prg, const LabelWrite* label_writes, i32 label_count);
+static void commit_labels(VM* vm, const LabelWrite* label_writes, i32 label_count);
 
 enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
 {
@@ -187,7 +187,7 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
         clause_caps(&prg->clauses[i], &rc, &lc);
         Range* r_tmp = rc ? alloca((size_t)rc * sizeof *r_tmp) : NULL;
         LabelWrite* lw_tmp = lc ? alloca((size_t)lc * sizeof *lw_tmp) : NULL;
-        err = execute_clause_with_scratch(&prg->clauses[i], prg, &io, &vm, out,
+        err = execute_clause_with_scratch(&prg->clauses[i], &io, &vm, out,
             r_tmp, rc, lw_tmp, lc);
         if (err == E_OK) {
             successful_clauses++;
@@ -207,7 +207,7 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
 }
 
 // NEW signature: no allocations inside
-enum Err execute_clause_with_scratch(const Clause* clause, const Program* prg,
+enum Err execute_clause_with_scratch(const Clause* clause,
     void* io_ptr, VM* vm, FILE* out,
     Range* ranges, i32 ranges_cap,
     LabelWrite* label_writes, i32 label_cap)
@@ -222,7 +222,7 @@ enum Err execute_clause_with_scratch(const Clause* clause, const Program* prg,
 
     enum Err err = E_OK;
     for (i32 i = 0; i < clause->op_count; i++) {
-        err = execute_op(&clause->ops[i], prg, io, vm,
+        err = execute_op(&clause->ops[i], io, vm,
             &c_cursor, &c_last_match,
             &ranges, &range_count, &ranges_cap,
             &label_writes, &label_count, &label_cap,
@@ -238,7 +238,7 @@ enum Err execute_clause_with_scratch(const Clause* clause, const Program* prg,
                 break;
         }
         if (err == E_OK) {
-            commit_labels(vm, prg, label_writes, label_count);
+            commit_labels(vm, label_writes, label_count);
             vm->cursor = c_cursor;
             vm->last_match = c_last_match;
             vm->view = c_view; // commit view only on clause success
@@ -248,7 +248,7 @@ enum Err execute_clause_with_scratch(const Clause* clause, const Program* prg,
     return err;
 }
 
-static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
+static enum Err execute_op(const Op* op, File* io, VM* vm,
     i64* c_cursor, Match* c_last_match,
     Range** ranges, i32* range_count, i32* range_cap,
     LabelWrite** label_writes, i32* label_count, i32* label_cap,
@@ -258,7 +258,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
     case OP_FIND: {
         i64 win_lo, win_hi;
 
-        enum Err err = resolve_loc_expr_cp(&op->u.find.to, prg, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_VIEW, &win_hi);
+        enum Err err = resolve_loc_expr_cp(&op->u.find.to, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_VIEW, &win_hi);
         if (err != E_OK)
             return err;
 
@@ -290,7 +290,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
     case OP_FINDR: {
         i64 win_lo, win_hi;
 
-        enum Err err = resolve_loc_expr_cp(&op->u.findr.to, prg, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_VIEW, &win_hi);
+        enum Err err = resolve_loc_expr_cp(&op->u.findr.to, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_VIEW, &win_hi);
         if (err != E_OK)
             return err;
 
@@ -448,7 +448,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
 
     case OP_TAKE_TO: {
         i64 target;
-        enum Err err = resolve_loc_expr_cp(&op->u.take_to.to, prg, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_VIEW, &target);
+        enum Err err = resolve_loc_expr_cp(&op->u.take_to.to, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_VIEW, &target);
         if (err != E_OK)
             return err;
 
@@ -524,7 +524,7 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
     }
 
     case OP_GOTO: {
-        enum Err err = resolve_loc_expr_cp(&op->u.go.to, prg, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_NONE, c_cursor);
+        enum Err err = resolve_loc_expr_cp(&op->u.go.to, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_NONE, c_cursor);
         if (err != E_OK)
             return err;
 
@@ -539,10 +539,10 @@ static enum Err execute_op(const Op* op, const Program* prg, File* io, VM* vm,
 
     case OP_VIEWSET: {
         i64 a, b;
-        enum Err err = resolve_loc_expr_cp(&op->u.viewset.a, prg, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_VIEW, &a);
+        enum Err err = resolve_loc_expr_cp(&op->u.viewset.a, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_VIEW, &a);
         if (err != E_OK)
             return err;
-        err = resolve_loc_expr_cp(&op->u.viewset.b, prg, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_VIEW, &b);
+        err = resolve_loc_expr_cp(&op->u.viewset.b, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_VIEW, &b);
         if (err != E_OK)
             return err;
 
@@ -751,7 +751,7 @@ static enum Err resolve_at_expr(const LocExpr* at, File* io, const Match* match,
 }
 
 static enum Err resolve_loc_expr_cp(
-    const LocExpr* loc, const Program* prg, File* io, const VM* vm,
+    const LocExpr* loc, File* io, const VM* vm,
     const Match* staged_match, i64 staged_cursor,
     const LabelWrite* staged_labels, i32 staged_label_count,
     const View* c_view, ClampPolicy clamp, i64* out)
@@ -939,7 +939,7 @@ static enum Err resolve_at_expr_cp(
     return E_OK;
 }
 
-static void commit_labels(VM* vm, const Program* prg, const LabelWrite* label_writes, i32 label_count)
+static void commit_labels(VM* vm, const LabelWrite* label_writes, i32 label_count)
 {
     for (i32 i = 0; i < label_count; i++) {
         i32 name_idx = label_writes[i].name_idx;

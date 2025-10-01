@@ -38,7 +38,7 @@ static const char* find_inline_offset_start(const char* s)
 static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op, Program* prg,
     char* str_pool, size_t* str_pool_off, size_t str_pool_cap);
 static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg);
-static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* at, Program* prg);
+static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* at);
 static enum Err parse_unsigned_number(const char* token, i32* sign, u64* n, enum Unit* unit);
 static enum Err parse_signed_number(const char* token, i64* offset, enum Unit* unit);
 // find_or_add_name removed - use find_or_add_name_build with arena allocation instead
@@ -489,7 +489,7 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
             if (*idx < token_count && strcmp(tokens[*idx], "at") == 0) {
                 (*idx)++;
                 op->u.take_until.has_at = true;
-                enum Err err = parse_at_expr_build(tokens, idx, token_count, &op->u.take_until.at, prg);
+                enum Err err = parse_at_expr_build(tokens, idx, token_count, &op->u.take_until.at);
                 if (err != E_OK)
                     return err;
             } else {
@@ -624,7 +624,7 @@ static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, L
     return E_OK;
 }
 
-static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* at, Program* prg)
+static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* at)
 {
     if (*idx >= token_count)
         return E_PARSE;

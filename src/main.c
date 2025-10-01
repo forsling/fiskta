@@ -138,23 +138,6 @@ static inline enum Err normalize_no_match(enum Err e)
     }
 }
 
-// Complete VM state reset for clause execution
-static void vm_reset_full(VM* vm)
-{
-    if (!vm)
-        return;
-    vm->cursor = 0;
-    vm->last_match.valid = false;
-    vm->last_match.start = 0;
-    vm->last_match.end = 0;
-    vm->view.active = false;
-    vm->view.lo = 0;
-    vm->view.hi = 0;
-
-    // Reset label arrays
-    memset(vm->label_set, 0, sizeof(vm->label_set));
-}
-
 static void print_usage(void)
 {
     printf("fiskta (FInd SKip TAke) Text Extraction Tool\n");
@@ -436,7 +419,7 @@ int main(int argc, char** argv)
         clause_caps(&prg.clauses[ci], &rc, &lc);
         Range* r_tmp = rc ? alloca((size_t)rc * sizeof *r_tmp) : NULL;
         LabelWrite* lw_tmp = lc ? alloca((size_t)lc * sizeof *lw_tmp) : NULL;
-        e = execute_clause_with_scratch(&prg.clauses[ci], &prg, &io, &vm, stdout,
+        e = execute_clause_with_scratch(&prg.clauses[ci], &io, &vm, stdout,
             r_tmp, rc, lw_tmp, lc);
         if (e == E_OK)
             ok++;
