@@ -39,6 +39,7 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
     char* str_pool, size_t* str_pool_off, size_t str_pool_cap);
 static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg);
 static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* at);
+static enum Err parse_string_to_bytes(const char* str, Bytes* out_bytes, char* str_pool, size_t* str_pool_off, size_t str_pool_cap);
 static enum Err parse_unsigned_number(const char* token, i32* sign, u64* n, enum Unit* unit);
 static enum Err parse_signed_number(const char* token, i64* offset, enum Unit* unit);
 // find_or_add_name removed - use find_or_add_name_build with arena allocation instead
@@ -213,6 +214,13 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                 }
             } else if (strcmp(cmd, "viewclear") == 0) {
                 idx++; // no additional tokens
+            } else if (strcmp(cmd, "print") == 0 || strcmp(cmd, "echo") == 0) {
+                idx++; // skip command token
+                if (idx < token_count) {
+                    plan->needle_count++;
+                    plan->needle_bytes += strlen(tokens[idx]);
+                    idx++; // skip string token
+                }
             } else {
                 idx++; // skip unknown token
             }
@@ -327,6 +335,10 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
                 }
             } else if (strcmp(cmd, "viewclear") == 0) {
                 // no additional tokens
+            } else if (strcmp(cmd, "print") == 0 || strcmp(cmd, "echo") == 0) {
+                idx++; // skip command token
+                if (idx < token_count)
+                    idx++; // skip string
             }
         }
 
@@ -546,6 +558,23 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
     } else if (strcmp(cmd, "viewclear") == 0) {
         op->kind = OP_VIEWCLEAR;
         // No additional parsing needed
+
+    } else if (strcmp(cmd, "print") == 0 || strcmp(cmd, "echo") == 0) {
+        op->kind = OP_PRINT;
+
+        // Parse string
+        if (*idx >= token_count)
+            return E_PARSE;
+        const char* str = tokens[*idx];
+        (*idx)++;
+
+        if (strlen(str) == 0)
+            return E_BAD_NEEDLE;
+
+        // Parse string to Bytes
+        enum Err err = parse_string_to_bytes(str, &op->u.print.bytes, str_pool, str_pool_off, str_pool_cap);
+        if (err != E_OK)
+            return err;
 
     } else {
         return E_PARSE;
@@ -825,4 +854,26 @@ static bool is_valid_label_name(const char* name)
     }
 
     return true;
+}
+
+static enum Err parse_string_to_bytes(const char* str, Bytes* out_bytes, char* str_pool, size_t* str_pool_off, size_t str_pool_cap)
+{
+    // For now, we'll use strlen to get the length, but this should be replaced
+    // with proper string parsing that handles escapes and quotes
+    size_t len = strlen(str);
+    
+    // Check if we have space in the string pool (no NUL terminator needed for Bytes)
+    if (*str_pool_off + len > str_pool_cap)
+        return E_OOM;
+    
+    // Copy the string to the pool
+    char* dst = str_pool + *str_pool_off;
+    memcpy(dst, str, len);
+    *str_pool_off += len;
+    
+    // Return Bytes struct
+    out_bytes->p = dst;
+    out_bytes->n = (i32)len;
+    
+    return E_OK;
 }

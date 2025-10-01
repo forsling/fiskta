@@ -60,6 +60,7 @@ void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap)
         case OP_TAKE_LEN:
         case OP_TAKE_TO:
         case OP_TAKE_UNTIL:
+        case OP_PRINT:
             rc++;
             break;
         case OP_LABEL:
@@ -238,7 +239,13 @@ enum Err execute_clause_with_scratch(const Clause* clause,
 
     if (err == E_OK) {
         for (i32 i = 0; i < range_count; i++) {
-            err = io_emit(io, ranges[i].start, ranges[i].end, out);
+            if (ranges[i].kind == RANGE_FILE) {
+                err = io_emit(io, ranges[i].start, ranges[i].end, out);
+            } else {
+                // RANGE_LIT: write literal bytes
+                if ((size_t)fwrite(ranges[i].lit.p, 1, (size_t)ranges[i].lit.n, out) != (size_t)ranges[i].lit.n)
+                    err = E_IO;
+            }
             if (err != E_OK)
                 break;
         }
@@ -434,6 +441,7 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         // Stage the range
         if (*range_count >= *range_cap)
             return E_OOM;
+        (*ranges)[*range_count].kind = RANGE_FILE;
         (*ranges)[*range_count].start = start;
         (*ranges)[*range_count].end = end;
         (*range_count)++;
@@ -464,6 +472,7 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         // Stage the range
         if (*range_count >= *range_cap)
             return E_OOM;
+        (*ranges)[*range_count].kind = RANGE_FILE;
         (*ranges)[*range_count].start = start;
         (*ranges)[*range_count].end = end;
         (*range_count)++;
@@ -501,6 +510,7 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         // Stage [cursor, dst) ONLY (no order-normalization)
         if (*range_count >= *range_cap)
             return E_OOM;
+        (*ranges)[*range_count].kind = RANGE_FILE;
         (*ranges)[*range_count].start = vclamp(c_view, io, *c_cursor);
         (*ranges)[*range_count].end = dst;
         (*range_count)++;
@@ -569,6 +579,17 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         ((View*)c_view)->lo = 0;
         ((View*)c_view)->hi = io_size(io);
         // Cursor unchanged
+        break;
+    }
+
+    case OP_PRINT: {
+        // Stage literal range
+        if (*range_count >= *range_cap)
+            return E_OOM;
+        Range* r = &(*ranges)[(*range_count)++];
+        r->kind = RANGE_LIT;
+        r->lit = op->u.print.bytes;
+        // Print doesn't move cursor
         break;
     }
 

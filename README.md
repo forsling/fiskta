@@ -162,6 +162,20 @@ viewclear
 
 ---
 
+### `print` / `echo`
+
+`print STRING` — Emit the literal bytes in `STRING`. Uses the same quoting/escapes as needles.
+Output is staged and written only if the clause commits. Not affected by view.
+
+**Examples**
+
+```bash
+print "###\n" :: find "ERR" take line :: print "\n"
+findr "^id=" take to line-end :: print "," :: ... :: print "\n"
+```
+
+---
+
 ### `label <NAME>` / `goto <loc-expr>`
 
 * `label` stages `NAME := cursor` (commits on clause success). Up to 128 labels; no eviction.
@@ -356,7 +370,7 @@ fiskta viewset cursor-1000b cursor+1000b find "ERROR" take +20b file.txt
 program   := clause { "::" clause } input
 clause    := { op }
 
-op        := find | findr | skip | take | label | goto | viewset | viewclear
+op        := find | findr | skip | take | label | goto | viewset | viewclear | print
 
 find      := "find" [ "to" loc-expr ] STRING
 findr     := "findr" [ "to" loc-expr ] STRING
@@ -366,6 +380,7 @@ label     := "label" NAME
 goto      := "goto"  loc-expr
 viewset   := "viewset" loc-expr loc-expr
 viewclear := "viewclear"
+print     := ("print"|"echo") STRING
 
 loc-expr  := loc [ offset ]
 loc       := "cursor" | "BOF" | "EOF" | NAME

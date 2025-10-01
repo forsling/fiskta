@@ -175,6 +175,8 @@ static void print_usage(void)
     printf("  goto <location>             Jump to labeled position\n");
     printf("  viewset <L1> <L2>           Limit all ops to [min(L1,L2), max(L1,L2))\n");
     printf("  viewclear                   Clear view; return to full file\n");
+    printf("  print <string>              Emit literal bytes (alias: echo)\n");
+    printf("                              Participates in clause atomicity\n");
     printf("\n");
     printf("UNITS:\n");
     printf("  b                           Bytes\n");
@@ -220,6 +222,7 @@ static void print_usage(void)
     printf("  fiskta skip 5b take 10b file.txt           # Skip 5, take 10\n");
     printf("  fiskta take until \"---\" file.txt          # Extract until \"---\"\n");
     printf("  fiskta take until \"END\" at line-start file.txt  # Extract until start of END's line\n");
+    printf("  fiskta print \"=== BEGIN ===\\n\" :: find \"ERROR\" take line :: print \"=== END ===\\n\" file.txt\n");
     printf("  echo \"Hello\" | fiskta take 5b -          # Process stdin\n");
     printf("\n");
     printf("CLAUSES:\n");

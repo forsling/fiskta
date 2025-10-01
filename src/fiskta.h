@@ -12,6 +12,9 @@ typedef uint64_t u64;
 typedef int32_t i32;
 typedef uint32_t u32;
 
+// Length-carrying byte string (handles embedded NULs)
+typedef struct { const char* p; i32 n; } Bytes;
+
 enum Unit {
     UNIT_BYTES,
     UNIT_LINES,
@@ -28,7 +31,8 @@ enum OpKind {
     OP_LABEL,
     OP_GOTO,
     OP_VIEWSET,
-    OP_VIEWCLEAR
+    OP_VIEWCLEAR,
+    OP_PRINT
 };
 
 enum LocBase {
@@ -112,6 +116,9 @@ typedef struct {
         struct {
             int _;
         } viewclear;
+        struct {
+            Bytes bytes;
+        } print;
     } u;
     enum OpKind kind;
 } Op;
@@ -148,8 +155,11 @@ typedef struct {
 } VM;
 
 // Staged capture range
+typedef enum { RANGE_FILE, RANGE_LIT } RangeKind;
 typedef struct {
-    i64 start, end;
+    RangeKind kind;
+    i64 start, end;  // used when kind == RANGE_FILE
+    Bytes lit;       // used when kind == RANGE_LIT
 } Range;
 
 // ---- constants (tuneable, but fixed here) ----
