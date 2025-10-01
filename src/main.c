@@ -180,7 +180,7 @@ static void print_usage(void)
     printf("                              Participates in clause atomicity\n");
     printf("\n");
     printf("UNITS:\n");
-    printf("  b                           Bytes\n");
+    printf("  b                           String\n");
     printf("  l                           Lines (LF only, CR treated as bytes)\n");
     printf("  c                           UTF-8 code points (never splits sequences)\n");
     printf("\n");
@@ -318,7 +318,7 @@ int main(int argc, char** argv)
     const size_t search_buf_cap = (FW_WIN > (BK_BLK + OVERLAP_MAX)) ? (size_t)FW_WIN : (size_t)(BK_BLK + OVERLAP_MAX);
     const size_t ops_bytes = (size_t)plan.total_ops * sizeof(Op);
     const size_t clauses_bytes = (size_t)plan.clause_count * sizeof(Clause);
-    const size_t str_pool_bytes = plan.needle_bytes + (size_t)plan.needle_count; // include NULs
+    const size_t str_pool_bytes = plan.needle_bytes; // String type doesn't need NUL terminators
     // Per-clause ranges/labels are stack-allocated during execution
     // Regex pools
     const size_t re_prog_bytes = (size_t)plan.sum_findr_ops * sizeof(ReProg);

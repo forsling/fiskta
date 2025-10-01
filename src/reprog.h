@@ -34,7 +34,7 @@ typedef struct ReProg {
 } ReProg;
 
 // Compile pattern into preallocated pools; advances *ins_used / *cls_used
-enum Err re_compile_into(const char* pattern,
+enum Err re_compile_into(String pattern,
     ReProg* out,
     ReInst* ins_base, int ins_cap, int* ins_used,
     ReClass* cls_base, int cls_cap, int* cls_used);

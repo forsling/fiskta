@@ -72,29 +72,29 @@ static enum Err new_class(ReB* b, const ReClass* src, int* idx_out)
 static int peek(const char* s, int i) { return (unsigned char)s[i]; }
 
 // Parse a character class: pattern points at first char AFTER '['; returns index AFTER ']'
-static enum Err parse_class(ReB* b, const char* pat, int* i_inout, int* out_cls_idx)
+static enum Err parse_class(ReB* b, String pat, int* i_inout, int* out_cls_idx)
 {
     int i = *i_inout;
     ReClass cls;
     cls_clear(&cls);
     int negated = 0;
 
-    if (pat[i] == ']')
+    if (pat.p[i] == ']')
         return E_PARSE; // empty
 
     // Check for negation
-    if (pat[i] == '^') {
+    if (pat.p[i] == '^') {
         negated = 1;
         i++;
     }
 
-    while (pat[i] && pat[i] != ']') {
+    while (i < pat.n && pat.p[i] != ']') {
         unsigned char a;
-        if (pat[i] == '\\') {
+        if (pat.p[i] == '\\') {
             ++i;
-            if (!pat[i])
+            if (i >= pat.n)
                 return E_PARSE;
-            switch (pat[i]) {
+            switch (pat.p[i]) {
             case 'd':
                 cls_set_digit(&cls);
                 break;
@@ -132,22 +132,22 @@ static enum Err parse_class(ReB* b, const char* pat, int* i_inout, int* out_cls_
                     cls.bits[b] &= (unsigned char)~ws.bits[b];
             } break;
             default:
-                cls_set(&cls, (unsigned char)pat[i]);
+                cls_set(&cls, (unsigned char)pat.p[i]);
                 break;
             }
             ++i;
         } else {
-            a = (unsigned char)pat[i++];
-            if (pat[i] == '-' && pat[i + 1] && pat[i + 1] != ']') {
+            a = (unsigned char)pat.p[i++];
+            if (i < pat.n && pat.p[i] == '-' && i + 1 < pat.n && pat.p[i + 1] != ']') {
                 unsigned char bch;
                 ++i;
-                if (pat[i] == '\\') {
+                if (pat.p[i] == '\\') {
                     ++i;
-                    if (!pat[i])
+                    if (i >= pat.n)
                         return E_PARSE;
-                    bch = (unsigned char)pat[i++];
+                    bch = (unsigned char)pat.p[i++];
                 } else {
-                    bch = (unsigned char)pat[i++];
+                    bch = (unsigned char)pat.p[i++];
                 }
                 cls_set_range(&cls, a, bch);
             } else {
@@ -155,7 +155,7 @@ static enum Err parse_class(ReB* b, const char* pat, int* i_inout, int* out_cls_
             }
         }
     }
-    if (pat[i] != ']')
+    if (i >= pat.n || pat.p[i] != ']')
         return E_PARSE;
     ++i;
 
@@ -179,36 +179,37 @@ static enum Err parse_class(ReB* b, const char* pat, int* i_inout, int* out_cls_
 }
 
 // Forward declaration
-static enum Err compile_piece(ReB* b, const char* pat, int* i_inout);
+static enum Err compile_piece(ReB* b, String pat, int* i_inout);
 
 // Compiles pat[0..len) into `b` without emitting RI_MATCH.
 // Uses N-1 splits so there is no epsilon path that skips all alts.
-static enum Err compile_subpattern(ReB* b, const char* pat, int len)
+static enum Err compile_subpattern(ReB* b, String pat, int len)
 {
     // 1) Collect top-level alternatives (respect escapes/parentheses)
     int depth = 0, nalt = 1;
     for (int j = 0; j < len; ++j) {
-        if (pat[j] == '\\') {
+        if (pat.p[j] == '\\') {
             if (j + 1 < len)
                 ++j;
             continue;
         }
-        if (pat[j] == '(')
+        if (pat.p[j] == '(')
             ++depth;
-        else if (pat[j] == ')')
+        else if (pat.p[j] == ')')
             --depth;
-        else if (pat[j] == '|' && depth == 0)
+        else if (pat.p[j] == '|' && depth == 0)
             ++nalt;
     }
 
     // Single alt: compile linearly and return
     if (nalt == 1) {
         char* tmp = (char*)alloca((size_t)len + 1);
-        memcpy(tmp, pat, (size_t)len);
+        memcpy(tmp, pat.p, (size_t)len);
         tmp[len] = '\0';
         int i = 0;
-        while (tmp[i]) {
-            enum Err e = compile_piece(b, tmp, &i);
+        String tmp_bytes = {tmp, len};
+        while (i < len) {
+            enum Err e = compile_piece(b, tmp_bytes, &i);
             if (e != E_OK)
                 return e;
         }
@@ -221,16 +222,16 @@ static enum Err compile_subpattern(ReB* b, const char* pat, int len)
     int k = 0, start = 0;
     depth = 0;
     for (int j = 0; j < len; ++j) {
-        if (pat[j] == '\\') {
+        if (pat.p[j] == '\\') {
             if (j + 1 < len)
                 ++j;
             continue;
         }
-        if (pat[j] == '(')
+        if (pat.p[j] == '(')
             ++depth;
-        else if (pat[j] == ')')
+        else if (pat.p[j] == ')')
             --depth;
-        else if (pat[j] == '|' && depth == 0) {
+        else if (pat.p[j] == '|' && depth == 0) {
             lo[k] = start;
             alen[k] = j - start;
             ++k;
@@ -255,11 +256,12 @@ static enum Err compile_subpattern(ReB* b, const char* pat, int len)
         alt_start_pc[i] = b->nins;
         // compile alt i
         char* frag = (char*)alloca((size_t)alen[i] + 1);
-        memcpy(frag, pat + lo[i], (size_t)alen[i]);
+        memcpy(frag, pat.p + lo[i], (size_t)alen[i]);
         frag[alen[i]] = '\0';
         int pi = 0;
-        while (frag[pi]) {
-            e = compile_piece(b, frag, &pi);
+        String frag_bytes = {frag, alen[i]};
+        while (pi < alen[i]) {
+            e = compile_piece(b, frag_bytes, &pi);
             if (e != E_OK)
                 return e;
         }
@@ -272,11 +274,12 @@ static enum Err compile_subpattern(ReB* b, const char* pat, int len)
     // Last alternative (no leading split)
     alt_start_pc[nalt - 1] = b->nins;
     char* last = (char*)alloca((size_t)alen[nalt - 1] + 1);
-    memcpy(last, pat + lo[nalt - 1], (size_t)alen[nalt - 1]);
+        memcpy(last, pat.p + lo[nalt - 1], (size_t)alen[nalt - 1]);
     last[alen[nalt - 1]] = '\0';
     int pi = 0;
-    while (last[pi]) {
-        e = compile_piece(b, last, &pi);
+    String last_bytes = {last, alen[nalt - 1]};
+    while (pi < alen[nalt - 1]) {
+        e = compile_piece(b, last_bytes, &pi);
         if (e != E_OK)
             return e;
     }
@@ -298,10 +301,10 @@ static enum Err compile_subpattern(ReB* b, const char* pat, int len)
 }
 
 // Legacy function - now just calls the new parser
-static enum Err compile_piece(ReB* b, const char* pat, int* i_inout)
+static enum Err compile_piece(ReB* b, String pat, int* i_inout)
 {
     int i = *i_inout;
-    if (!pat[i])
+    if (i >= pat.n)
         return E_PARSE;
 
     // Identify atom without emitting yet if quantifier needs ordering
@@ -313,26 +316,26 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout)
     unsigned char ch = 0;
     int cls_idx = -1;
 
-    if (pat[i] == '^') {
+    if (pat.p[i] == '^') {
         ak = A_BOL;
         i++;
-    } else if (pat[i] == '$') {
+    } else if (pat.p[i] == '$') {
         ak = A_EOL;
         i++;
-    } else if (pat[i] == '.') {
+    } else if (pat.p[i] == '.') {
         ak = A_ANY;
         i++;
-    } else if (pat[i] == '[') {
+    } else if (pat.p[i] == '[') {
         i++;
         enum Err e = parse_class(b, pat, &i, &cls_idx);
         if (e != E_OK)
             return e;
         ak = A_CLASS;
-    } else if (pat[i] == '\\') {
+    } else if (pat.p[i] == '\\') {
         i++;
-        if (!pat[i])
+        if (i >= pat.n)
             return E_PARSE;
-        switch (pat[i]) {
+        switch (pat.p[i]) {
         case 'd': {
             ReClass c;
             cls_clear(&c);
@@ -427,31 +430,31 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout)
             ak = A_CHAR;
             break;
         default:
-            ch = (unsigned char)pat[i];
+            ch = (unsigned char)pat.p[i];
             ak = A_CHAR;
             break;
         }
         i++;
     } else {
-        ch = (unsigned char)pat[i++];
+        ch = (unsigned char)pat.p[i++];
         ak = A_CHAR;
     }
 
     // --- NEW: grouping atom '(' ... ')' with nested alternation ---
-    if (pat[i - 1] == '(') {
+    if (pat.p[i - 1] == '(') {
         int start_i = i - 1;
         int j = i, depth = 1;
-        while (pat[j]) {
-            if (pat[j] == '\\') {
-                if (pat[j + 1])
+        while (j < pat.n) {
+            if (pat.p[j] == '\\') {
+                if (j + 1 < pat.n)
                     j += 2;
                 else
                     return E_PARSE;
                 continue;
             }
-            if (pat[j] == '(')
+            if (pat.p[j] == '(')
                 depth++;
-            else if (pat[j] == ')') {
+            else if (pat.p[j] == ')') {
                 depth--;
                 if (depth == 0) {
                     break;
@@ -459,12 +462,12 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout)
             }
             j++;
         }
-        if (pat[j] != ')')
+        if (j >= pat.n || pat.p[j] != ')')
             return E_PARSE; // unmatched '('
 
         int inner_lo = i;
         int inner_len = j - inner_lo;
-        char q = pat[j + 1]; // quantifier char (if present)
+        char q = pat.p[j + 1]; // quantifier char (if present)
 
         // Handle empty group
         if (inner_len == 0) {
@@ -490,7 +493,8 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout)
                 return e;
 
             group_entry = b->nins;
-            e = compile_subpattern(b, pat + inner_lo, inner_len);
+            String inner_bytes = {pat.p + inner_lo, inner_len};
+            e = compile_subpattern(b, inner_bytes, inner_len);
             if (e != E_OK)
                 return e;
             cont = b->nins;
@@ -506,7 +510,8 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout)
                 return e;
 
             group_entry = b->nins;
-            e = compile_subpattern(b, pat + inner_lo, inner_len);
+            String inner_bytes = {pat.p + inner_lo, inner_len};
+            e = compile_subpattern(b, inner_bytes, inner_len);
             if (e != E_OK)
                 return e;
 
@@ -523,7 +528,8 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout)
             // ( ... )+ - post-split loop: body, split(start, next)
             // Use the same pattern as single-atom +: atom, then split(atom, next)
             group_entry = b->nins;
-            e = compile_subpattern(b, pat + inner_lo, inner_len);
+            String inner_bytes = {pat.p + inner_lo, inner_len};
+            e = compile_subpattern(b, inner_bytes, inner_len);
             if (e != E_OK)
                 return e;
 
@@ -536,7 +542,8 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout)
             i = j + 2; // past '+'
         } else {
             // No quantifier - just compile the body
-            e = compile_subpattern(b, pat + inner_lo, inner_len);
+            String inner_bytes = {pat.p + inner_lo, inner_len};
+            e = compile_subpattern(b, inner_bytes, inner_len);
             if (e != E_OK)
                 return e;
             i = j + 1;
@@ -547,7 +554,7 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout)
     }
 
     // Look for quantifier
-    char q = pat[i];
+    char q = pat.p[i];
     int min_count = 1, max_count = 1; // default for single atom
     int is_quantified = 0;
 
@@ -571,34 +578,34 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout)
     } else if (q == '{') {
         // Parse {n,m} quantifier
         i++; // skip '{'
-        if (!pat[i] || !isdigit(pat[i]))
+        if (i >= pat.n || !isdigit(pat.p[i]))
             return E_PARSE;
 
         // Parse minimum count
         min_count = 0;
-        while (pat[i] && isdigit(pat[i])) {
-            min_count = min_count * 10 + (pat[i] - '0');
+        while (i < pat.n && isdigit(pat.p[i])) {
+            min_count = min_count * 10 + (pat.p[i] - '0');
             i++;
         }
 
-        if (pat[i] == '}') {
+        if (i >= pat.n || pat.p[i] == '}') {
             // {n} - exactly n times
             max_count = min_count;
             i++;
-        } else if (pat[i] == ',') {
+        } else if (pat.p[i] == ',') {
             i++; // skip ','
-            if (pat[i] == '}') {
+            if (i >= pat.n || pat.p[i] == '}') {
                 // {n,} - n or more times
                 max_count = -1; // unlimited
                 i++;
-            } else if (isdigit(pat[i])) {
+            } else if (isdigit(pat.p[i])) {
                 // {n,m} - between n and m times
                 max_count = 0;
-                while (pat[i] && isdigit(pat[i])) {
-                    max_count = max_count * 10 + (pat[i] - '0');
+                while (i < pat.n && isdigit(pat.p[i])) {
+                    max_count = max_count * 10 + (pat.p[i] - '0');
                     i++;
                 }
-                if (pat[i] != '}')
+                if (i >= pat.n || pat.p[i] != '}')
                     return E_PARSE;
                 i++;
             } else {
@@ -797,7 +804,7 @@ static enum Err compile_piece(ReB* b, const char* pat, int* i_inout)
     return E_OK;
 }
 
-enum Err re_compile_into(const char* pattern,
+enum Err re_compile_into(String pattern,
     ReProg* out,
     ReInst* ins_base, int ins_cap, int* ins_used,
     ReClass* cls_base, int cls_cap, int* cls_used)
@@ -809,23 +816,23 @@ enum Err re_compile_into(const char* pattern,
     b.cls = cls_base;
     b.cls_cap = cls_cap;
 
-    if (!pattern || !pattern[0])
+    if (!pattern.p || pattern.n == 0)
         return E_BAD_NEEDLE;
 
     // Always use the proven single-pass emitter (with nested alternation via compile_subpattern)
     // First, check top-level alternation
     int depth = 0, has_bar = 0;
-    for (int j = 0; pattern[j]; ++j) {
-        if (pattern[j] == '\\') {
-            if (pattern[j + 1])
+    for (int j = 0; j < pattern.n; ++j) {
+        if (pattern.p[j] == '\\') {
+            if (j + 1 < pattern.n)
                 j++;
             continue;
         }
-        if (pattern[j] == '(')
+        if (pattern.p[j] == '(')
             depth++;
-        else if (pattern[j] == ')')
+        else if (pattern.p[j] == ')')
             depth--;
-        else if (pattern[j] == '|' && depth == 0) {
+        else if (pattern.p[j] == '|' && depth == 0) {
             has_bar = 1;
             break;
         }
@@ -833,13 +840,13 @@ enum Err re_compile_into(const char* pattern,
 
     if (!has_bar) {
         int i = 0;
-        while (pattern[i]) {
+        while (i < pattern.n) {
             enum Err e = compile_piece(&b, pattern, &i);
             if (e != E_OK)
                 return e;
         }
     } else {
-        enum Err e2 = compile_subpattern(&b, pattern, (int)strlen(pattern));
+        enum Err e2 = compile_subpattern(&b, pattern, pattern.n);
         if (e2 != E_OK)
             return e2;
     }

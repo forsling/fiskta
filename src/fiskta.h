@@ -12,8 +12,8 @@ typedef uint64_t u64;
 typedef int32_t i32;
 typedef uint32_t u32;
 
-// Length-carrying byte string (handles embedded NULs)
-typedef struct { const char* p; i32 n; } Bytes;
+// Length-carrying string (handles embedded NULs)
+typedef struct { const char* p; i32 n; } String;
 
 enum Unit {
     UNIT_BYTES,
@@ -81,11 +81,11 @@ typedef struct {
     union {
         struct {
             LocExpr to;
-            char* needle;
+            String needle;
         } find;
         struct {
             LocExpr to;
-            char* pattern; // raw pattern text (from pool)
+            String pattern; // raw pattern text (from pool)
             struct ReProg* prog; // compiled program (arena-backed), set during setup
         } findr;
         struct {
@@ -100,7 +100,7 @@ typedef struct {
             LocExpr to;
         } take_to;
         struct {
-            char* needle;
+            String needle;
             bool has_at;
             LocExpr at;
         } take_until;
@@ -117,7 +117,7 @@ typedef struct {
             int _;
         } viewclear;
         struct {
-            Bytes bytes;
+            String string;
         } print;
     } u;
     enum OpKind kind;
@@ -159,7 +159,7 @@ typedef enum { RANGE_FILE, RANGE_LIT } RangeKind;
 typedef struct {
     RangeKind kind;
     i64 start, end;  // used when kind == RANGE_FILE
-    Bytes lit;       // used when kind == RANGE_LIT
+    String lit;       // used when kind == RANGE_LIT
 } Range;
 
 // ---- constants (tuneable, but fixed here) ----

@@ -287,8 +287,8 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
 
         i64 ms, me;
         err = io_find_window(io, win_lo, win_hi,
-            (const unsigned char*)op->u.find.needle,
-            strlen(op->u.find.needle), dir, &ms, &me);
+            (const unsigned char*)op->u.find.needle.p,
+            op->u.find.needle.n, dir, &ms, &me);
         if (err != E_OK)
             return err;
 
@@ -477,7 +477,10 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         (*ranges)[*range_count].end = end;
         (*range_count)++;
 
-        *c_cursor = vclamp(c_view, io, target);
+        // Update cursor (Cursor Law: empty span = no move)
+        if (start != end) {
+            *c_cursor = vclamp(c_view, io, end);
+        }
         break;
     }
 
@@ -485,8 +488,8 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         // Search forward from cursor to view end
         i64 ms, me;
         enum Err err = io_find_window(io, vclamp(c_view, io, *c_cursor), veof(c_view, io),
-            (const unsigned char*)op->u.take_until.needle,
-            strlen(op->u.take_until.needle), DIR_FWD, &ms, &me);
+            (const unsigned char*)op->u.take_until.needle.p,
+            op->u.take_until.needle.n, DIR_FWD, &ms, &me);
         if (err != E_OK)
             return err;
 
@@ -588,7 +591,7 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
             return E_OOM;
         Range* r = &(*ranges)[(*range_count)++];
         r->kind = RANGE_LIT;
-        r->lit = op->u.print.bytes;
+        r->lit = op->u.print.string;
         // Print doesn't move cursor
         break;
     }

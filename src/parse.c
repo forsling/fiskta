@@ -39,7 +39,7 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
     char* str_pool, size_t* str_pool_off, size_t str_pool_cap);
 static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg);
 static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* at);
-static enum Err parse_string_to_bytes(const char* str, Bytes* out_bytes, char* str_pool, size_t* str_pool_off, size_t str_pool_cap);
+static enum Err parse_string_to_bytes(const char* str, String* out_string, char* str_pool, size_t* str_pool_off, size_t str_pool_cap);
 static enum Err parse_unsigned_number(const char* token, i32* sign, u64* n, enum Unit* unit);
 static enum Err parse_signed_number(const char* token, i64* offset, enum Unit* unit);
 // find_or_add_name removed - use find_or_add_name_build with arena allocation instead
@@ -417,14 +417,10 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         if (strlen(needle) == 0)
             return E_BAD_NEEDLE;
 
-        // Copy needle to string pool
-        size_t needle_len = strlen(needle) + 1;
-        if (*str_pool_off + needle_len > str_pool_cap)
-            return E_OOM;
-
-        op->u.find.needle = str_pool + *str_pool_off;
-        strcpy(op->u.find.needle, needle);
-        *str_pool_off += needle_len;
+        // Copy needle to string pool using String
+        enum Err err = parse_string_to_bytes(needle, &op->u.find.needle, str_pool, str_pool_off, str_pool_cap);
+        if (err != E_OK)
+            return err;
 
     } else if (strcmp(cmd, "findr") == 0) {
         op->kind = OP_FINDR;
@@ -444,14 +440,10 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
             return E_PARSE;
         const char* pat = tokens[*idx];
         (*idx)++;
-        if (strlen(pat) == 0)
-            return E_BAD_NEEDLE;
-        size_t plen = strlen(pat) + 1;
-        if (*str_pool_off + plen > str_pool_cap)
-            return E_OOM;
-        op->u.findr.pattern = str_pool + *str_pool_off;
-        strcpy(op->u.findr.pattern, pat);
-        *str_pool_off += plen;
+        // Copy pattern to string pool using String
+        enum Err err = parse_string_to_bytes(pat, &op->u.findr.pattern, str_pool, str_pool_off, str_pool_cap);
+        if (err != E_OK)
+            return err;
         op->u.findr.prog = NULL;
 
     } else if (strcmp(cmd, "skip") == 0) {
@@ -488,22 +480,18 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
             if (strlen(needle) == 0)
                 return E_BAD_NEEDLE;
 
-            // Copy needle to string pool
-            size_t needle_len = strlen(needle) + 1;
-            if (*str_pool_off + needle_len > str_pool_cap)
-                return E_OOM;
-
-            op->u.take_until.needle = str_pool + *str_pool_off;
-            strcpy(op->u.take_until.needle, needle);
-            *str_pool_off += needle_len;
+            // Copy needle to string pool using String
+            enum Err err = parse_string_to_bytes(needle, &op->u.take_until.needle, str_pool, str_pool_off, str_pool_cap);
+            if (err != E_OK)
+                return err;
 
             // Parse "at" expression if present
             if (*idx < token_count && strcmp(tokens[*idx], "at") == 0) {
                 (*idx)++;
                 op->u.take_until.has_at = true;
-                enum Err err = parse_at_expr_build(tokens, idx, token_count, &op->u.take_until.at);
-                if (err != E_OK)
-                    return err;
+                enum Err err2 = parse_at_expr_build(tokens, idx, token_count, &op->u.take_until.at);
+                if (err2 != E_OK)
+                    return err2;
             } else {
                 op->u.take_until.has_at = false;
             }
@@ -571,8 +559,8 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         if (strlen(str) == 0)
             return E_BAD_NEEDLE;
 
-        // Parse string to Bytes
-        enum Err err = parse_string_to_bytes(str, &op->u.print.bytes, str_pool, str_pool_off, str_pool_cap);
+        // Parse string to String
+        enum Err err = parse_string_to_bytes(str, &op->u.print.string, str_pool, str_pool_off, str_pool_cap);
         if (err != E_OK)
             return err;
 
@@ -856,7 +844,7 @@ static bool is_valid_label_name(const char* name)
     return true;
 }
 
-static enum Err parse_string_to_bytes(const char* str, Bytes* out_bytes, char* str_pool, size_t* str_pool_off, size_t str_pool_cap)
+static enum Err parse_string_to_bytes(const char* str, String* out_string, char* str_pool, size_t* str_pool_off, size_t str_pool_cap)
 {
     // Process escape sequences and calculate final length
     size_t src_len = strlen(str);
@@ -927,9 +915,9 @@ static enum Err parse_string_to_bytes(const char* str, Bytes* out_bytes, char* s
     
     *str_pool_off += dst_len;
     
-    // Return Bytes struct
-    out_bytes->p = dst;
-    out_bytes->n = (i32)dst_len;
+    // Return String struct
+    out_string->p = dst;
+    out_string->n = (i32)dst_len;
     
     return E_OK;
 }
