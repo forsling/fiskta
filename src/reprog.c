@@ -1,6 +1,6 @@
 #include "reprog.h"
-#include <alloca.h>
 #include <ctype.h>
+#include <stdlib.h>
 #include <string.h>
 
 static inline void cls_clear(ReClass* c) { memset(c->bits, 0, sizeof c->bits); }
@@ -201,11 +201,8 @@ static enum Err compile_subpattern(ReB* b, String pat, int len)
 
     // Single alt: compile linearly and return
     if (nalt == 1) {
-        char* tmp = (char*)alloca((size_t)len + 1);
-        memcpy(tmp, pat.bytes, (size_t)len);
-        tmp[len] = '\0';
         int i = 0;
-        String tmp_bytes = {tmp, len};
+        String tmp_bytes = {pat.bytes, len};
         while (i < len) {
             enum Err e = compile_piece(b, tmp_bytes, &i);
             if (e != E_OK)
@@ -215,8 +212,23 @@ static enum Err compile_subpattern(ReB* b, String pat, int len)
     }
 
     // 2) Record (lo,len) for each alt
-    int* lo = (int*)alloca((size_t)nalt * sizeof(int));
-    int* alen = (int*)alloca((size_t)nalt * sizeof(int));
+    int* lo = NULL;
+    int* alen = NULL;
+    int* split_pc = NULL;
+    int* alt_start_pc = NULL;
+    int* jmp_pc = NULL;
+    enum Err err = E_OK;
+
+    lo = (int*)malloc((size_t)nalt * sizeof(int));
+    alen = (int*)malloc((size_t)nalt * sizeof(int));
+    split_pc = (int*)malloc((size_t)(nalt - 1) * sizeof(int));
+    alt_start_pc = (int*)malloc((size_t)nalt * sizeof(int));
+    jmp_pc = (int*)malloc((size_t)nalt * sizeof(int));
+    if (!lo || !alen || !split_pc || !alt_start_pc || !jmp_pc) {
+        err = E_OOM;
+        goto cleanup;
+    }
+
     int k = 0, start = 0;
     depth = 0;
     for (int j = 0; j < len; ++j) {
@@ -240,50 +252,50 @@ static enum Err compile_subpattern(ReB* b, String pat, int len)
     alen[k] = len - start; /* k == nalt-1 */
 
     // 3) Emit N-1 splits + all alt bodies
-    int* split_pc = (int*)alloca((size_t)(nalt - 1) * sizeof(int));
-    int* alt_start_pc = (int*)alloca((size_t)nalt * sizeof(int));
-    int* jmp_pc = (int*)alloca((size_t)nalt * sizeof(int));
-
     enum Err e;
     // Emit a split before each of the first N-1 alts, then their bodies
     for (int i = 0; i < nalt - 1; ++i) {
         e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc[i]);
-        if (e != E_OK)
-            return e;
+        if (e != E_OK) {
+            err = e;
+            goto cleanup;
+        }
 
         alt_start_pc[i] = b->nins;
         // compile alt i
-        char* frag = (char*)alloca((size_t)alen[i] + 1);
-        memcpy(frag, pat.bytes + lo[i], (size_t)alen[i]);
-        frag[alen[i]] = '\0';
         int pi = 0;
-        String frag_bytes = {frag, alen[i]};
+        String frag_bytes = {pat.bytes + lo[i], alen[i]};
         while (pi < alen[i]) {
             e = compile_piece(b, frag_bytes, &pi);
-            if (e != E_OK)
-                return e;
+            if (e != E_OK) {
+                err = e;
+                goto cleanup;
+            }
         }
 
         e = emit_inst(b, RI_JMP, -1, 0, 0, -1, &jmp_pc[i]);
-        if (e != E_OK)
-            return e;
+        if (e != E_OK) {
+            err = e;
+            goto cleanup;
+        }
     }
 
     // Last alternative (no leading split)
     alt_start_pc[nalt - 1] = b->nins;
-    char* last = (char*)alloca((size_t)alen[nalt - 1] + 1);
-        memcpy(last, pat.bytes + lo[nalt - 1], (size_t)alen[nalt - 1]);
-    last[alen[nalt - 1]] = '\0';
     int pi = 0;
-    String last_bytes = {last, alen[nalt - 1]};
+    String last_bytes = {pat.bytes + lo[nalt - 1], alen[nalt - 1]};
     while (pi < alen[nalt - 1]) {
         e = compile_piece(b, last_bytes, &pi);
-        if (e != E_OK)
-            return e;
+        if (e != E_OK) {
+            err = e;
+            goto cleanup;
+        }
     }
     e = emit_inst(b, RI_JMP, -1, 0, 0, -1, &jmp_pc[nalt - 1]);
-    if (e != E_OK)
-        return e;
+    if (e != E_OK) {
+        err = e;
+        goto cleanup;
+    }
 
     // 4) Continuation point and patching
     int cont = b->nins;
@@ -295,7 +307,15 @@ static enum Err compile_subpattern(ReB* b, String pat, int len)
         b->ins[split_pc[i]].y = (i + 1 < nalt - 1) ? split_pc[i + 1] : alt_start_pc[nalt - 1];
     }
 
-    return E_OK;
+    err = E_OK;
+
+cleanup:
+    free(lo);
+    free(alen);
+    free(split_pc);
+    free(alt_start_pc);
+    free(jmp_pc);
+    return err;
 }
 
 // Compile a single regex piece (atom + optional quantifier)

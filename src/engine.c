@@ -1,7 +1,6 @@
 #include "arena.h"
 #include "fiskta.h"
 #include "iosearch.h"
-#include <alloca.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
@@ -87,25 +86,26 @@ static void commit_labels(VM* vm, const LabelWrite* label_writes, i32 label_coun
 
 enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
 {
-    // Calculate memory needs for arena allocation
-    i32 cc = prg->clause_count;
+    const i32 cc = prg->clause_count;
+    enum Err err = E_OK;
 
-    // Calculate scratch buffer sizes for each clause
-    i32* r_caps = alloca(sizeof(i32) * cc);
-    i32* l_caps = alloca(sizeof(i32) * cc);
-    size_t total_ranges = 0;
-    size_t total_labels = 0;
+    void* block = NULL;
+    File io = { 0 };
+    bool io_opened = false;
 
-    for (i32 i = 0; i < cc; i++) {
-        clause_caps(&prg->clauses[i], &r_caps[i], &l_caps[i]);
-        total_ranges += (size_t)r_caps[i];
-        total_labels += (size_t)l_caps[i];
+    i32 max_r_cap = 0;
+    i32 max_l_cap = 0;
+    for (i32 i = 0; i < cc; ++i) {
+        i32 rc = 0, lc = 0;
+        clause_caps(&prg->clauses[i], &rc, &lc);
+        if (rc > max_r_cap)
+            max_r_cap = rc;
+        if (lc > max_l_cap)
+            max_l_cap = lc;
     }
 
-    // We'll allocate per-clause capture/label arrays on the stack during the loop.
-
-    // Calculate total memory needed
     const size_t search_buf_cap = (FW_WIN > (BK_BLK + OVERLAP_MAX)) ? (size_t)FW_WIN : (size_t)(BK_BLK + OVERLAP_MAX);
+
     int max_nins = 0;
     for (i32 ci = 0; ci < prg->clause_count; ++ci) {
         const Clause* C = &prg->clauses[ci];
@@ -123,51 +123,75 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     const size_t re_thr_bytes = (size_t)re_threads_cap * sizeof(ReThread);
     const size_t re_seen_bytes_each = (size_t)(max_nins > 0 ? max_nins : 32);
 
-    // Account for alignment padding between slices
     size_t total = safe_align(search_buf_cap, 1);
-    if (total == SIZE_MAX)
-        return E_OOM;
+    if (total == SIZE_MAX) {
+        err = E_OOM;
+        goto cleanup;
+    }
 
     size_t re_thr_size = safe_align(re_thr_bytes, alignof(ReThread)) * 2;
-    if (re_thr_size == SIZE_MAX)
-        return E_OOM;
-    if (add_ovf(total, re_thr_size, &total))
-        return E_OOM;
+    if (re_thr_size == SIZE_MAX) {
+        err = E_OOM;
+        goto cleanup;
+    }
+    if (add_ovf(total, re_thr_size, &total)) {
+        err = E_OOM;
+        goto cleanup;
+    }
 
     size_t re_seen_size = safe_align(re_seen_bytes_each, 1) * 2;
-    if (re_seen_size == SIZE_MAX)
-        return E_OOM;
-    if (add_ovf(total, re_seen_size, &total))
-        return E_OOM;
+    if (re_seen_size == SIZE_MAX) {
+        err = E_OOM;
+        goto cleanup;
+    }
+    if (add_ovf(total, re_seen_size, &total)) {
+        err = E_OOM;
+        goto cleanup;
+    }
 
-    if (add_ovf(total, 64, &total)) // small cushion like main.c
-        return E_OOM;
+    size_t ranges_bytes = (max_r_cap > 0) ? safe_align((size_t)max_r_cap * sizeof(Range), alignof(Range)) : 0;
+    if (ranges_bytes == SIZE_MAX || add_ovf(total, ranges_bytes, &total)) {
+        err = E_OOM;
+        goto cleanup;
+    }
 
-    void* block = malloc(total);
-    if (!block)
-        return E_OOM;
+    size_t labels_bytes = (max_l_cap > 0) ? safe_align((size_t)max_l_cap * sizeof(LabelWrite), alignof(LabelWrite)) : 0;
+    if (labels_bytes == SIZE_MAX || add_ovf(total, labels_bytes, &total)) {
+        err = E_OOM;
+        goto cleanup;
+    }
+
+    if (add_ovf(total, 64, &total)) { // small cushion like main.c
+        err = E_OOM;
+        goto cleanup;
+    }
+
+    block = malloc(total);
+    if (!block) {
+        err = E_OOM;
+        goto cleanup;
+    }
 
     Arena arena;
     arena_init(&arena, block, total);
 
-    // Carve out slices
     unsigned char* search_buf = (unsigned char*)arena_alloc(&arena, search_buf_cap, 1);
     ReThread* re_curr_thr = (ReThread*)arena_alloc(&arena, re_thr_bytes, alignof(ReThread));
     ReThread* re_next_thr = (ReThread*)arena_alloc(&arena, re_thr_bytes, alignof(ReThread));
     unsigned char* seen_curr = (unsigned char*)arena_alloc(&arena, re_seen_bytes_each, 1);
     unsigned char* seen_next = (unsigned char*)arena_alloc(&arena, re_seen_bytes_each, 1);
+    Range* ranges_buf = (max_r_cap > 0) ? (Range*)arena_alloc(&arena, (size_t)max_r_cap * sizeof(Range), alignof(Range)) : NULL;
+    LabelWrite* labels_buf = (max_l_cap > 0) ? (LabelWrite*)arena_alloc(&arena, (size_t)max_l_cap * sizeof(LabelWrite), alignof(LabelWrite)) : NULL;
 
-    if (!search_buf || !re_curr_thr || !re_next_thr || !seen_curr || !seen_next) {
-        free(block);
-        return E_OOM;
+    if (!search_buf || !re_curr_thr || !re_next_thr || !seen_curr || !seen_next || (max_r_cap > 0 && !ranges_buf) || (max_l_cap > 0 && !labels_buf)) {
+        err = E_OOM;
+        goto cleanup;
     }
 
-    File io = { 0 };
-    enum Err err = io_open(&io, in_path, search_buf, search_buf_cap);
-    if (err != E_OK) {
-        free(block);
-        return err;
-    }
+    err = io_open(&io, in_path, search_buf, search_buf_cap);
+    if (err != E_OK)
+        goto cleanup;
+    io_opened = true;
     io_set_regex_scratch(&io, re_curr_thr, re_next_thr, re_threads_cap,
         seen_curr, seen_next, (size_t)re_seen_bytes_each);
 
@@ -176,15 +200,15 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     vm.last_match.valid = false;
     memset(vm.label_set, 0, sizeof(vm.label_set));
 
-    // Execute each clause independently
     i32 successful_clauses = 0;
     enum Err last_err = E_OK;
 
-    for (i32 i = 0; i < cc; i++) {
+    for (i32 i = 0; i < cc; ++i) {
         i32 rc = 0, lc = 0;
         clause_caps(&prg->clauses[i], &rc, &lc);
-        Range* r_tmp = rc ? alloca((size_t)rc * sizeof *r_tmp) : NULL;
-        LabelWrite* lw_tmp = lc ? alloca((size_t)lc * sizeof *lw_tmp) : NULL;
+        Range* r_tmp = (rc > 0) ? ranges_buf : NULL;
+        LabelWrite* lw_tmp = (lc > 0) ? labels_buf : NULL;
+
         err = execute_clause_with_scratch(&prg->clauses[i], &io, &vm, out,
             r_tmp, rc, lw_tmp, lc);
         if (err == E_OK) {
@@ -194,12 +218,11 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
         }
     }
 
-    // Return error only if all clauses failed
-    if (successful_clauses == 0) {
-        err = last_err;
-    }
+    err = (successful_clauses == 0) ? last_err : E_OK;
 
-    io_close(&io);
+cleanup:
+    if (io_opened)
+        io_close(&io);
     free(block);
     return err;
 }

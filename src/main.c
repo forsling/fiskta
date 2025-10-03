@@ -2,7 +2,6 @@
 #include "fiskta.h"
 #include "iosearch.h"
 #include "reprog.h"
-#include <alloca.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -341,6 +340,9 @@ int main(int argc, char** argv)
     size_t re_seen_size = safe_align(re_seen_bytes_each, 1) * 2;
     size_t re_thrbufs_size = safe_align(re_threads_bytes, alignof(ReThread)) * 2;
 
+    size_t ranges_bytes = (plan.sum_take_ops > 0) ? safe_align((size_t)plan.sum_take_ops * sizeof(Range), alignof(Range)) : 0;
+    size_t labels_bytes = (plan.sum_label_ops > 0) ? safe_align((size_t)plan.sum_label_ops * sizeof(LabelWrite), alignof(LabelWrite)) : 0;
+
     size_t total = search_buf_size;
     if (add_ovf(total, clauses_size, &total) ||
         add_ovf(total, ops_size, &total) ||
@@ -350,6 +352,8 @@ int main(int argc, char** argv)
         add_ovf(total, str_pool_size, &total) ||
         add_ovf(total, re_thrbufs_size, &total) ||
         add_ovf(total, re_seen_size, &total) ||
+        add_ovf(total, ranges_bytes, &total) ||
+        add_ovf(total, labels_bytes, &total) ||
         add_ovf(total, 64, &total)) { // 3 small cushion
         die(E_OOM, "arena size overflow");
         return 2;
@@ -375,9 +379,14 @@ int main(int argc, char** argv)
     ReInst* re_ins = arena_alloc(&A, re_ins_bytes, alignof(ReInst));
     ReClass* re_cls = arena_alloc(&A, re_cls_bytes, alignof(ReClass));
     char* str_pool = arena_alloc(&A, str_pool_bytes, alignof(char));
+    Range* clause_ranges = (plan.sum_take_ops > 0) ? arena_alloc(&A, (size_t)plan.sum_take_ops * sizeof(Range), alignof(Range)) : NULL;
+    LabelWrite* clause_labels = (plan.sum_label_ops > 0) ? arena_alloc(&A, (size_t)plan.sum_label_ops * sizeof(LabelWrite), alignof(LabelWrite)) : NULL;
+
     if (!search_buf || !clauses_buf || !ops_buf
         || !re_curr_thr || !re_next_thr || !seen_curr || !seen_next
-        || !re_progs || !re_ins || !re_cls || !str_pool) {
+        || !re_progs || !re_ins || !re_cls || !str_pool
+        || (plan.sum_take_ops > 0 && !clause_ranges)
+        || (plan.sum_label_ops > 0 && !clause_labels)) {
         die(E_OOM, "arena carve");
         free(block);
         return 2;
@@ -418,8 +427,8 @@ int main(int argc, char** argv)
     File io = { 0 };
     e = io_open(&io, path, search_buf, search_buf_cap);
     if (e != E_OK) {
-        die(e, "I/O open");
         free(block);
+        die(e, "I/O open");
         return 2;
     }
 
@@ -439,8 +448,8 @@ int main(int argc, char** argv)
     for (i32 ci = 0; ci < prg.clause_count; ++ci) {
         i32 rc = 0, lc = 0;
         clause_caps(&prg.clauses[ci], &rc, &lc);
-        Range* r_tmp = rc ? alloca((size_t)rc * sizeof *r_tmp) : NULL;
-        LabelWrite* lw_tmp = lc ? alloca((size_t)lc * sizeof *lw_tmp) : NULL;
+        Range* r_tmp = (rc > 0) ? clause_ranges : NULL;
+        LabelWrite* lw_tmp = (lc > 0) ? clause_labels : NULL;
         e = execute_clause_with_scratch(&prg.clauses[ci], &io, &vm, stdout,
             r_tmp, rc, lw_tmp, lc);
         if (e == E_OK)
@@ -448,6 +457,7 @@ int main(int argc, char** argv)
         else
             last_err = e;
     }
+
     io_close(&io);
     free(block);
 
@@ -457,4 +467,3 @@ int main(int argc, char** argv)
     }
     return 0;
 }
-
