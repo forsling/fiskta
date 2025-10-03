@@ -1,6 +1,9 @@
-# Makefile for fiskta v2.2
+# Makefile for fiskta
+VERSION ?= 2.2
+
 CC = cc
 CFLAGS = -std=c11 -O3 -Wall -Wextra -Wconversion -Wshadow
+CPPFLAGS = -DFISKTA_VERSION=\"$(VERSION)\"
 TARGET = fiskta
 SRCDIR = src
 BUILDDIR = build
@@ -21,7 +24,7 @@ $(TARGET): $(OBJECTS)
 	$(CC) $(OBJECTS) -o $(TARGET)
 
 $(BUILDDIR)/%.o: $(SRCDIR)/%.c | $(BUILDDIR)
-	$(CC) $(CFLAGS) -c $< -o $@
+	$(CC) $(CPPFLAGS) $(CFLAGS) -c $< -o $@
 
 $(BUILDDIR):
 	mkdir -p $(BUILDDIR)

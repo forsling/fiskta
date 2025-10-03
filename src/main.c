@@ -7,6 +7,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#ifndef FISKTA_VERSION
+#define FISKTA_VERSION "dev"
+#endif
+
 // Helper for overflow-safe size arithmetic
 static int add_ovf(size_t a, size_t b, size_t* out) {
     if (SIZE_MAX - a < b) return 1;
@@ -136,7 +140,7 @@ static size_t safe_align(size_t x, size_t align)
 
 static void print_usage(void)
 {
-    printf("fiskta (FInd SKip TAke) Text Extraction Tool\n");
+    printf("fiskta (FInd SKip TAke) Text Extraction Tool v%s\n", FISKTA_VERSION);
     printf("\n");
     printf("USAGE:\n");
     printf("  fiskta [options] <operations> [file|-]\n");
@@ -235,7 +239,7 @@ int main(int argc, char** argv)
             print_usage();
             return 0;
         } else if (strcmp(argv[1], "-v") == 0 || strcmp(argv[1], "--version") == 0) {
-            printf("fiskta (FInd SKip TAke) v2.2\n");
+            printf("fiskta (FInd SKip TAke) v%s\n", FISKTA_VERSION);
             return 0;
         }
     }

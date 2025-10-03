@@ -6,6 +6,22 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 FIX = ROOT / "tests" / "fixtures"
 
+
+def repo_version() -> str:
+    makefile = ROOT / "Makefile"
+    try:
+        for line in makefile.read_text().splitlines():
+            if line.startswith("VERSION"):
+                _, value = line.split("=", 1)
+                return value.strip()
+    except OSError:
+        pass
+    return "dev"
+
+
+VERSION = repo_version()
+VERSION_LINE = f"fiskta (FInd SKip TAke) v{VERSION}\n"
+
 def write(path: Path, data: bytes):
     path.parent.mkdir(parents=True, exist_ok=True)
     with open(path, "wb") as f:
@@ -166,9 +182,11 @@ END_SECTION_B
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
-def run(exe: Path, tokens, in_path, stdin_data: bytes | None):
-    # Build argv: fiskta <tokens...> <input>
-    argv = [str(exe), *tokens, in_path]
+def run(exe: Path, tokens, in_path: str | None, stdin_data: bytes | None):
+    # Build argv: fiskta <tokens...> [<input>]
+    argv = [str(exe), *tokens]
+    if in_path is not None:
+        argv.append(in_path)
     try:
         proc = subprocess.run(argv, input=stdin_data, capture_output=True)
         return proc.returncode, proc.stdout, proc.stderr
@@ -181,6 +199,10 @@ def expect_stdout(actual: bytes, expect: dict) -> tuple[bool, str]:
         want = expect["stdout"].encode("utf-8")
         ok = actual == want
         return ok, "" if ok else f"stdout mismatch\n---want({len(want)}B)\n{want!r}\n---got({len(actual)}B)\n{actual!r}"
+    if "stdout_startswith" in expect:
+        prefix = expect["stdout_startswith"].encode("utf-8")
+        ok = actual.startswith(prefix)
+        return ok, "" if ok else f"stdout prefix mismatch\n---want-prefix({len(prefix)}B)\n{prefix!r}\n---got({len(actual)}B)\n{actual!r}"
     if "stdout_len" in expect:
         want_len = int(expect["stdout_len"])
         ok = len(actual) == want_len
@@ -1765,6 +1787,15 @@ def tests():
         dict(id="view-050-view-single-byte",
              tokens=["viewset","BOF","EOF","take","+1b"], input_file="overlap.txt",
              expect=dict(stdout="a", exit=0)),
+
+        # ---------- CLI option smoke tests ----------
+        dict(id="cli-001-version-flag",
+             tokens=["--version"], input_file=None,
+             expect=dict(stdout=VERSION_LINE, exit=0)),
+
+        dict(id="cli-002-help-flag",
+             tokens=["--help"], input_file=None,
+             expect=dict(stdout_startswith=f"fiskta (FInd SKip TAke) Text Extraction Tool v{VERSION}", exit=0)),
     ]
 
 def main():
@@ -1794,10 +1825,15 @@ def main():
     for t in all_tests:
         tid = t["id"]
         tokens = t["tokens"]
-        in_name = t["input_file"]
+        in_name = t.get("input_file", None)
         stdin_data = t.get("stdin", None)
 
-        in_path = "-" if in_name == "-" else str(FIX / in_name)
+        if in_name is None:
+            in_path = None
+        elif in_name == "-":
+            in_path = "-"
+        else:
+            in_path = str(FIX / in_name)
         code, out, err = run(exe, tokens, in_path, stdin_data)
         ok_stdout, why = expect_stdout(out, t["expect"])
         ok_exit = (code == t["expect"]["exit"])
