@@ -7,7 +7,13 @@ BUILDDIR = build
 SOURCES = $(SRCDIR)/main.c $(SRCDIR)/parse.c $(SRCDIR)/engine.c $(SRCDIR)/iosearch.c $(SRCDIR)/reprog.c
 OBJECTS = $(SOURCES:$(SRCDIR)/%.c=$(BUILDDIR)/%.o)
 
-.PHONY: all clean test test-full debug
+PREFIX ?= /usr/local
+BINDIR ?= $(PREFIX)/bin
+DESTDIR ?=
+INSTALL ?= install
+INSTALL_PROGRAM ?= $(INSTALL) -m 0755
+
+.PHONY: all clean test test-full debug install uninstall
 
 all: $(TARGET)
 
@@ -31,7 +37,8 @@ debug: CFLAGS = -std=c11 -g -O0 -Wall -Wextra -Wconversion -Wshadow -DDEBUG
 debug: $(TARGET)
 
 install: $(TARGET)
-	cp $(TARGET) /usr/local/bin/
+	$(INSTALL) -d $(DESTDIR)$(BINDIR)
+	$(INSTALL_PROGRAM) $(TARGET) $(DESTDIR)$(BINDIR)/$(TARGET)
 
 uninstall:
-	rm -f /usr/local/bin/$(TARGET)
+	rm -f $(DESTDIR)$(BINDIR)/$(TARGET)
