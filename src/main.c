@@ -112,7 +112,7 @@ static const char* err_str(enum Err e)
     case E_NO_MATCH:
         return "no match in window";
     case E_LABEL_FMT:
-        return "bad label (A-Z, _ or -, ≤16)";
+        return "bad label (A-Z, _ or -, <=16)";
     case E_IO:
         return "I/O error";
     case E_OOM:
@@ -147,6 +147,28 @@ static void print_usage(void)
     printf("USAGE:\n");
     printf("  fiskta [options] <operations> [file|-]\n");
     printf("\n");
+    printf("EXAMPLES:\n");
+    printf("  Take first 10 bytes of a file:\n");
+    printf("    fiskta take 10b file.txt\n");
+    printf("\n");
+    printf("  Take lines 2-4 from a file:\n");
+    printf("    fiskta skip 1l take 3l file.txt\n");
+    printf("\n");
+    printf("  Take from the first STATUS to EOF:\n");
+    printf("    fiskta find \"STATUS\" take to EOF file.txt\n");
+    printf("\n");
+    printf("  Take five lines around the first WARN:\n");
+    printf("    fiskta findr \"^WARN\" take -2l take 3l logs.txt\n");
+    printf("\n");
+    printf("  Take until the start of the END section:\n");
+    printf("    fiskta take until \"END\" at line-start config.txt\n");
+    printf("\n");
+    printf("  Take from section1 up to section2:\n");
+    printf("    fiskta find section1 label s1 find section2 take to section1 file.txt\n");
+    printf("\n");
+    printf("  Process stdin:\n");
+    printf("    echo \"Hello\" | fiskta take 5b -\n");
+    printf("\n");
     printf("OPERATIONS:\n");
     printf("  take <n><unit>              Extract n units from current position\n");
     printf("  skip <n><unit>              Move cursor n units forward (no output)\n");
@@ -171,21 +193,12 @@ static void print_usage(void)
     printf("                              Participates in clause atomicity\n");
     printf("\n");
     printf("UNITS:\n");
-    printf("  b                           String\n");
+    printf("  b                           Bytes\n");
     printf("  l                           Lines (LF only, CR treated as bytes)\n");
     printf("  c                           UTF-8 code points (never splits sequences)\n");
     printf("\n");
-    printf("REGEX SYNTAX:\n");
-    printf("  Character Classes: \\d (digits), \\w (word), \\s (space), [a-z], [^0-9]\n");
-    printf("  Quantifiers: * (0+), + (1+), ? (0-1), {n} (exactly n), {n,m} (n to m)\n");
-    printf("  Grouping: ( ... ) (group subpatterns), (a|b)+ (quantified groups)\n");
-    printf("  Anchors: ^ (line start), $ (line end)\n");
-    printf("  Alternation: | (OR)\n");
-    printf("  Escape: \\n, \\t, \\r, \\f, \\v, \\0\n");
-    printf("  Special: . (any char except newline)\n");
-    printf("\n");
     printf("LABELS:\n");
-    printf("  NAME                        UPPERCASE, ≤16 chars, [A-Z0-9_-] (first must be A-Z)\n");
+    printf("  NAME                        UPPERCASE, <=16 chars, [A-Z0-9_-] (first must be A-Z)\n");
     printf("\n");
     printf("LOCATIONS:\n");
     printf("  cursor                      Current cursor position\n");
@@ -204,29 +217,27 @@ static void print_usage(void)
     printf("  <location> -<n><unit>       n units before location\n");
     printf("                              (inline offsets like BOF+100b are allowed)\n");
     printf("\n");
-    printf("EXAMPLES:\n");
-    printf("  fiskta take 10b file.txt                    # Extract first 10 bytes\n");
-    printf("  fiskta take 3l file.txt                     # Extract first 3 lines\n");
-    printf("  fiskta find \"ERROR\" take to match-start file.txt  # Extract to ERROR (excludes ERROR)\n");
-    printf("  fiskta findr \"\\\\d{3}-\\\\d{3}-\\\\d{4}\" take +12b file.txt  # Find phone numbers\n");
-    printf("  fiskta findr \"^ERROR\" take to line-end file.txt  # Find ERROR at line start\n");
-    printf("  fiskta take to BOF+100b file.txt          # Extract from BOF+100b\n");
-    printf("  fiskta skip 5b take 10b file.txt           # Skip 5, take 10\n");
-    printf("  fiskta take until \"---\" file.txt          # Extract until \"---\"\n");
-    printf("  fiskta take until \"END\" at line-start file.txt  # Extract until start of END's line\n");
-    printf("  fiskta print \"=== BEGIN ===\\n\" :: find \"ERROR\" take to line-end :: print \"=== END ===\\n\" file.txt\n");
-    printf("  echo \"Hello\" | fiskta take 5b -          # Process stdin\n");
+    printf("REGEX SYNTAX:\n");
+    printf("  Character Classes: \\d (digits), \\w (word), \\s (space), [a-z], [^0-9]\n");
+    printf("  Quantifiers: * (0+), + (1+), ? (0-1), {n} (exactly n), {n,m} (n to m)\n");
+    printf("  Grouping: ( ... ) (group subpatterns), (a|b)+ (quantified groups)\n");
+    printf("  Anchors: ^ (line start), $ (line end)\n");
+    printf("  Alternation: | (OR)\n");
+    printf("  Escape: \\n, \\t, \\r, \\f, \\v, \\0\n");
+    printf("  Special: . (any char except newline)\n");
     printf("\n");
     printf("CLAUSES:\n");
-    printf("  Separate operations with '::'. Each clause executes independently.\n");
-    printf("  If a clause fails, subsequent clauses still execute.\n");
-    printf("  Command succeeds if ANY clause succeeds.\n");
+    printf("  All operations until the next :: are considered an independent clause.\n");
+    printf("  A clause will succeed if all ops succeed, fail if any op fails.\n");
+    printf("  On Failure: clause rolls back (no output or label changes); later clauses still run.\n");
+    printf("  On Success: emits staged output in order, commits labels, updates cursor and last-match snapshot.\n");
+    printf("  Exit status: succeeds if any clause commits; otherwise returns the last failure code.\n");
+    printf("  Empty captures succeed and leave the cursor in place.\n");
     printf("\n");
     printf("OPTIONS:\n");
     printf("  -h, --help                  Show this help message\n");
     printf("  -v, --version               Show version information\n");
     printf("\n");
-    printf("For more information, see the README.md file.\n");
 }
 
 int main(int argc, char** argv)
