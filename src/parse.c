@@ -1,21 +1,8 @@
 #include "fiskta.h"
+#include "parse_plan.h"
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
-
-typedef struct {
-    i32 clause_count;
-    i32 total_ops;
-    i32 sum_take_ops;
-    i32 sum_label_ops;
-    i32 needle_count;
-    size_t needle_bytes;
-    // Regex planning
-    i32 sum_findr_ops;
-    i32 re_ins_estimate; // sum over patterns of ~4*len + 8
-    i32 re_classes_estimate; // count '[' occurrences
-    i32 re_ins_estimate_max; // max over patterns (for scratch sizing)
-} ParsePlan;
 
 // Helper function to find inline offset start
 static const char* find_inline_offset_start(const char* s)

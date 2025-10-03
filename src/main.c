@@ -1,23 +1,11 @@
 #include "arena.h"
 #include "fiskta.h"
 #include "iosearch.h"
+#include "parse_plan.h"
 #include "reprog.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-typedef struct {
-    i32 clause_count;
-    i32 total_ops;
-    i32 sum_take_ops;
-    i32 sum_label_ops;
-    i32 needle_count;
-    size_t needle_bytes;
-    i32 sum_findr_ops;
-    i32 re_ins_estimate;
-    i32 re_classes_estimate;
-    i32 re_ins_estimate_max;
-} ParsePlan;
 
 // Helper for overflow-safe size arithmetic
 static int add_ovf(size_t a, size_t b, size_t* out) {
