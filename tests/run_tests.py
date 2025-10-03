@@ -1039,7 +1039,7 @@ def tests():
 
         dict(id="utf8-005-empty-char-capture-no-move",
              tokens=["skip","5b","take","to","cursor+0c","::","take","+3b"], input_file="overlap.txt",
-             expect=dict(stdout="efgh", exit=0)),
+             expect=dict(stdout="fgh", exit=0)),
 
         dict(id="edge-feedback-001-inline-offset-label-resolution",
              tokens=["label","HERE","::","goto","HERE+1l","take","1l"], input_file="-", stdin=b"a\nb\nX\n",
@@ -1821,4 +1821,3 @@ def main():
 
 if __name__ == "__main__":
     sys.exit(main())
-
