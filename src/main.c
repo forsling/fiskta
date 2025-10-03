@@ -3,6 +3,7 @@
 #include "iosearch.h"
 #include "parse_plan.h"
 #include "reprog.h"
+#include "util.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,9 +13,12 @@
 #endif
 
 // Helper for overflow-safe size arithmetic
-static int add_ovf(size_t a, size_t b, size_t* out) {
-    if (SIZE_MAX - a < b) return 1;
-    *out = a + b; return 0;
+static int add_ovf(size_t a, size_t b, size_t* out)
+{
+    if (SIZE_MAX - a < b)
+        return 1;
+    *out = a + b;
+    return 0;
 }
 
 // Quote-aware ops-string splitter for CLI usage
@@ -127,13 +131,11 @@ static void die(enum Err e, const char* msg)
     exit(e == E_OK ? 0 : 2);
 }
 
-// Arena alignment helper with overflow protection
-static size_t safe_align(size_t x, size_t align)
+static size_t align_or_die(size_t x, size_t align)
 {
-    size_t aligned = a_align(x, align);
-    if (aligned < x) { // 4 overflow check
+    size_t aligned = safe_align(x, align);
+    if (aligned == SIZE_MAX) {
         die(E_OOM, "arena alignment overflow");
-        return 0; // 2 unreachable
     }
     return aligned;
 }
@@ -320,20 +322,20 @@ int main(int argc, char** argv)
     const size_t re_threads_bytes = (size_t)re_threads_cap * sizeof(ReThread);
 
     // 3) Allocation
-    size_t search_buf_size = safe_align(search_buf_cap, alignof(unsigned char));
-    size_t clauses_size = safe_align(clauses_bytes, alignof(Clause));
-    size_t ops_size = safe_align(ops_bytes, alignof(Op));
-    size_t re_prog_size = safe_align(re_prog_bytes, alignof(ReProg));
-    size_t re_ins_size = safe_align(re_ins_bytes, alignof(ReInst));
-    size_t re_cls_size = safe_align(re_cls_bytes, alignof(ReClass));
-    size_t str_pool_size = safe_align(str_pool_bytes, alignof(char));
+    size_t search_buf_size = align_or_die(search_buf_cap, alignof(unsigned char));
+    size_t clauses_size = align_or_die(clauses_bytes, alignof(Clause));
+    size_t ops_size = align_or_die(ops_bytes, alignof(Op));
+    size_t re_prog_size = align_or_die(re_prog_bytes, alignof(ReProg));
+    size_t re_ins_size = align_or_die(re_ins_bytes, alignof(ReInst));
+    size_t re_cls_size = align_or_die(re_cls_bytes, alignof(ReClass));
+    size_t str_pool_size = align_or_die(str_pool_bytes, alignof(char));
     // Two thread buffers + two seen arrays sized to max estimated nins
     size_t re_seen_bytes_each = (size_t)(plan.re_ins_estimate_max > 0 ? plan.re_ins_estimate_max : 32);
     size_t re_seen_size = safe_align(re_seen_bytes_each, 1) * 2;
-    size_t re_thrbufs_size = safe_align(re_threads_bytes, alignof(ReThread)) * 2;
+    size_t re_thrbufs_size = align_or_die(re_threads_bytes, alignof(ReThread)) * 2;
 
-    size_t ranges_bytes = (plan.sum_take_ops > 0) ? safe_align((size_t)plan.sum_take_ops * sizeof(Range), alignof(Range)) : 0;
-    size_t labels_bytes = (plan.sum_label_ops > 0) ? safe_align((size_t)plan.sum_label_ops * sizeof(LabelWrite), alignof(LabelWrite)) : 0;
+    size_t ranges_bytes = (plan.sum_take_ops > 0) ? align_or_die((size_t)plan.sum_take_ops * sizeof(Range), alignof(Range)) : 0;
+    size_t labels_bytes = (plan.sum_label_ops > 0) ? align_or_die((size_t)plan.sum_label_ops * sizeof(LabelWrite), alignof(LabelWrite)) : 0;
 
     size_t total = search_buf_size;
     if (add_ovf(total, clauses_size, &total) ||

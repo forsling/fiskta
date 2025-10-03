@@ -1,22 +1,13 @@
 #include "arena.h"
 #include "fiskta.h"
 #include "iosearch.h"
+#include "util.h"
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
 enum Err io_open(File* io, const char* path,
     unsigned char* search_buf, size_t search_buf_cap);
-
-// Arena alignment helper with overflow protection
-static size_t safe_align(size_t x, size_t align)
-{
-    size_t aligned = a_align(x, align);
-    if (aligned < x) {
-        return SIZE_MAX; // signal overflow
-    }
-    return aligned;
-}
 
 // View helpers
 static inline i64 vbof(const View* v) { return (v && v->active) ? v->lo : 0; }
