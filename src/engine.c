@@ -101,9 +101,6 @@ static enum Err resolve_loc_expr_cp(
     const Match* staged_match, i64 staged_cursor,
     const LabelWrite* staged_labels, i32 staged_label_count,
     const View* c_view, ClampPolicy clamp, i64* out);
-static enum Err resolve_at_expr_cp(
-    const LocExpr* at, File* io, const Match* match,
-    const View* c_view, ClampPolicy clamp, i64* out);
 static void commit_labels(VM* vm, const LabelWrite* label_writes, i32 label_count);
 
 enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
@@ -534,7 +531,9 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         // Resolve at-expr
         i64 target;
         if (op->u.take_until.has_at) {
-            err = resolve_at_expr_cp(&op->u.take_until.at, io, c_last_match, c_view, CLAMP_VIEW, &target);
+            // Use unified resolver; at-expr carries REF_MATCH
+            err = resolve_loc_expr_cp(&op->u.take_until.at, io, vm, c_last_match, *c_cursor,
+                *label_writes, *label_count, c_view, CLAMP_VIEW, &target);
             if (err != E_OK)
                 return err;
         } else {
@@ -689,7 +688,13 @@ static enum Err resolve_loc_expr_cp(
         base = staged_match->end;
         break;
     case LOC_LINE_START: {
-        enum Err e = io_line_start(io, staged_cursor, &base);
+        i64 anchor = staged_cursor;
+        if (loc->ref == REF_MATCH) {
+            if (!staged_match->valid)
+                return E_LOC_RESOLVE;
+            anchor = staged_match->start;
+        }
+        enum Err e = io_line_start(io, anchor, &base);
         if (e != E_OK)
             return e;
         if (base < vbof(c_view))
@@ -697,7 +702,13 @@ static enum Err resolve_loc_expr_cp(
         break;
     }
     case LOC_LINE_END: {
-        enum Err e = io_line_end(io, staged_cursor, &base);
+        i64 anchor = staged_cursor;
+        if (loc->ref == REF_MATCH) {
+            if (!staged_match->valid)
+                return E_LOC_RESOLVE;
+            anchor = staged_match->end;
+        }
+        enum Err e = io_line_end(io, anchor, &base);
         if (e != E_OK)
             return e;
         if (base > veof(c_view, io))
@@ -726,72 +737,6 @@ static enum Err resolve_loc_expr_cp(
             if (e != E_OK)
                 return e;
             i32 d = (i32)loc->offset;
-            e = io_step_chars_from(io, cs, d, &cs);
-            if (e != E_OK)
-                return e;
-            base = cs;
-        }
-    }
-
-    if (clamp == CLAMP_VIEW)
-        *out = vclamp(c_view, io, base);
-    else if (clamp == CLAMP_FILE)
-        *out = clamp64(base, 0, io_size(io));
-    else
-        *out = base;
-    return E_OK;
-}
-
-static enum Err resolve_at_expr_cp(
-    const LocExpr* at, File* io, const Match* match,
-    const View* c_view, ClampPolicy clamp, i64* out)
-{
-    i64 base = 0;
-    switch (at->base) {
-    case LOC_MATCH_START:
-        base = match->start;
-        break;
-    case LOC_MATCH_END:
-        base = match->end;
-        break;
-    case LOC_LINE_START: {
-        enum Err e = io_line_start(io, match->start, &base);
-        if (e != E_OK)
-            return e;
-        if (base < vbof(c_view))
-            base = vbof(c_view);
-        break;
-    }
-    case LOC_LINE_END: {
-        enum Err e = io_line_end(io, match->end, &base);
-        if (e != E_OK)
-            return e;
-        if (base > veof(c_view, io))
-            base = veof(c_view, io);
-        break;
-    }
-    default:
-        return E_PARSE;
-    }
-
-    if (at->offset != 0) {
-        if (at->unit == UNIT_BYTES) {
-            apply_byte_saturation(&base, at->offset, c_view, io, clamp == CLAMP_FILE ? CLAMP_FILE : clamp);
-        } else if (at->unit == UNIT_LINES) {
-            if (at->offset > INT_MAX || at->offset < -INT_MAX)
-                return E_PARSE;
-            i32 d = (i32)at->offset;
-            enum Err e = io_step_lines_from(io, base, d, &base);
-            if (e != E_OK)
-                return e;
-        } else { // UNIT_CHARS
-            if (at->offset > INT_MAX || at->offset < -INT_MAX)
-                return E_PARSE;
-            i64 cs;
-            enum Err e = io_char_start(io, base, &cs);
-            if (e != E_OK)
-                return e;
-            i32 d = (i32)at->offset;
             e = io_step_chars_from(io, cs, d, &cs);
             if (e != E_OK)
                 return e;
