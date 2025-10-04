@@ -132,10 +132,19 @@ typedef struct {
     enum OpKind kind;
 } Op;
 
+// How clauses are linked together
+typedef enum {
+    LINK_NONE,    // No link (last clause)
+    LINK_THEN,    // Sequential
+    LINK_AND,     // Both must succeed
+    LINK_OR       // First success wins
+} ClauseLink;
+
 typedef struct {
     Op* ops;
     i32 op_count;
     i32 op_cap;
+    ClauseLink link;  // How this clause links to the next one
 } Clause;
 
 typedef struct {

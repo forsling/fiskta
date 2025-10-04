@@ -1860,6 +1860,155 @@ def tests():
         dict(id="stage-003-successful-clause-commits",
              tokens=["take","+1b","label","A","take","+1b","label","B"], input_file="overlap.txt",
              expect=dict(stdout="ab", exit=0)),  # Both takes should emit, both labels should commit
+
+        # ---------- AND/OR operator tests ----------
+        # Basic AND - both clauses must succeed
+        dict(id="logic-001-and-both-succeed",
+             tokens=["find","abc","AND","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="abc", exit=0)),  # find succeeds, take succeeds -> output
+
+        dict(id="logic-002-and-first-fails",
+             tokens=["find","xyz","AND","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=2)),  # find fails -> second clause not executed
+
+        dict(id="logic-003-and-second-fails",
+             tokens=["find","abc","AND","find","xyz"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=2)),  # first succeeds but second fails -> overall fails
+
+        # Basic OR - first success wins
+        dict(id="logic-004-or-first-succeeds",
+             tokens=["find","abc","take","+3b","OR","find","xyz"], input_file="overlap.txt",
+             expect=dict(stdout="abc", exit=0)),  # first succeeds -> second not tried
+
+        dict(id="logic-005-or-first-fails-second-succeeds",
+             tokens=["find","xyz","OR","find","abc","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="abc", exit=0)),  # first fails, second succeeds
+
+        dict(id="logic-006-or-both-fail",
+             tokens=["find","xyz","OR","find","123"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=2)),  # both fail -> overall fails
+
+        # Short-circuit behavior - verify second clause is NOT executed
+        dict(id="logic-007-and-short-circuit-no-output",
+             tokens=["find","xyz","AND","take","+10b"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=2)),  # first fails, second never runs (would output 10 bytes if it did)
+
+        dict(id="logic-008-or-short-circuit-no-second-output",
+             tokens=["take","+2b","OR","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="ab", exit=0)),  # first succeeds with 2 bytes, second never runs (would output 3 if it did)
+
+        # Chained AND - all must succeed
+        dict(id="logic-009-and-chain-all-succeed",
+             tokens=["find","abc","AND","skip","3b","AND","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="def", exit=0)),  # all three succeed
+
+        dict(id="logic-010-and-chain-middle-fails",
+             tokens=["find","abc","AND","find","xyz","AND","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=2)),  # middle fails -> third never runs
+
+        # Chained OR - first success wins
+        dict(id="logic-011-or-chain-first-succeeds",
+             tokens=["find","abc","take","+1b","OR","find","def","take","+1b","OR","find","ghi","take","+1b"], input_file="overlap.txt",
+             expect=dict(stdout="a", exit=0)),  # first succeeds, others never tried
+
+        dict(id="logic-012-or-chain-second-succeeds",
+             tokens=["find","xyz","OR","find","def","take","+1b","OR","find","ghi","take","+1b"], input_file="overlap.txt",
+             expect=dict(stdout="d", exit=0)),  # first fails, second succeeds, third never tried
+
+        dict(id="logic-013-or-chain-last-succeeds",
+             tokens=["find","xyz","OR","find","123","OR","find","ghi","take","+1b"], input_file="overlap.txt",
+             expect=dict(stdout="g", exit=0)),  # first two fail, last succeeds
+
+        # Mixed AND/OR - test precedence (left-to-right evaluation)
+        dict(id="logic-014-and-then-or",
+             tokens=["find","abc","AND","skip","3b","OR","find","def"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=0)),  # (find AND skip) succeeds, OR not evaluated
+
+        dict(id="logic-015-or-then-and",
+             tokens=["find","xyz","OR","find","abc","AND","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="abc", exit=0)),  # first fails, (find AND take) succeeds
+
+        # THEN still works (backward compatibility)
+        dict(id="logic-016-then-sequential",
+             tokens=["find","abc","THEN","skip","3b","THEN","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="def", exit=0)),  # sequential execution
+
+        dict(id="logic-017-then-with-failure",
+             tokens=["find","abc","THEN","find","xyz","THEN","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="abc", exit=0)),  # middle fails but continues, last clause succeeds
+
+        # State management - verify VM state is properly committed/rolled back
+        dict(id="logic-018-and-state-commit",
+             tokens=["find","abc","label","A","AND","skip","3b","label","B","AND","goto","A","take","+6b"], input_file="overlap.txt",
+             expect=dict(stdout="abcdef", exit=0)),  # all succeed, labels committed, goto works
+
+        dict(id="logic-019-and-state-rollback",
+             tokens=["find","abc","label","A","AND","find","xyz","AND","goto","A","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=2)),  # second fails, label should not be committed
+
+        dict(id="logic-020-or-state-first-success",
+             tokens=["find","abc","label","A","skip","3b","OR","find","def","label","B","AND","goto","A","take","+6b"], input_file="overlap.txt",
+             expect=dict(stdout="abcdef", exit=0)),  # first OR branch succeeds, label A committed, goto A works
+
+        # ---------- Non-short-circuit tests - verify both clauses execute ----------
+        # AND with both clauses producing output
+        dict(id="logic-021-and-both-output",
+             tokens=["take","+2b","AND","take","+2b"], input_file="overlap.txt",
+             expect=dict(stdout="abcd", exit=0)),  # both execute, both produce output
+
+        # AND with cursor advancing through both clauses
+        dict(id="logic-022-and-cursor-advances",
+             tokens=["find","abc","take","+3b","AND","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="abcdef", exit=0)),  # first outputs abc and advances cursor, second outputs def
+
+        # OR where first fails, second MUST execute and produce output
+        dict(id="logic-023-or-second-executes",
+             tokens=["find","xyz","take","+2b","OR","take","+2b"], input_file="overlap.txt",
+             expect=dict(stdout="ab", exit=0)),  # first fails (no match), second executes
+
+        # Multiple AND clauses all executing
+        dict(id="logic-024-and-multi-output",
+             tokens=["take","+1b","AND","take","+1b","AND","take","+1b"], input_file="overlap.txt",
+             expect=dict(stdout="abc", exit=0)),  # all three execute, all produce output
+
+        # AND with label persistence across clauses
+        dict(id="logic-025-and-label-sequence",
+             tokens=["take","+2b","label","A","AND","take","+2b","label","B","AND","goto","A","take","+2b"], input_file="overlap.txt",
+             expect=dict(stdout="abcdcd", exit=0)),  # all execute, labels persist, goto A works (A is at position 2 = 'c')
+
+        # OR chain where each alternative tries and fails until last succeeds
+        dict(id="logic-026-or-try-all-until-success",
+             tokens=["find","xyz","OR","find","123","OR","find","def","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="def", exit=0)),  # first two fail and execute, last succeeds
+
+        # Mixed: verify THEN behavior vs AND/OR
+        dict(id="logic-027-then-vs-and-failure",
+             tokens=["find","abc","AND","find","xyz"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=2)),  # AND fails
+
+        dict(id="logic-028-then-vs-then-failure",
+             tokens=["find","abc","THEN","find","xyz"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=0)),  # THEN continues on failure (first succeeds, second fails, exit code from success count)
+
+        # Verify cursor state across OR when second executes
+        dict(id="logic-029-or-cursor-state",
+             tokens=["find","xyz","OR","find","def","AND","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="def", exit=0)),  # first fails at cursor 0, second finds def and outputs
+
+        # Edge case: empty output from successful clauses
+        dict(id="logic-030-and-empty-outputs",
+             tokens=["find","abc","AND","skip","3b"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=0)),  # both succeed, neither produces output
+
+        # Verify match state propagates through AND
+        dict(id="logic-031-and-match-propagation",
+             tokens=["find","abc","AND","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="abc", exit=0)),  # first sets match (cursor at 'a'), second takes from there
+
+        # Complex OR/AND combination with multiple outputs
+        dict(id="logic-032-complex-or-and-outputs",
+             tokens=["find","xyz","OR","find","abc","take","+2b","AND","take","+2b"], input_file="overlap.txt",
+             expect=dict(stdout="abcd", exit=0)),  # first OR fails, (find take AND take) succeeds with two outputs
     ]
 
 def main():
