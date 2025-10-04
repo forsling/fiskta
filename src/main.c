@@ -158,7 +158,8 @@ static size_t align_or_die(size_t x, size_t align)
 
 typedef enum {
     WINDOW_POLICY_DELTA,
-    WINDOW_POLICY_RESCAN
+    WINDOW_POLICY_RESCAN,
+    WINDOW_POLICY_CURSOR
 } WindowPolicy;
 
 static void sleep_msec(int msec)
@@ -230,7 +231,11 @@ static int parse_window_policy_option(const char* value, WindowPolicy* out)
         *out = WINDOW_POLICY_RESCAN;
         return 0;
     }
-    fprintf(stderr, "fiskta: --window-policy expects one of: delta, rescan\n");
+    if (strcmp(value, "cursor") == 0) {
+        *out = WINDOW_POLICY_CURSOR;
+        return 0;
+    }
+    fprintf(stderr, "fiskta: --window-policy expects one of: delta, rescan, cursor\n");
     return 1;
 }
 
@@ -256,11 +261,21 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
     io_reset_full(io);
 
     VM local_vm;
-    memset(&local_vm, 0, sizeof(local_vm));
-    local_vm.cursor = clamp64(window_lo, 0, io_size(io));
-    local_vm.view.active = true;
-    local_vm.view.lo = clamp64(window_lo, 0, io_size(io));
-    local_vm.view.hi = clamp64(window_hi, 0, io_size(io));
+    VM* vm_exec = vm ? vm : &local_vm;
+    if (!vm) {
+        memset(vm_exec, 0, sizeof(*vm_exec));
+    }
+
+    i64 lo = clamp64(window_lo, 0, io_size(io));
+    i64 hi = clamp64(window_hi, 0, io_size(io));
+    if (vm_exec->cursor < lo)
+        vm_exec->cursor = lo;
+    if (vm_exec->cursor > hi)
+        vm_exec->cursor = hi;
+    vm_exec->view.active = true;
+    vm_exec->view.lo = lo;
+    vm_exec->view.hi = hi;
+    vm_exec->last_match.valid = false;
 
     i32 ok = 0;
     enum Err last_err = E_OK;
@@ -271,7 +286,7 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
         Range* r_tmp = (rc > 0) ? clause_ranges : NULL;
         LabelWrite* lw_tmp = (lc > 0) ? clause_labels : NULL;
 
-        enum Err e = execute_clause_with_scratch(&prg->clauses[ci], io, &local_vm, stdout,
+        enum Err e = execute_clause_with_scratch(&prg->clauses[ci], io, vm_exec, stdout,
             r_tmp, rc, lw_tmp, lc);
         if (e == E_OK)
             ok++;
@@ -281,8 +296,6 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
 
     if (last_err_out)
         *last_err_out = last_err;
-    if (vm)
-        *vm = local_vm;
     return ok;
 }
 
@@ -403,7 +416,7 @@ int main(int argc, char** argv)
     const char* command_arg = NULL;
     int loop_ms = 0;
     int idle_timeout_ms = -1;
-    WindowPolicy window_policy = WINDOW_POLICY_DELTA;
+    WindowPolicy window_policy = WINDOW_POLICY_CURSOR;
 
     int argi = 1;
     while (argi < argc) {
@@ -705,6 +718,9 @@ int main(int argc, char** argv)
     i64 window_start = 0;
     i64 last_size = io_size(&io);
     uint64_t last_change_ms = now_millis();
+    VM saved_vm;
+    memset(&saved_vm, 0, sizeof(saved_vm));
+    bool have_saved_vm = false;
     const int loop_enabled = (loop_ms > 0);
     if (!loop_enabled)
         idle_timeout_ms = -1;
@@ -720,9 +736,13 @@ int main(int argc, char** argv)
         if (window_start > window_end)
             window_start = window_end;
 
-        if (window_policy == WINDOW_POLICY_DELTA && window_start >= window_end) {
-            if (!loop_enabled)
-                break;
+        i64 effective_start = window_start;
+        if (window_policy == WINDOW_POLICY_RESCAN)
+            effective_start = 0;
+        else if (window_policy == WINDOW_POLICY_CURSOR && have_saved_vm)
+            effective_start = clamp64(saved_vm.cursor, 0, window_end);
+
+        if (loop_enabled && window_policy == WINDOW_POLICY_DELTA && effective_start >= window_end) {
             if (idle_timeout_ms >= 0 && (now_ms - last_change_ms) >= (uint64_t)idle_timeout_ms)
                 break;
             sleep_msec(loop_ms);
@@ -730,8 +750,9 @@ int main(int argc, char** argv)
         }
 
         enum Err last_err = E_OK;
-        i64 effective_start = (window_policy == WINDOW_POLICY_DELTA) ? window_start : 0;
-        int ok = run_program_once(&prg, &io, NULL, clause_ranges, clause_labels, &last_err,
+        i64 prev_cursor = have_saved_vm ? saved_vm.cursor : effective_start;
+        VM* vm_ptr = (window_policy == WINDOW_POLICY_CURSOR) ? &saved_vm : NULL;
+        int ok = run_program_once(&prg, &io, vm_ptr, clause_ranges, clause_labels, &last_err,
             effective_start, window_end);
         if (ok == 0) {
             io_close(&io);
@@ -745,10 +766,16 @@ int main(int argc, char** argv)
         if (!loop_enabled)
             break;
 
-        if (window_policy == WINDOW_POLICY_DELTA)
+        if (window_policy == WINDOW_POLICY_CURSOR) {
+            have_saved_vm = true;
+            window_start = clamp64(saved_vm.cursor, 0, window_end);
+            if (saved_vm.cursor != prev_cursor)
+                last_change_ms = now_ms;
+        } else if (window_policy == WINDOW_POLICY_DELTA) {
             window_start = window_end;
-        else
+        } else {
             window_start = 0;
+        }
 
         now_ms = now_millis();
         if (idle_timeout_ms >= 0 && (now_ms - last_change_ms) >= (uint64_t)idle_timeout_ms)
