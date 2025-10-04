@@ -13,13 +13,16 @@ typedef uint32_t u32;
 
 typedef struct { const char* bytes; i32 len; } String;
 
-enum Unit {
+// Unit type: bytes, lines, chars
+typedef uint8_t Unit;
+enum {
     UNIT_BYTES,
     UNIT_LINES,
     UNIT_CHARS // UTF-8 code points
 };
 
-enum OpKind {
+typedef uint8_t OpKind;
+enum {
     OP_FIND,
     OP_FINDR,
     OP_SKIP,
@@ -34,7 +37,8 @@ enum OpKind {
     OP_PRINT
 };
 
-enum LocBase {
+typedef uint8_t LocBase;
+enum {
     LOC_CURSOR,
     LOC_BOF,
     LOC_EOF,
@@ -45,11 +49,11 @@ enum LocBase {
     LOC_LINE_END
 };
 
-// Resolution reference for location expressions
-typedef enum {
+typedef uint8_t LocRef;
+enum {
     REF_CURSOR, // resolve relative to staged cursor
     REF_MATCH   // resolve relative to last match (used by 'at' expressions)
-} LocRef;
+};
 
 enum Err {
     E_OK = 0,
@@ -63,18 +67,17 @@ enum Err {
 };
 
 typedef struct {
-    LocRef ref;       // resolution reference (cursor vs match)
-    enum LocBase base;
-    enum Unit unit;
     i64 offset;
-    i32 name_idx; // index into program->names[], -1 otherwise
+    i32 name_idx;     // index into program->names[], -1 otherwise
+    LocBase base;
+    Unit unit;
 } LocExpr;
 
 typedef struct ReProg ReProg;
 
 typedef struct {
-    bool active;
     i64 lo, hi; // half-open [lo, hi)
+    bool active;
 } View;
 
 typedef enum { 
@@ -84,6 +87,7 @@ typedef enum {
 } ClampPolicy;
 
 typedef struct {
+    OpKind kind;
     union {
         struct {
             LocExpr to;
@@ -96,11 +100,11 @@ typedef struct {
         } findr;
         struct {
             u64 n;
-            enum Unit unit;
+            Unit unit;
         } skip;
         struct {
             i64 offset;
-            enum Unit unit;
+            Unit unit;
         } take_len;
         struct {
             LocExpr to;
@@ -129,7 +133,6 @@ typedef struct {
             i32 msec;
         } sleep;
     } u;
-    enum OpKind kind;
 } Op;
 
 // How clauses are linked together
@@ -143,14 +146,12 @@ typedef enum {
 typedef struct {
     Op* ops;
     i32 op_count;
-    i32 op_cap;
-    ClauseLink link;  // How this clause links to the next one
+    ClauseLink link;
 } Clause;
 
 typedef struct {
     Clause* clauses;
     i32 clause_count;
-    i32 clause_cap;
     char names[128][16];
     i32 name_count;
 } Program;
@@ -165,8 +166,7 @@ typedef struct {
     Match last_match;
     View view;
 
-    i64 label_pos[128]; // name_idx -> position mapping
-    unsigned char label_set[128]; // 0/1 flags for which labels are set
+    i64 label_pos[128]; // name_idx -> position mapping (-1 = not set)
 } VM;
 
 // Staged capture range or literal string
@@ -196,12 +196,12 @@ typedef struct {
 
 // Staged execution result
 typedef struct {
-    VM staged_vm;           // Staged VM state (cursor, last_match, view)
-    Range* ranges;           // Staged output ranges
-    i32 range_count;        // Number of staged ranges
+    VM staged_vm;             // Staged VM state (cursor, last_match, view)
+    Range* ranges;            // Staged output ranges
+    i32 range_count;          // Number of staged ranges
     LabelWrite* label_writes; // Staged label writes
-    i32 label_count;        // Number of staged labels
-    enum Err err;           // Execution result
+    i32 label_count;          // Number of staged labels
+    enum Err err;             // Execution result
 } StagedResult;
 
 void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap);
