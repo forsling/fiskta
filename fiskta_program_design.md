@@ -89,6 +89,7 @@ The driver view always intersects with any `viewset` expressed by the program so
   - Window per tick: `[processed_hi, sz)` where `processed_hi` advances to `sz` on success.
   - Never re-processes old bytes; ideal for tailing append-only logs and streaming inputs.
   - Outputs are naturally de-duplicated since prior regions are not revisited.
+  - Implementation keeps a high-water mark (`window_start`) that seeds the VM view as `[window_start, current_size)` each iteration.
 
 - Sliding:
   - Window per tick: `[max(0, sz - W), sz)` for a fixed width `W`.
@@ -123,7 +124,7 @@ Clause atomicity is unchanged: within a tick, a clause either commits its staged
 - Iteration driver flags:
   - `--loop=<ms>` Enable a periodic re-run (0 disables looping).
   - `--idle-timeout=<ms>` Exit the loop after the timeout if no new input appears.
-  - `--window-policy=delta|rescan|sliding[:W]` Select window policy; default `delta`.
+  - `--window-policy=delta|rescan|sliding[:W]` Select window policy; default `cursor`.
 
 - Command‑stream flags:
   - `--ops-stdin` Read newline‑delimited ops strings from stdin; each line is a full program.

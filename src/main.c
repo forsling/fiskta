@@ -401,6 +401,7 @@ static void print_usage(void)
     printf("      --                      Treat subsequent arguments as operations\n");
     printf("      --loop <ms>             Re-run the program every ms (0 disables looping)\n");
     printf("      --idle-timeout <ms>     Stop looping after ms with no input growth\n");
+    printf("      --window-policy <p>     Loop window policy: delta | rescan | cursor (default: cursor)\n");
     printf("  -h, --help                  Show this help message\n");
     printf("  -v, --version               Show version information\n");
     printf("\n");

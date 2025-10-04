@@ -40,9 +40,7 @@ Re-run the same program every second until the input grows:
 ```
 
 ## Usage
-
 ```
-USAGE:
   fiskta [options] <operations>
   (use --input <path> to select input; defaults to stdin)
 
@@ -114,11 +112,11 @@ CLAUSES:
 
 OPTIONS:
   -i, --input <path>          Read input from path (default: stdin)
-  -c, --commands <string>     Parse operations from a single string argument
+  -c, --commands <string>     Provide operations as a single string
       --                      Treat subsequent arguments as operations
       --loop <ms>             Re-run the program every ms (0 disables looping)
       --idle-timeout <ms>     Stop looping after ms with no input growth
-      --window-policy <mode>  Loop mode: delta (default) or rescan
+      --window-policy <p>     Loop window policy: delta | rescan | cursor (default: cursor)
   -h, --help                  Show this help message
   -v, --version               Show version information
 ```
@@ -159,8 +157,6 @@ Digit          = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" .
 Path           = filesystem path string .
 ShellString    = shell-quoted non-empty byte string .
 ```
-
-Input is selected via the CLI `--input` option (defaulting to stdin).
 
 ## Build & Test
 - `make` builds the optimized binary (`fiskta`).
