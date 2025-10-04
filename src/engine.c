@@ -91,6 +91,7 @@ void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap)
     *out_labels_cap = lc > 0 ? lc : 1;
 }
 
+
 static enum Err execute_op(const Op* op, File* io, VM* vm,
     i64* c_cursor, Match* c_last_match,
     Range** ranges, i32* range_count, i32* range_cap,
@@ -101,7 +102,7 @@ static enum Err resolve_loc_expr_cp(
     const Match* staged_match, i64 staged_cursor,
     const LabelWrite* staged_labels, i32 staged_label_count,
     const View* c_view, ClampPolicy clamp, i64* out);
-static void commit_labels(VM* vm, const LabelWrite* label_writes, i32 label_count);
+void commit_labels(VM* vm, const LabelWrite* label_writes, i32 label_count);
 
 enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
 {
@@ -228,8 +229,30 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
         Range* r_tmp = (rc > 0) ? ranges_buf : NULL;
         LabelWrite* lw_tmp = (lc > 0) ? labels_buf : NULL;
 
-        err = execute_clause_with_scratch(&prg->clauses[i], &io, &vm, out,
-            r_tmp, rc, lw_tmp, lc);
+        StagedResult result;
+        err = execute_clause_stage_only(&prg->clauses[i], &io, &vm,
+            r_tmp, rc, lw_tmp, lc, &result);
+        if (err == E_OK) {
+            // Commit staged ranges to output
+            for (i32 j = 0; j < result.range_count; j++) {
+                if (result.ranges[j].kind == RANGE_FILE) {
+                    err = io_emit(&io, result.ranges[j].file.start, result.ranges[j].file.end, out);
+                } else {
+                    // RANGE_LIT: write literal bytes
+                    if ((size_t)fwrite(result.ranges[j].lit.bytes, 1, (size_t)result.ranges[j].lit.len, out) != (size_t)result.ranges[j].lit.len)
+                        err = E_IO;
+                }
+                if (err != E_OK)
+                    break;
+            }
+            if (err == E_OK) {
+                // Commit staged VM state
+                commit_labels(&vm, result.label_writes, result.label_count);
+                vm.cursor = result.staged_vm.cursor;
+                vm.last_match = result.staged_vm.last_match;
+                vm.view = result.staged_vm.view;
+            }
+        }
         if (err == E_OK) {
             successful_clauses++;
         } else {
@@ -779,7 +802,7 @@ static enum Err resolve_loc_expr_cp(
     return E_OK;
 }
 
-static void commit_labels(VM* vm, const LabelWrite* label_writes, i32 label_count)
+void commit_labels(VM* vm, const LabelWrite* label_writes, i32 label_count)
 {
     for (i32 i = 0; i < label_count; i++) {
         i32 name_idx = label_writes[i].name_idx;

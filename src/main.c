@@ -105,6 +105,8 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
     char* str_pool, size_t str_pool_cap);
 enum Err io_open(File* io, const char* path,
     unsigned char* search_buf, size_t search_buf_cap);
+void commit_labels(VM* vm, const LabelWrite* label_writes, i32 label_count);
+enum Err io_emit(File* io, i64 start, i64 end, FILE* out);
 
 static const char* err_str(enum Err e)
 {
@@ -279,6 +281,7 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
 
     i32 ok = 0;
     enum Err last_err = E_OK;
+    StagedResult result;
 
     for (i32 ci = 0; ci < prg->clause_count; ++ci) {
         i32 rc = 0, lc = 0;
@@ -286,12 +289,62 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
         Range* r_tmp = (rc > 0) ? clause_ranges : NULL;
         LabelWrite* lw_tmp = (lc > 0) ? clause_labels : NULL;
 
-        enum Err e = execute_clause_with_scratch(&prg->clauses[ci], io, vm_exec, stdout,
-            r_tmp, rc, lw_tmp, lc);
-        if (e == E_OK)
+        enum Err e = execute_clause_stage_only(&prg->clauses[ci], io, vm_exec,
+            r_tmp, rc, lw_tmp, lc, &result);
+        if (e == E_OK) {
+            // Commit staged ranges to output
+            for (i32 i = 0; i < result.range_count; i++) {
+                if (result.ranges[i].kind == RANGE_FILE) {
+                    e = io_emit(io, result.ranges[i].file.start, result.ranges[i].file.end, stdout);
+                } else {
+                    // RANGE_LIT: write literal bytes
+                    if ((size_t)fwrite(result.ranges[i].lit.bytes, 1, (size_t)result.ranges[i].lit.len, stdout) != (size_t)result.ranges[i].lit.len)
+                        e = E_IO;
+                }
+                if (e != E_OK)
+                    break;
+            }
+            if (e == E_OK) {
+                // Commit staged VM state
+                commit_labels(vm_exec, result.label_writes, result.label_count);
+                vm_exec->cursor = result.staged_vm.cursor;
+                vm_exec->last_match = result.staged_vm.last_match;
+                vm_exec->view = result.staged_vm.view;
+            }
+        }
+        
+        // Handle links - the clause's link tells us what to do next
+        if (e == E_OK) {
             ok++;
-        else
+            // Success: check this clause's link
+            if (prg->clauses[ci].link == LINK_OR) {
+                // This clause succeeded and links with OR
+                // Skip all remaining clauses in the OR chain
+                while (ci + 1 < prg->clause_count && prg->clauses[ci].link == LINK_OR) {
+                    ci++;  // Skip the OR alternative
+                }
+            }
+            // For LINK_AND, LINK_THEN, or LINK_NONE: just continue to next clause
+        } else {
             last_err = e;
+            // Failure: check if previous clause linked to this with AND
+            if (ci > 0 && prg->clauses[ci - 1].link == LINK_AND) {
+                // Previous clause said AND - this failure breaks the chain
+                // Return 0 to indicate overall failure
+                if (last_err_out)
+                    *last_err_out = last_err;
+                return 0;
+            }
+            // Also check if this clause itself has an AND link (meaning it would have ANDed with next)
+            if (prg->clauses[ci].link == LINK_AND) {
+                // This clause failed and was supposed to AND with next
+                // Stop execution - the AND chain is broken
+                if (last_err_out)
+                    *last_err_out = last_err;
+                return 0;
+            }
+            // For LINK_OR, LINK_THEN, or LINK_NONE: continue to next clause
+        }
     }
 
     if (last_err_out)
