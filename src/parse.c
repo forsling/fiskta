@@ -816,27 +816,41 @@ static enum Err parse_milliseconds(const char* token, i32* out_ms)
         return E_PARSE;
 
     size_t len = strlen(token);
-    if (len < 3)
+    if (len < 2)
         return E_PARSE;
 
-    if (token[len - 2] != 'm' || token[len - 1] != 's')
+    int multiplier = 1; // default for milliseconds suffix
+    size_t suffix_len = 0;
+
+    if (len >= 2 && token[len - 2] == 'm' && token[len - 1] == 's') {
+        suffix_len = 2;
+        multiplier = 1;
+    } else if (token[len - 1] == 's') {
+        suffix_len = 1;
+        multiplier = 1000;
+    } else {
+        return E_PARSE;
+    }
+
+    if (len <= suffix_len)
         return E_PARSE;
 
-    size_t num_len = len - 2;
-    if (num_len == 0)
-        return E_PARSE;
-
+    size_t num_len = len - suffix_len;
     u64 value = 0;
     for (size_t i = 0; i < num_len; ++i) {
         char c = token[i];
         if (!isdigit((unsigned char)c))
             return E_PARSE;
         value = value * 10 + (u64)(c - '0');
-        if (value > INT32_MAX)
+        if (value > (u64)INT32_MAX)
             return E_PARSE;
     }
 
-    *out_ms = (i32)value;
+    u64 total = value * (u64)multiplier;
+    if (total > (u64)INT32_MAX)
+        return E_PARSE;
+
+    *out_ms = (i32)total;
     return E_OK;
 }
 

@@ -181,6 +181,7 @@ static void print_usage(void)
     printf("  goto <location>             Jump to labeled position\n");
     printf("  viewset <L1> <L2>           Limit all ops to [min(L1,L2), max(L1,L2))\n");
     printf("  viewclear                   Clear view; return to full file\n");
+    printf("  sleep <duration>            Pause execution; duration suffix ms or s (e.g., 500ms, 1s)\n");
     printf("  print <string>              Emit literal bytes (alias: echo)\n");
     printf("                              Supports escape sequences: \\n \\t \\r \\0 \\\\\n");
     printf("                              Participates in clause atomicity\n");

@@ -60,6 +60,7 @@ OPERATIONS:
   goto <location>             Jump to labeled position
   viewset <L1> <L2>           Limit all ops to [min(L1,L2), max(L1,L2))
   viewclear                   Clear view; return to full file
+  sleep <duration>            Pause execution; duration suffix ms or s (e.g., 500ms, 1s)
   print <string>              Emit literal bytes (alias: echo)
                               Supports escape sequences: \n \t \r \0 \\
                               Participates in clause atomicity
@@ -126,6 +127,7 @@ Label          = "label" Name .
 Goto           = "goto" LocationExpr .
 Viewset        = "viewset" LocationExpr LocationExpr .
 Viewclear      = "viewclear" .
+Sleep          = "sleep" Duration .
 Print          = ( "print" | "echo" ) String .
 LocationExpr   = Location [ Offset ] .
 Location       = "cursor" | "BOF" | "EOF" | Name
@@ -134,6 +136,7 @@ AtExpr         = ( "match-start" | "match-end" | "line-start" | "line-end" ) [ O
 Offset         = ( "+" | "-" ) Number Unit .
 SignedNumber   = [ "+" | "-" ] Number .
 Unit           = "b" | "l" | "c" .
+Duration       = Number "ms" | Number "s" .
 Number         = Digit { Digit } .
 Name           = Upper { Upper | Digit | "_" | "-" } .
 String         = ShellString .
