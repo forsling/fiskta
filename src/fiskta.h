@@ -151,7 +151,7 @@ typedef struct {
     Clause* clauses;
     i32 clause_count;
     i32 clause_cap;
-    char names[128][17];
+    char names[128][16];
     i32 name_count;
 } Program;
 
