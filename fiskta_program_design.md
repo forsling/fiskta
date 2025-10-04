@@ -1,3 +1,38 @@
+# Initial thoughs on fiskta 'programs'
+
+This is a collection of ideas and design considerations for the extention of fiskta
+into a more capable utility.
+
+The core idea is the ability of having fiskta programs, that unlike the current run to completions model,
+allows continuously executing fiskta 'programs' to run. Perhaps a different word than program is warranted.
+What I mean by this is simple a series of fiskta commands that are continuously doing work on incoming data 
+without an expectation of ever finishing. The simplest instance of this would be roughly equivalent to 
+having a grep filter in a pipe that just filters the incoming data into some modified output.
+
+We may also want to enable a basically inverted model to the streaming input with fixed commands.
+What if we want to stream the commands but have a static input file? Or perhaps stream both commands 
+and input. I wounder what the potential use cases for this are?
+
+Memory allocation in a command stream world: We probably would have to redo our memory allocations 
+as our current model is based on us being able to essentially process all commands and figure out how 
+much memory we need and then do our allocation based on that, which obviously would not work if commands 
+may appear at any time over a stream. One simple solution to this would be to cap the amount of commands 
+possible on a single clause and allocate enough memory to be able to handle the 'maximal clause'. 
+Once execution of a clause is finished and we commit or revert the clause we simply reuse that memory.
+
+The core idea of fiskta is that it is intuitive and we must not lose track of this, even with this more 
+complex version. Our goal is always for a user who has never read any documentation about fiskta can look 
+at a fiskta and roughly figure out what it does anyway.
+
+This probably is a bit tricky with this more extended version. One thing we need to figure out is what 
+commands are needed in order to support this non-completing program model.
+One thing we need is a sleep command I think, probably with millisecond resolution, and perhaps we want 
+to force all fiskta programs to have at least one sleep to prevent cpu-burning spinlocks?
+
+But I am not sure how you would actually specify what makes a series of fiskta commands a running program/filter.
+Is it a command or is it a flag that just runs the same commands over and over again as new input comes in.
+Not sure.
+
 # fiskta Program Design (Iterative/Streaming Execution)
 
 This document proposes an extension to fiskta that enables running fiskta programs iteratively, potentially forever, while preserving the project’s core principles: simplicity, streaming, clause atomicity, and allocation aversion.
