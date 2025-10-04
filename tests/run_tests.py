@@ -182,9 +182,11 @@ END_SECTION_B
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
-def run(exe: Path, tokens, in_path: str | None, stdin_data: bytes | None):
-    # Build argv: fiskta [--input PATH] <tokens...>
+def run(exe: Path, tokens, in_path: str | None, stdin_data: bytes | None, extra_args=None):
+    # Build argv: fiskta [options] [--input PATH] <tokens...>
     argv = [str(exe)]
+    if extra_args:
+        argv.extend(extra_args)
     if in_path is not None:
         argv.extend(["--input", in_path])
     argv.extend(tokens)
@@ -1817,6 +1819,16 @@ def tests():
         dict(id="cli-002-help-flag",
              tokens=["--help"], input_file=None,
              expect=dict(stdout_startswith=f"fiskta (FInd SKip TAke) Text Extraction Tool v{VERSION}", exit=0)),
+
+        dict(id="loop-001-basic",
+             tokens=["take","+2b"], input_file="overlap.txt",
+             extra_args=["--loop","1","--idle-timeout","0"],
+             expect=dict(stdout="ab", exit=0)),
+
+        dict(id="loop-002-rescan",
+             tokens=["take","+1b"], input_file="overlap.txt",
+             extra_args=["--loop","1","--idle-timeout","2","--window-policy","rescan"],
+             expect=dict(stdout_startswith="aa", exit=0)),
     ]
 
 def main():
@@ -1848,6 +1860,7 @@ def main():
         tokens = t["tokens"]
         in_name = t.get("input_file", None)
         stdin_data = t.get("stdin", None)
+        extra_args = t.get("extra_args", [])
 
         if in_name is None:
             in_path = None
@@ -1855,7 +1868,7 @@ def main():
             in_path = "-"
         else:
             in_path = str(FIX / in_name)
-        code, out, err = run(exe, tokens, in_path, stdin_data)
+        code, out, err = run(exe, tokens, in_path, stdin_data, extra_args)
         ok_stdout, why = expect_stdout(out, t["expect"])
         ok_exit = (code == t["expect"]["exit"])
 

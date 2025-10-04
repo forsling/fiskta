@@ -1,3 +1,7 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include "arena.h"
 #include "fiskta.h"
 #include "iosearch.h"
@@ -7,9 +11,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <sys/types.h>
 
 #ifdef _WIN32
 #include <windows.h>
+#if !defined(__MINGW32__) && !defined(__MINGW64__)
+#define fseeko _fseeki64
+#define ftello _ftelli64
+#endif
 #endif
 
 enum Err io_open(File* io, const char* path,
@@ -565,7 +574,7 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
             return err;
 
         // Check if target is outside view bounds
-        if (c_view->active && (*c_cursor < c_view->lo || *c_cursor >= c_view->hi)) {
+        if (c_view->active && (*c_cursor < c_view->lo || *c_cursor > c_view->hi)) {
             return E_LOC_RESOLVE;
         }
 

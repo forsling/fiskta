@@ -156,6 +156,11 @@ static size_t align_or_die(size_t x, size_t align)
 #endif
 #endif
 
+typedef enum {
+    WINDOW_POLICY_DELTA,
+    WINDOW_POLICY_RESCAN
+} WindowPolicy;
+
 static void sleep_msec(int msec)
 {
     if (msec <= 0)
@@ -213,10 +218,50 @@ static int parse_nonneg_option(const char* value, const char* opt_name, int* out
     return 0;
 }
 
+static int parse_window_policy_option(const char* value, WindowPolicy* out)
+{
+    if (!value || !out)
+        return 1;
+    if (strcmp(value, "delta") == 0) {
+        *out = WINDOW_POLICY_DELTA;
+        return 0;
+    }
+    if (strcmp(value, "rescan") == 0) {
+        *out = WINDOW_POLICY_RESCAN;
+        return 0;
+    }
+    fprintf(stderr, "fiskta: --window-policy expects one of: delta, rescan\n");
+    return 1;
+}
+
+static int parse_idle_timeout_option(const char* value, int* out)
+{
+    if (!value || !out)
+        return 1;
+    if (strcmp(value, "none") == 0 || strcmp(value, "off") == 0 || strcmp(value, "-1") == 0) {
+        *out = -1;
+        return 0;
+    }
+    return parse_nonneg_option(value, "--idle-timeout", out);
+}
+
 static int run_program_once(const Program* prg, File* io, VM* vm,
     Range* clause_ranges, LabelWrite* clause_labels,
-    enum Err* last_err_out)
+    enum Err* last_err_out,
+    i64 window_lo, i64 window_hi)
 {
+    if (last_err_out)
+        *last_err_out = E_OK;
+
+    io_reset_full(io);
+
+    VM local_vm;
+    memset(&local_vm, 0, sizeof(local_vm));
+    local_vm.cursor = clamp64(window_lo, 0, io_size(io));
+    local_vm.view.active = true;
+    local_vm.view.lo = clamp64(window_lo, 0, io_size(io));
+    local_vm.view.hi = clamp64(window_hi, 0, io_size(io));
+
     i32 ok = 0;
     enum Err last_err = E_OK;
 
@@ -226,7 +271,7 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
         Range* r_tmp = (rc > 0) ? clause_ranges : NULL;
         LabelWrite* lw_tmp = (lc > 0) ? clause_labels : NULL;
 
-        enum Err e = execute_clause_with_scratch(&prg->clauses[ci], io, vm, stdout,
+        enum Err e = execute_clause_with_scratch(&prg->clauses[ci], io, &local_vm, stdout,
             r_tmp, rc, lw_tmp, lc);
         if (e == E_OK)
             ok++;
@@ -236,6 +281,8 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
 
     if (last_err_out)
         *last_err_out = last_err;
+    if (vm)
+        *vm = local_vm;
     return ok;
 }
 
@@ -356,6 +403,7 @@ int main(int argc, char** argv)
     const char* command_arg = NULL;
     int loop_ms = 0;
     int idle_timeout_ms = -1;
+    WindowPolicy window_policy = WINDOW_POLICY_DELTA;
 
     int argi = 1;
     while (argi < argc) {
@@ -411,13 +459,29 @@ int main(int argc, char** argv)
                 fprintf(stderr, "fiskta: --idle-timeout requires a value\n");
                 return 2;
             }
-            if (parse_nonneg_option(argv[argi + 1], "--idle-timeout", &idle_timeout_ms) != 0)
+            if (parse_idle_timeout_option(argv[argi + 1], &idle_timeout_ms) != 0)
                 return 2;
             argi += 2;
             continue;
         }
         if (strncmp(arg, "--idle-timeout=", 15) == 0) {
-            if (parse_nonneg_option(arg + 15, "--idle-timeout", &idle_timeout_ms) != 0)
+            if (parse_idle_timeout_option(arg + 15, &idle_timeout_ms) != 0)
+                return 2;
+            argi++;
+            continue;
+        }
+        if (strcmp(arg, "--window-policy") == 0) {
+            if (argi + 1 >= argc) {
+                fprintf(stderr, "fiskta: --window-policy requires a value\n");
+                return 2;
+            }
+            if (parse_window_policy_option(argv[argi + 1], &window_policy) != 0)
+                return 2;
+            argi += 2;
+            continue;
+        }
+        if (strncmp(arg, "--window-policy=", 16) == 0) {
+            if (parse_window_policy_option(arg + 16, &window_policy) != 0)
                 return 2;
             argi++;
             continue;
@@ -638,6 +702,7 @@ int main(int argc, char** argv)
 
     // 7) Run engine using precomputed scratch pools with short-circuit behavior
     refresh_file_size(&io);
+    i64 window_start = 0;
     i64 last_size = io_size(&io);
     uint64_t last_change_ms = now_millis();
     const int loop_enabled = (loop_ms > 0);
@@ -646,13 +711,28 @@ int main(int argc, char** argv)
 
     for (;;) {
         refresh_file_size(&io);
-        io_reset_full(&io);
+        i64 window_end = io_size(&io);
+        uint64_t now_ms = now_millis();
+        if (window_end != last_size) {
+            last_size = window_end;
+            last_change_ms = now_ms;
+        }
+        if (window_start > window_end)
+            window_start = window_end;
 
-        VM vm;
-        memset(&vm, 0, sizeof(vm));
+        if (window_policy == WINDOW_POLICY_DELTA && window_start >= window_end) {
+            if (!loop_enabled)
+                break;
+            if (idle_timeout_ms >= 0 && (now_ms - last_change_ms) >= (uint64_t)idle_timeout_ms)
+                break;
+            sleep_msec(loop_ms);
+            continue;
+        }
 
         enum Err last_err = E_OK;
-        int ok = run_program_once(&prg, &io, &vm, clause_ranges, clause_labels, &last_err);
+        i64 effective_start = (window_policy == WINDOW_POLICY_DELTA) ? window_start : 0;
+        int ok = run_program_once(&prg, &io, NULL, clause_ranges, clause_labels, &last_err,
+            effective_start, window_end);
         if (ok == 0) {
             io_close(&io);
             free(block);
@@ -665,15 +745,14 @@ int main(int argc, char** argv)
         if (!loop_enabled)
             break;
 
-        refresh_file_size(&io);
-        uint64_t now_ms = now_millis();
-        i64 size_now = io_size(&io);
-        if (size_now != last_size) {
-            last_size = size_now;
-            last_change_ms = now_ms;
-        } else if (idle_timeout_ms >= 0 && (now_ms - last_change_ms) >= (uint64_t)idle_timeout_ms) {
+        if (window_policy == WINDOW_POLICY_DELTA)
+            window_start = window_end;
+        else
+            window_start = 0;
+
+        now_ms = now_millis();
+        if (idle_timeout_ms >= 0 && (now_ms - last_change_ms) >= (uint64_t)idle_timeout_ms)
             break;
-        }
 
         sleep_msec(loop_ms);
     }

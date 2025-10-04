@@ -34,6 +34,10 @@ Fall back to a secondary match when the primary clause fails:
 ```bash
 ./fiskta --input service.log findr "^WARN" take to line-end THEN findr "^INFO" take to line-end
 ```
+Re-run the same program every second until the input grows:
+```bash
+./fiskta --loop 1000 --idle-timeout 0 --input service.log find "STATUS" take to EOF
+```
 
 ## Usage
 
@@ -114,6 +118,7 @@ OPTIONS:
       --                      Treat subsequent arguments as operations
       --loop <ms>             Re-run the program every ms (0 disables looping)
       --idle-timeout <ms>     Stop looping after ms with no input growth
+      --window-policy <mode>  Loop mode: delta (default) or rescan
   -h, --help                  Show this help message
   -v, --version               Show version information
 ```
