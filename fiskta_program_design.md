@@ -140,3 +140,89 @@ All flags are optional; running without them preserves existing one‑shot behav
 
 This plan keeps core fiskta semantics unchanged while enabling powerful long‑running workflows, with clear boundaries on memory and complexity.
 
+## Logical Clause Expressions (WIP)
+
+Goal: enable boolean composition of clauses with short‑circuiting while preserving atomicity and readability.
+
+### Syntax (proposed)
+- Sequencing operator: `THEN` (replaces the old `::`). Example:
+  - `CLAUSE1 THEN CLAUSE2 THEN CLAUSE3`
+- Boolean operators (keywords to avoid shell quoting):
+  - `AND`, `OR`
+  - Parentheses `(` `)` for grouping
+- Example: `( CLAUSE1 OR CLAUSE2 ) AND CLAUSE3 THEN CLAUSE4`
+
+Notes:
+- Keep precedence simple initially: require parentheses for any mixed `AND`/`OR` expression (no implicit precedence). We can add `AND > OR` later if desired.
+
+### Semantics
+- Group‑level atomicity: a grouped expression commits as a unit; no partial side‑effects.
+- Short‑circuiting:
+  - `A AND B`: evaluate A; on failure → fail; on success → evaluate B; commit both only if both succeed.
+  - `A OR B`: evaluate A; on success → commit A; on failure → evaluate B; commit B if it succeeds.
+- Staging rules:
+  - Each evaluation uses a staged VM (cursor, last_match, view, labels) and staged output ranges.
+  - `AND`: the right side starts from the left’s staged VM; on success combine outputs (left then right); commit combined.
+  - `OR`: the right side starts from the original VM; if left succeeds, right is not evaluated.
+- View operations (viewset/viewclear) modify the staged view; commit on group success only.
+
+### Parsing & IR
+- Extend parser to build a ClauseExpr AST:
+  - `LEAF` → existing Clause
+  - `AND(left,right)`
+  - `OR(left,right)`
+- Sequencing: top‑level is a list of ClauseExpr nodes separated by `THEN`.
+
+### Preflight & Sizing (allocation‑averse)
+- For each Clause (LEAF):
+  - `ranges_cap = count(TAKE_LEN, TAKE_TO, TAKE_UNTIL, PRINT)`
+  - `labels_cap = count(LABEL)`
+  - Regex pools sized from pattern estimates as today.
+- For `AND` node: `ranges_cap = left.ranges_cap + right.ranges_cap`; `labels_cap = left.labels_cap + right.labels_cap`; regex ins/classes capacities = sum of children estimates.
+- For `OR` node: `ranges_cap = max(left.ranges_cap, right.ranges_cap)`; labels analogously; regex ins/classes capacities = max of children estimates.
+- For nested groups, apply rules recursively. Preallocate staging arrays at the root sufficient for the worst case; reuse within evaluation.
+
+### Engine Execution Sketch
+- Add a stage‑only executor that evaluates a Clause into staging (no emission) and returns success + staged VM/output.
+- Implement `execute_expr_stage` for AND/OR using the rules above.
+- Top‑level driver: for each ClauseExpr between `THEN`, call stage, and if success → emit staged ranges, commit labels and staged VM; else → continue to next `THEN` expression (overall success if any expression commits, unchanged).
+
+## Sequencing Operator
+- `THEN` is the only sequential separator (the legacy `::` is removed).
+- Help/README/examples/tests will use `THEN` exclusively.
+
+## Caps & Memory Implications (WIP)
+
+We will keep fixed, bounded pools driven by startup caps. Two commonly discussed caps are per‑clause op counts and per‑group (logical expression) op counts.
+
+Definitions:
+- Let `R = sizeof(Range)`, `L = sizeof(LabelWrite)`, `O = sizeof(Op)`, `C = sizeof(Clause)`.
+- Let `take_like(op)` be any of: TAKE_LEN, TAKE_TO, TAKE_UNTIL, PRINT (each can stage a `Range`).
+
+Per‑Clause (LEAF) worst‑case with cap `MAX_OPS_PER_CLAUSE = 255`:
+- Ops storage: `255 * O` (fits in the existing ops buffer).
+- Staged ranges: `ranges_cap ≤ min(255, count of take_like))` → worst case `255 * R`.
+- Staged labels: `labels_cap ≤ min(255, count of LABEL)` → worst case `255 * L`.
+- Regex: worst case all ops are `findr` → `sum_findr_ops = 255`, bounded by `--max-re-ins` and `--max-re-classes` pools.
+
+Per‑Group (logical) worst‑case with cap `MAX_OPS_PER_GROUP = 255`:
+- For `AND`, capacities add: `ranges_cap_group = Σ child.ranges_cap`; labels analogous; regex ins/classes add. This can exceed 255 easily if both children are large.
+- For `OR`, capacities take the max across children.
+- Implication: a single numeric cap on “ops per group” can be too limiting for AND trees. Prefer caps that reflect real resources:
+  - `--max-ranges-per-expr` (derived by preflight from op kinds)
+  - `--max-labels-per-expr`
+  - `--max-re-ins`, `--max-re-classes`
+  - `--max-depth` (AST nesting depth, e.g., 32)
+- Keep `--max-ops-per-clause` (LEAF) for parser sanity, but size staging by the computed `ranges_cap`/`labels_cap` using the sum/max rules above.
+
+Arena sizing formulas (high‑level):
+- Ranges buffer per staged evaluation: `ranges_bytes = align(R) * ranges_cap_expr`
+- Labels buffer: `labels_bytes = align(L) * labels_cap_expr`
+- Ops/clauses arrays: `O * total_ops + C * total_clauses` (bounded by `--max-ops`/`--max-clauses`)
+- Regex pools: `sizeof(ReProg) * sum_findr_ops + sizeof(ReInst) * --max-re-ins + sizeof(ReClass) * --max-re-classes`
+- Plus existing search buffer, thread buffers, seen bitsets
+
+Recommendation:
+- Keep `MAX_OPS_PER_CLAUSE = 255` as a pragmatic parser cap.
+- Do not introduce a hard `MAX_OPS_PER_GROUP = 255`; instead, compute group staging caps via sum/max and bound them against `--max-ranges-per-expr` / `--max-labels-per-expr` (configurable). Fail fast if exceeded with a clear message.
+- Provide sensible defaults (e.g., `--max-ranges-per-expr=512`, `--max-labels-per-expr=256`) that keep memory bounded while accommodating common AND compositions.
