@@ -218,7 +218,8 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     VM vm = { 0 };
     vm.cursor = 0;
     vm.last_match.valid = false;
-    memset(vm.label_set, 0, sizeof(vm.label_set));
+    for (i32 i = 0; i < 128; i++)
+        vm.label_pos[i] = -1;
 
     i32 successful_clauses = 0;
     enum Err last_err = E_OK;
@@ -294,11 +295,9 @@ enum Err execute_clause_stage_only(const Clause* clause,
             break;
     }
 
-    // Fill result with staged state
     result->staged_vm.cursor = c_cursor;
     result->staged_vm.last_match = c_last_match;
     result->staged_vm.view = c_view;
-    result->staged_vm.label_set[0] = 0; // Not used in staging
     result->ranges = ranges;
     result->range_count = range_count;
     result->label_writes = label_writes;
@@ -577,16 +576,14 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         c_last_match->end = me;
         c_last_match->valid = true;
 
-        // Resolve at-expr
         i64 target;
         if (op->u.take_until.has_at) {
-            // Use unified resolver; at-expr carries REF_MATCH
-            err = resolve_loc_expr_cp(&op->u.take_until.at, io, vm, c_last_match, *c_cursor,
+            err = resolve_loc_expr_cp(&op->u.take_until.at, io, vm, c_last_match, ms,
                 *label_writes, *label_count, c_view, CLAMP_VIEW, &target);
             if (err != E_OK)
                 return err;
         } else {
-            target = ms; // Default to match-start
+            target = ms;
         }
 
         i64 dst = vclamp(c_view, io, target);
@@ -717,8 +714,9 @@ static enum Err resolve_loc_expr_cp(
         }
         // If not found in staged, check committed labels
         if (!found) {
-            if (vm->label_set[loc->name_idx]) {
-                base = vm->label_pos[loc->name_idx];
+            i64 committed_pos = vm->label_pos[loc->name_idx];
+            if (committed_pos >= 0) {
+                base = committed_pos;
                 found = true;
             }
         }
@@ -738,11 +736,6 @@ static enum Err resolve_loc_expr_cp(
         break;
     case LOC_LINE_START: {
         i64 anchor = staged_cursor;
-        if (loc->ref == REF_MATCH) {
-            if (!staged_match->valid)
-                return E_LOC_RESOLVE;
-            anchor = staged_match->start;
-        }
         enum Err e = io_line_start(io, anchor, &base);
         if (e != E_OK)
             return e;
@@ -752,11 +745,6 @@ static enum Err resolve_loc_expr_cp(
     }
     case LOC_LINE_END: {
         i64 anchor = staged_cursor;
-        if (loc->ref == REF_MATCH) {
-            if (!staged_match->valid)
-                return E_LOC_RESOLVE;
-            anchor = staged_match->end;
-        }
         enum Err e = io_line_end(io, anchor, &base);
         if (e != E_OK)
             return e;
@@ -805,10 +793,6 @@ static enum Err resolve_loc_expr_cp(
 void commit_labels(VM* vm, const LabelWrite* label_writes, i32 label_count)
 {
     for (i32 i = 0; i < label_count; i++) {
-        i32 name_idx = label_writes[i].name_idx;
-        i64 pos = label_writes[i].pos;
-
-        vm->label_pos[name_idx] = pos;
-        vm->label_set[name_idx] = 1;
+        vm->label_pos[label_writes[i].name_idx] = label_writes[i].pos;
     }
 }
