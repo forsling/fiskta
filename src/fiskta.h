@@ -30,6 +30,7 @@ enum OpKind {
     OP_GOTO,
     OP_VIEWSET,
     OP_VIEWCLEAR,
+    OP_SLEEP,
     OP_PRINT
 };
 
@@ -117,6 +118,9 @@ typedef struct {
         struct {
             String string;
         } print;
+        struct {
+            i32 msec;
+        } sleep;
     } u;
     enum OpKind kind;
 } Op;

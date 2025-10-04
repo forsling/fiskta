@@ -3,8 +3,14 @@
 #include "iosearch.h"
 #include "util.h"
 #include <limits.h>
+#include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#endif
 
 enum Err io_open(File* io, const char* path,
     unsigned char* search_buf, size_t search_buf_cap);
@@ -36,6 +42,22 @@ static inline void apply_byte_saturation(i64* base, i64 delta, const View* v, co
 static int add_ovf(size_t a, size_t b, size_t* out) {
     if (SIZE_MAX - a < b) return 1;
     *out = a + b; return 0;
+}
+
+static void sleep_msec(i32 msec)
+{
+    if (msec <= 0)
+        return;
+
+#ifdef _WIN32
+    Sleep((DWORD)msec);
+#else
+    struct timespec req;
+    req.tv_sec = msec / 1000;
+    req.tv_nsec = (long)(msec % 1000) * 1000000L;
+    while (nanosleep(&req, &req) == -1 && errno == EINTR) {
+    }
+#endif
 }
 
 void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap)
@@ -593,6 +615,11 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         Range* r = &(*ranges)[(*range_count)++];
         r->kind = RANGE_LIT;
         r->lit = op->u.print.string;
+        break;
+    }
+
+    case OP_SLEEP: {
+        sleep_msec(op->u.sleep.msec);
         break;
     }
 
