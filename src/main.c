@@ -397,7 +397,7 @@ static void print_usage(void)
     printf("\n");
     printf("OPTIONS:\n");
     printf("  -i, --input <path>          Read input from path (default: stdin)\n");
-    printf("  -c, --commands <string>     Provide operations as a single string\n");
+    printf("  -c, --commands <string|-|file> Provide operations as a single string ( '-' or file path allowed)\n");
     printf("      --                      Treat subsequent arguments as operations\n");
     printf("      --loop <ms>             Re-run the program every ms (0 disables looping)\n");
     printf("      --idle-timeout <ms>     Stop looping after ms with no input growth\n");
@@ -415,6 +415,9 @@ int main(int argc, char** argv)
 
     const char* input_path = "-";
     const char* command_arg = NULL;
+    const char* command_file = NULL;
+    bool input_explicit = false;
+    bool commands_from_stdin = false;
     int loop_ms = 0;
     int idle_timeout_ms = -1;
     WindowPolicy window_policy = WINDOW_POLICY_CURSOR;
@@ -440,6 +443,7 @@ int main(int argc, char** argv)
                 return 2;
             }
             input_path = argv[argi + 1];
+            input_explicit = true;
             argi += 2;
             continue;
         }
@@ -449,6 +453,7 @@ int main(int argc, char** argv)
                 return 2;
             }
             input_path = arg + 8;
+            input_explicit = true;
             argi++;
             continue;
         }
@@ -501,7 +506,7 @@ int main(int argc, char** argv)
             continue;
         }
         if (strcmp(arg, "-c") == 0 || strcmp(arg, "--commands") == 0) {
-            if (command_arg) {
+            if (command_arg || command_file || commands_from_stdin) {
                 fprintf(stderr, "fiskta: --commands specified multiple times\n");
                 return 2;
             }
@@ -509,12 +514,23 @@ int main(int argc, char** argv)
                 fprintf(stderr, "fiskta: --commands requires a string\n");
                 return 2;
             }
-            command_arg = argv[argi + 1];
+            const char* value = argv[argi + 1];
+            if (strcmp(value, "-") == 0) {
+                commands_from_stdin = true;
+            } else {
+                FILE* test = fopen(value, "rb");
+                if (test) {
+                    fclose(test);
+                    command_file = value;
+                } else {
+                    command_arg = value;
+                }
+            }
             argi += 2;
             continue;
         }
         if (strncmp(arg, "--commands=", 11) == 0) {
-            if (command_arg) {
+            if (command_arg || command_file || commands_from_stdin) {
                 fprintf(stderr, "fiskta: --commands specified multiple times\n");
                 return 2;
             }
@@ -522,7 +538,18 @@ int main(int argc, char** argv)
                 fprintf(stderr, "fiskta: --commands requires a string\n");
                 return 2;
             }
-            command_arg = arg + 11;
+            const char* value = arg + 11;
+            if (strcmp(value, "-") == 0) {
+                commands_from_stdin = true;
+            } else {
+                FILE* test = fopen(value, "rb");
+                if (test) {
+                    fclose(test);
+                    command_file = value;
+                } else {
+                    command_arg = value;
+                }
+            }
             argi++;
             continue;
         }
@@ -541,7 +568,89 @@ int main(int argc, char** argv)
     i32 token_count = 0;
     char* splitv[256];
 
-    if (command_arg) {
+    char stdin_commands_buf[4096];
+
+    if (commands_from_stdin) {
+        if (ops_index < argc) {
+            fprintf(stderr, "fiskta: --commands cannot be combined with positional operations\n");
+            return 2;
+        }
+        if (!input_explicit || strcmp(input_path, "-") == 0) {
+            fprintf(stderr, "fiskta: -c - requires --input pointing to a file\n");
+            return 2;
+        }
+        size_t total = 0;
+        int ch;
+        while ((ch = fgetc(stdin)) != EOF) {
+            if (total + 1 >= sizeof(stdin_commands_buf)) {
+                fprintf(stderr, "fiskta: operations stream too long (max 4096 bytes)\n");
+                return 2;
+            }
+            stdin_commands_buf[total++] = (char)ch;
+        }
+        stdin_commands_buf[total] = '\0';
+        if (total == 0) {
+            fprintf(stderr, "fiskta: empty command stream\n");
+            return 2;
+        }
+        for (size_t i = 0; i < total; ++i) {
+            if (stdin_commands_buf[i] == '\n' || stdin_commands_buf[i] == '\r')
+                stdin_commands_buf[i] = ' ';
+        }
+        i32 n = split_ops_string(stdin_commands_buf, splitv, (i32)(sizeof splitv / sizeof splitv[0]));
+        if (n == -1) {
+            fprintf(stderr, "fiskta: operations string too long (max 4096 bytes)\n");
+            return 2;
+        }
+        if (n <= 0) {
+            fprintf(stderr, "fiskta: empty command string\n");
+            return 2;
+        }
+        tokens = splitv;
+        token_count = n;
+    } else if (command_file) {
+        if (ops_index < argc) {
+            fprintf(stderr, "fiskta: --commands cannot be combined with positional operations\n");
+            return 2;
+        }
+        FILE* cf = fopen(command_file, "rb");
+        if (!cf) {
+            fprintf(stderr, "fiskta: unable to open commands file %s\n", command_file);
+            return 2;
+        }
+        size_t total = fread(stdin_commands_buf, 1, sizeof(stdin_commands_buf) - 1, cf);
+        if (ferror(cf)) {
+            fclose(cf);
+            fprintf(stderr, "fiskta: error reading commands file %s\n", command_file);
+            return 2;
+        }
+        if (!feof(cf)) {
+            fclose(cf);
+            fprintf(stderr, "fiskta: operations file too long (max 4096 bytes)\n");
+            return 2;
+        }
+        fclose(cf);
+        stdin_commands_buf[total] = '\0';
+        if (total == 0) {
+            fprintf(stderr, "fiskta: empty commands file\n");
+            return 2;
+        }
+        for (size_t i = 0; i < total; ++i) {
+            if (stdin_commands_buf[i] == '\n' || stdin_commands_buf[i] == '\r')
+                stdin_commands_buf[i] = ' ';
+        }
+        i32 n = split_ops_string(stdin_commands_buf, splitv, (i32)(sizeof splitv / sizeof splitv[0]));
+        if (n == -1) {
+            fprintf(stderr, "fiskta: operations string too long (max 4096 bytes)\n");
+            return 2;
+        }
+        if (n <= 0) {
+            fprintf(stderr, "fiskta: empty command string\n");
+            return 2;
+        }
+        tokens = splitv;
+        token_count = n;
+    } else if (command_arg) {
         if (ops_index < argc) {
             fprintf(stderr, "fiskta: --commands cannot be combined with positional operations\n");
             return 2;
