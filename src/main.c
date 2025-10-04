@@ -1,3 +1,7 @@
+#ifndef _GNU_SOURCE
+#define _GNU_SOURCE
+#endif
+
 #include "arena.h"
 #include "fiskta.h"
 #include "iosearch.h"
@@ -5,9 +9,14 @@
 #include "reprog.h"
 #include "util.h"
 #include <ctype.h>
+#include <errno.h>
+#include <limits.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <sys/types.h>
 
 #ifndef FISKTA_VERSION
 #define FISKTA_VERSION "dev"
@@ -139,6 +148,97 @@ static size_t align_or_die(size_t x, size_t align)
     return aligned;
 }
 
+#ifdef _WIN32
+#include <windows.h>
+#if !defined(__MINGW32__) && !defined(__MINGW64__)
+#define fseeko _fseeki64
+#define ftello _ftelli64
+#endif
+#endif
+
+static void sleep_msec(int msec)
+{
+    if (msec <= 0)
+        return;
+#ifdef _WIN32
+    Sleep((DWORD)msec);
+#else
+    struct timespec req;
+    req.tv_sec = msec / 1000;
+    req.tv_nsec = (long)(msec % 1000) * 1000000L;
+    while (nanosleep(&req, &req) == -1 && errno == EINTR) {
+    }
+#endif
+}
+
+static uint64_t now_millis(void)
+{
+#ifdef _WIN32
+    return (uint64_t)GetTickCount64();
+#else
+    struct timespec ts;
+    timespec_get(&ts, TIME_UTC);
+    return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
+#endif
+}
+
+static void refresh_file_size(File* io)
+{
+    if (!io || !io->f)
+        return;
+    if (fseeko(io->f, 0, SEEK_END) == 0) {
+        off_t pos = ftello(io->f);
+        if (pos >= 0)
+            io->size = (i64)pos;
+        if (fseeko(io->f, 0, SEEK_SET) != 0) {
+            clearerr(io->f);
+        }
+    } else {
+        clearerr(io->f);
+    }
+}
+
+static int parse_nonneg_option(const char* value, const char* opt_name, int* out)
+{
+    if (!value || !opt_name || !out)
+        return 1;
+
+    char* end = NULL;
+    long v = strtol(value, &end, 10);
+    if (value[0] == '\0' || (end && *end != '\0') || v < 0 || v > INT_MAX) {
+        fprintf(stderr, "fiskta: %s expects a non-negative integer (milliseconds)\n", opt_name);
+        return 1;
+    }
+    *out = (int)v;
+    return 0;
+}
+
+static int run_program_once(const Program* prg, File* io, VM* vm,
+    Range* clause_ranges, LabelWrite* clause_labels,
+    enum Err* last_err_out)
+{
+    i32 ok = 0;
+    enum Err last_err = E_OK;
+
+    for (i32 ci = 0; ci < prg->clause_count; ++ci) {
+        i32 rc = 0, lc = 0;
+        clause_caps(&prg->clauses[ci], &rc, &lc);
+        Range* r_tmp = (rc > 0) ? clause_ranges : NULL;
+        LabelWrite* lw_tmp = (lc > 0) ? clause_labels : NULL;
+
+        enum Err e = execute_clause_with_scratch(&prg->clauses[ci], io, vm, stdout,
+            r_tmp, rc, lw_tmp, lc);
+        if (e == E_OK)
+            ok++;
+        else
+            last_err = e;
+    }
+
+    if (last_err_out)
+        *last_err_out = last_err;
+    return ok;
+}
+
 static void print_usage(void)
 {
     printf("fiskta (FInd SKip TAke) Text Extraction Tool v%s\n", FISKTA_VERSION);
@@ -239,6 +339,8 @@ static void print_usage(void)
     printf("  -i, --input <path>          Read input from path (default: stdin)\n");
     printf("  -c, --commands <string>     Provide operations as a single string\n");
     printf("      --                      Treat subsequent arguments as operations\n");
+    printf("      --loop <ms>             Re-run the program every ms (0 disables looping)\n");
+    printf("      --idle-timeout <ms>     Stop looping after ms with no input growth\n");
     printf("  -h, --help                  Show this help message\n");
     printf("  -v, --version               Show version information\n");
     printf("\n");
@@ -252,6 +354,8 @@ int main(int argc, char** argv)
 
     const char* input_path = "-";
     const char* command_arg = NULL;
+    int loop_ms = 0;
+    int idle_timeout_ms = -1;
 
     int argi = 1;
     while (argi < argc) {
@@ -283,6 +387,38 @@ int main(int argc, char** argv)
                 return 2;
             }
             input_path = arg + 8;
+            argi++;
+            continue;
+        }
+        if (strcmp(arg, "--loop") == 0) {
+            if (argi + 1 >= argc) {
+                fprintf(stderr, "fiskta: --loop requires a value\n");
+                return 2;
+            }
+            if (parse_nonneg_option(argv[argi + 1], "--loop", &loop_ms) != 0)
+                return 2;
+            argi += 2;
+            continue;
+        }
+        if (strncmp(arg, "--loop=", 7) == 0) {
+            if (parse_nonneg_option(arg + 7, "--loop", &loop_ms) != 0)
+                return 2;
+            argi++;
+            continue;
+        }
+        if (strcmp(arg, "--idle-timeout") == 0) {
+            if (argi + 1 >= argc) {
+                fprintf(stderr, "fiskta: --idle-timeout requires a value\n");
+                return 2;
+            }
+            if (parse_nonneg_option(argv[argi + 1], "--idle-timeout", &idle_timeout_ms) != 0)
+                return 2;
+            argi += 2;
+            continue;
+        }
+        if (strncmp(arg, "--idle-timeout=", 15) == 0) {
+            if (parse_nonneg_option(arg + 15, "--idle-timeout", &idle_timeout_ms) != 0)
+                return 2;
             argi++;
             continue;
         }
@@ -501,34 +637,48 @@ int main(int argc, char** argv)
         seen_curr, seen_next, (size_t)re_seen_bytes_each);
 
     // 7) Run engine using precomputed scratch pools with short-circuit behavior
-    VM vm = { 0 };
-    vm.cursor = 0;
-    vm.last_match.valid = false;
+    refresh_file_size(&io);
+    i64 last_size = io_size(&io);
+    uint64_t last_change_ms = now_millis();
+    const int loop_enabled = (loop_ms > 0);
+    if (!loop_enabled)
+        idle_timeout_ms = -1;
 
-    memset(vm.label_set, 0, sizeof(vm.label_set));
+    for (;;) {
+        refresh_file_size(&io);
+        io_reset_full(&io);
 
-    i32 ok = 0;
-    enum Err last_err = E_OK;
+        VM vm;
+        memset(&vm, 0, sizeof(vm));
 
-    for (i32 ci = 0; ci < prg.clause_count; ++ci) {
-        i32 rc = 0, lc = 0;
-        clause_caps(&prg.clauses[ci], &rc, &lc);
-        Range* r_tmp = (rc > 0) ? clause_ranges : NULL;
-        LabelWrite* lw_tmp = (lc > 0) ? clause_labels : NULL;
-        e = execute_clause_with_scratch(&prg.clauses[ci], &io, &vm, stdout,
-            r_tmp, rc, lw_tmp, lc);
-        if (e == E_OK)
-            ok++;
-        else
-            last_err = e;
+        enum Err last_err = E_OK;
+        int ok = run_program_once(&prg, &io, &vm, clause_ranges, clause_labels, &last_err);
+        if (ok == 0) {
+            io_close(&io);
+            free(block);
+            fprintf(stderr, "fiskta: execution error (%s)\n", err_str(last_err));
+            return 2;
+        }
+
+        fflush(stdout);
+
+        if (!loop_enabled)
+            break;
+
+        refresh_file_size(&io);
+        uint64_t now_ms = now_millis();
+        i64 size_now = io_size(&io);
+        if (size_now != last_size) {
+            last_size = size_now;
+            last_change_ms = now_ms;
+        } else if (idle_timeout_ms >= 0 && (now_ms - last_change_ms) >= (uint64_t)idle_timeout_ms) {
+            break;
+        }
+
+        sleep_msec(loop_ms);
     }
 
     io_close(&io);
     free(block);
-
-    if (ok == 0) {
-        fprintf(stderr, "fiskta: execution error (%s)\n", err_str(last_err));
-        return 2;
-    }
     return 0;
 }

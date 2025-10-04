@@ -121,9 +121,8 @@ Clause atomicity is unchanged: within a tick, a clause either commits its staged
 ## CLI Additions (Proposed)
 
 - Iteration driver flags:
-  - `--iterate` Enable the iterative driver (runs ticks until exit condition).
-  - `--tick-ms=N` Sleep N ms between ticks (default e.g. 200).
-  - `--idle-exit-ms=N` Exit if no new work has occurred for N ms (useful for CI/tests).
+  - `--loop=<ms>` Enable a periodic re-run (0 disables looping).
+  - `--idle-timeout=<ms>` Exit the loop after the timeout if no new input appears.
   - `--window-policy=delta|rescan|sliding[:W]` Select window policy; default `delta`.
 
 - Command‑stream flags:
@@ -209,8 +208,8 @@ Small, testable steps to de-risk complexity and allow course corrections:
    - Unit tests to ensure no state/output changes
 
 4) Add iterative loop (Rescan-All policy)
-   - Flags: `--iterate`, `--tick-ms`, `--idle-exit-ms`
-   - Re-run program each tick without windowing yet
+   - Flags: `--loop <ms>`, `--idle-timeout <ms>`
+   - Re-run the program on a fixed cadence without windowing yet
 
 5) Add delta window via temporary `viewset`
    - Maintain `processed_hi`; intersect driver view with user `view`

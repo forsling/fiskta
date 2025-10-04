@@ -112,6 +112,8 @@ OPTIONS:
   -i, --input <path>          Read input from path (default: stdin)
   -c, --commands <string>     Parse operations from a single string argument
       --                      Treat subsequent arguments as operations
+      --loop <ms>             Re-run the program every ms (0 disables looping)
+      --idle-timeout <ms>     Stop looping after ms with no input growth
   -h, --help                  Show this help message
   -v, --version               Show version information
 ```
