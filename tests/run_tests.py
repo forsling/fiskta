@@ -183,10 +183,11 @@ def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 def run(exe: Path, tokens, in_path: str | None, stdin_data: bytes | None):
-    # Build argv: fiskta <tokens...> [<input>]
-    argv = [str(exe), *tokens]
+    # Build argv: fiskta [--input PATH] <tokens...>
+    argv = [str(exe)]
     if in_path is not None:
-        argv.append(in_path)
+        argv.extend(["--input", in_path])
+    argv.extend(tokens)
     try:
         proc = subprocess.run(argv, input=stdin_data, capture_output=True)
         return proc.returncode, proc.stdout, proc.stderr

@@ -194,7 +194,7 @@ measure_one() {
     fi
 
     # Build command
-    local cmd="$bin $ops $dataset"
+    local cmd="$bin --input $dataset $ops"
 
     # Run warmup if this is the first run
     if [[ $run_idx -eq 1 ]]; then

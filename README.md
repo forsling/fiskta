@@ -16,30 +16,31 @@ fiskta [options] <operations> [file|-]
 
 Extract the HTTP request path after the method token:
 ```bash
-./fiskta find " " skip 1b take until " " access.log
+./fiskta --input access.log find " " skip 1b take until " "
 ```
 Capture ten lines from the body after skipping the header block:
 ```bash
-./fiskta goto BOF skip 1000l take 10l reports.txt
+./fiskta --input reports.txt goto BOF skip 1000l take 10l
 ```
 Emit 20 UTF-8 characters around a marker without splitting code points:
 ```bash
-./fiskta find "[OK]" take -10c take 20c journal.txt
+./fiskta --input journal.txt find "[OK]" take -10c take 20c
 ```
 Regex capture of an email address, then emit the remainder of the line:
 ```bash
-./fiskta findr "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+" take to line-end mailboxes.txt
+./fiskta --input mailboxes.txt findr "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+" take to line-end
 ```
 Fall back to a secondary match when the primary clause fails:
 ```bash
-./fiskta findr "^WARN" take to line-end THEN findr "^INFO" take to line-end service.log
+./fiskta --input service.log findr "^WARN" take to line-end THEN findr "^INFO" take to line-end
 ```
 
 ## Usage
 
 ```
 USAGE:
-  fiskta [options] <operations> [file|-]
+  fiskta [options] <operations>
+  (use --input <path> to select input; defaults to stdin)
 
 OPERATIONS:
   take <n><unit>              Extract n units from current position
@@ -108,15 +109,18 @@ CLAUSES:
   Empty captures succeed and leave the cursor in place.
 
 OPTIONS:
+  -i, --input <path>          Read input from path (default: stdin)
+  -c, --commands <string>     Parse operations from a single string argument
+      --                      Treat subsequent arguments as operations
   -h, --help                  Show this help message
   -v, --version               Show version information
 ```
 
 ## Grammar
 ```
-Program        = Clause { "THEN" Clause } Input .
+Program        = Clause { "THEN" Clause } .
 Clause         = { Op } .
-Op             = Find | FindRegex | Skip | Take | Label | Goto | Viewset | Viewclear | Print .
+Op             = Find | FindRegex | Skip | Take | Label | Goto | Viewset | Viewclear | Sleep | Print .
 Find           = "find" [ "to" LocationExpr ] String .
 FindRegex      = "findr" [ "to" LocationExpr ] String .
 Skip           = "skip" Number Unit .
@@ -140,7 +144,6 @@ Duration       = Number "ms" | Number "s" .
 Number         = Digit { Digit } .
 Name           = Upper { Upper | Digit | "_" | "-" } .
 String         = ShellString .
-Input          = Path | "-" .
 Upper          = "A" | "B" | "C" | "D" | "E" | "F" | "G"
                | "H" | "I" | "J" | "K" | "L" | "M" | "N"
                | "O" | "P" | "Q" | "R" | "S" | "T" | "U"
@@ -149,6 +152,8 @@ Digit          = "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" .
 Path           = filesystem path string .
 ShellString    = shell-quoted non-empty byte string .
 ```
+
+Input is selected via the CLI `--input` option (defaulting to stdin).
 
 ## Build & Test
 - `make` builds the optimized binary (`fiskta`).

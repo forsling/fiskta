@@ -4,6 +4,7 @@
 #include "parse_plan.h"
 #include "reprog.h"
 #include "util.h"
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -138,29 +139,30 @@ static void print_usage(void)
     printf("fiskta (FInd SKip TAke) Text Extraction Tool v%s\n", FISKTA_VERSION);
     printf("\n");
     printf("USAGE:\n");
-    printf("  fiskta [options] <operations> [file|-]\n");
+    printf("  fiskta [options] <operations>\n");
+    printf("  (use --input <path> to select input; defaults to stdin)\n");
     printf("\n");
     printf("EXAMPLES:\n");
     printf("  Take first 10 bytes of a file:\n");
-    printf("    fiskta take 10b file.txt\n");
+    printf("    fiskta --input file.txt take 10b\n");
     printf("\n");
     printf("  Take lines 2-4 from a file:\n");
-    printf("    fiskta skip 1l take 3l file.txt\n");
+    printf("    fiskta --input file.txt skip 1l take 3l\n");
     printf("\n");
     printf("  Take from the first STATUS to EOF:\n");
-    printf("    fiskta find \"STATUS\" take to EOF file.txt\n");
+    printf("    fiskta --input file.txt find \"STATUS\" take to EOF\n");
     printf("\n");
     printf("  Take five lines around the first WARN:\n");
-    printf("    fiskta findr \"^WARN\" take -2l take 3l logs.txt\n");
+    printf("    fiskta --input logs.txt findr \"^WARN\" take -2l take 3l\n");
     printf("\n");
     printf("  Take until the start of the END section:\n");
-    printf("    fiskta take until \"END\" at line-start config.txt\n");
+    printf("    fiskta --input config.txt take until \"END\" at line-start\n");
     printf("\n");
     printf("  Take from section1 up to section2:\n");
-    printf("    fiskta find section1 label s1 find section2 take to section1 file.txt\n");
+    printf("    fiskta --input file.txt find section1 label s1 find section2 take to section1\n");
     printf("\n");
     printf("  Process stdin:\n");
-    printf("    echo \"Hello\" | fiskta take 5b -\n");
+    printf("    echo \"Hello\" | fiskta take 5b\n");
     printf("\n");
     printf("OPERATIONS:\n");
     printf("  take <n><unit>              Extract n units from current position\n");
@@ -229,6 +231,9 @@ static void print_usage(void)
     printf("  Empty captures succeed and leave the cursor in place.\n");
     printf("\n");
     printf("OPTIONS:\n");
+    printf("  -i, --input <path>          Read input from path (default: stdin)\n");
+    printf("  -c, --commands <string>     Provide operations as a single string\n");
+    printf("      --                      Treat subsequent arguments as operations\n");
     printf("  -h, --help                  Show this help message\n");
     printf("  -v, --version               Show version information\n");
     printf("\n");
@@ -240,71 +245,127 @@ int main(int argc, char** argv)
     _setmode(_fileno(stdout), _O_BINARY);
 #endif
 
-    // Handle help and version options
-    if (argc == 2) {
-        if (strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
+    const char* input_path = "-";
+    const char* command_arg = NULL;
+
+    int argi = 1;
+    while (argi < argc) {
+        const char* arg = argv[argi];
+        if (strcmp(arg, "--") == 0) {
+            argi++;
+            break;
+        }
+        if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
             print_usage();
             return 0;
-        } else if (strcmp(argv[1], "-v") == 0 || strcmp(argv[1], "--version") == 0) {
+        }
+        if (strcmp(arg, "-v") == 0 || strcmp(arg, "--version") == 0) {
             printf("fiskta (FInd SKip TAke) v%s\n", FISKTA_VERSION);
             return 0;
         }
+        if (strcmp(arg, "-i") == 0 || strcmp(arg, "--input") == 0) {
+            if (argi + 1 >= argc) {
+                fprintf(stderr, "fiskta: --input requires a path\n");
+                return 2;
+            }
+            input_path = argv[argi + 1];
+            argi += 2;
+            continue;
+        }
+        if (strncmp(arg, "--input=", 8) == 0) {
+            if (arg[8] == '\0') {
+                fprintf(stderr, "fiskta: --input requires a path\n");
+                return 2;
+            }
+            input_path = arg + 8;
+            argi++;
+            continue;
+        }
+        if (strcmp(arg, "-c") == 0 || strcmp(arg, "--commands") == 0) {
+            if (command_arg) {
+                fprintf(stderr, "fiskta: --commands specified multiple times\n");
+                return 2;
+            }
+            if (argi + 1 >= argc) {
+                fprintf(stderr, "fiskta: --commands requires a string\n");
+                return 2;
+            }
+            command_arg = argv[argi + 1];
+            argi += 2;
+            continue;
+        }
+        if (strncmp(arg, "--commands=", 11) == 0) {
+            if (command_arg) {
+                fprintf(stderr, "fiskta: --commands specified multiple times\n");
+                return 2;
+            }
+            if (arg[11] == '\0') {
+                fprintf(stderr, "fiskta: --commands requires a string\n");
+                return 2;
+            }
+            command_arg = arg + 11;
+            argi++;
+            continue;
+        }
+        if (arg[0] == '-') {
+            if (arg[1] == '\0' || isdigit((unsigned char)arg[1])) {
+                break;
+            }
+            fprintf(stderr, "fiskta: unknown option %s\n", arg);
+            return 2;
+        }
+        break;
     }
 
-    if (argc < 3) {
-        fprintf(stderr, "Usage: fiskta [options] <operations> [file|-]\n");
-        fprintf(stderr, "Try 'fiskta --help' for more information.\n");
-        return 2;
+    int ops_index = argi;
+    char** tokens = NULL;
+    i32 token_count = 0;
+    char* splitv[256];
+
+    if (command_arg) {
+        if (ops_index < argc) {
+            fprintf(stderr, "fiskta: --commands cannot be combined with positional operations\n");
+            return 2;
+        }
+        i32 n = split_ops_string(command_arg, splitv, (i32)(sizeof splitv / sizeof splitv[0]));
+        if (n == -1) {
+            fprintf(stderr, "fiskta: operations string too long (max 4096 bytes)\n");
+            return 2;
+        }
+        if (n <= 0) {
+            fprintf(stderr, "fiskta: empty command string\n");
+            return 2;
+        }
+        tokens = splitv;
+        token_count = n;
+    } else {
+        token_count = (i32)(argc - ops_index);
+        if (token_count <= 0) {
+            fprintf(stderr, "fiskta: missing operations\n");
+            fprintf(stderr, "Try 'fiskta --help' for more information.\n");
+            return 2;
+        }
+        tokens = argv + ops_index;
+        if (token_count == 1 && strchr(tokens[0], ' ')) {
+            i32 n = split_ops_string(tokens[0], splitv, (i32)(sizeof splitv / sizeof splitv[0]));
+            if (n == -1) {
+                fprintf(stderr, "fiskta: operations string too long (max 4096 bytes)\n");
+                return 2;
+            }
+            if (n <= 0) {
+                fprintf(stderr, "fiskta: empty operations string\n");
+                return 2;
+            }
+            tokens = splitv;
+            token_count = n;
+        }
     }
 
     // 1) Preflight
     ParsePlan plan = { 0 };
     const char* path = NULL;
 
-    // Build the token view the parser expects: argv[1..argc-1] if no file specified, argv[1..argc-2] if file specified
-    char** tokens = argv + 1;
-    i32 token_count = argc - 1;
-    const char* in_path = "-"; // Default to stdin
-
-    // Check if last argument is a file path (not an operation)
-    // Improved heuristic: only treat as file if it contains path separators, is "-", or actually exists
-    if (argc > 2) {
-        const char* last_arg = argv[argc - 1];
-        bool treat_as_file = false;
-
-        if (strcmp(last_arg, "-") == 0 || strchr(last_arg, '/') != NULL || strchr(last_arg, '\\') != NULL) {
-            treat_as_file = true;
-        } else {
-            // Check if it actually exists as a file
-            FILE* test_file = fopen(last_arg, "rb");
-            if (test_file) {
-                fclose(test_file);
-                treat_as_file = true;
-            }
-        }
-
-        if (treat_as_file) {
-            in_path = last_arg;
-            token_count = argc - 2;
-        }
-    }
-
-    // If user passed a single ops string, split it.
-    char* splitv[256];
-    if (token_count == 1 && strchr(tokens[0], ' ')) {
-        i32 n = split_ops_string(tokens[0], splitv, (i32)(sizeof splitv / sizeof splitv[0]));
-        if (n == -1) {
-            fprintf(stderr, "fiskta: operations string too long (max 4096 bytes)\n");
-            return 2;
-        }
-        if (n > 0) {
-            tokens = splitv;
-            token_count = n;
-            // Don't add input path to tokens - it's passed separately
-        }
-    }
-
-    enum Err e = parse_preflight(token_count, tokens, in_path, &plan, &path);
+    enum Err e = parse_preflight(token_count, tokens, input_path, &plan, &path);
     if (e != E_OK) {
         die(e, "parse preflight");
         return 2;
@@ -393,7 +454,7 @@ int main(int argc, char** argv)
 
     // 5) Parse into preallocated storage
     Program prg = { 0 };
-    e = parse_build(token_count, tokens, in_path, &prg, &path, clauses_buf, ops_buf,
+    e = parse_build(token_count, tokens, input_path, &prg, &path, clauses_buf, ops_buf,
         str_pool, str_pool_bytes);
     if (e != E_OK) {
         die(e, "parse build");
