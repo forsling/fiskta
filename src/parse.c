@@ -24,8 +24,8 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
 static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg);
 static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* at);
 static enum Err parse_string_to_bytes(const char* str, String* out_string, char* str_pool, size_t* str_pool_off, size_t str_pool_cap);
-static enum Err parse_unsigned_number(const char* token, i32* sign, u64* n, enum Unit* unit);
-static enum Err parse_signed_number(const char* token, i64* offset, enum Unit* unit);
+static enum Err parse_unsigned_number(const char* token, i32* sign, u64* n, Unit* unit);
+static enum Err parse_signed_number(const char* token, i64* offset, Unit* unit);
 static enum Err parse_milliseconds(const char* token, i32* out_ms);
 static i32 find_or_add_name_build(Program* prg, const char* name);
 static bool is_valid_label_name(const char* name);
@@ -410,7 +410,6 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
             op->u.find.to.name_idx = -1;
             op->u.find.to.offset = 0;
             op->u.find.to.unit = UNIT_BYTES;
-            op->u.find.to.ref = REF_CURSOR;
         }
 
         // Parse needle
@@ -440,7 +439,6 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
             op->u.findr.to.name_idx = -1;
             op->u.findr.to.offset = 0;
             op->u.findr.to.unit = UNIT_BYTES;
-            op->u.findr.to.ref = REF_CURSOR;
         }
         if (*idx >= token_count)
             return E_PARSE;
@@ -594,8 +592,6 @@ static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, L
     if (*idx >= token_count)
         return E_PARSE;
 
-    // Default resolution context for general location expressions: cursor
-    loc->ref = REF_CURSOR;
     // Initialize defaults
     loc->name_idx = -1;
 
@@ -652,7 +648,7 @@ static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, L
     // Support detached offset as next token (e.g., "BOF +100b")
     if (*idx < token_count) {
         i64 offset_tmp;
-        enum Unit unit_tmp;
+        Unit unit_tmp;
         enum Err off_err = parse_signed_number(tokens[*idx], &offset_tmp, &unit_tmp);
         if (off_err == E_OK) {
             loc->offset = offset_tmp;
@@ -668,9 +664,6 @@ static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, Lo
 {
     if (*idx >= token_count)
         return E_PARSE;
-
-    // 'at' expressions resolve relative to the last match
-    at->ref = REF_MATCH;
 
     const char* token = tokens[*idx];
     (*idx)++;
@@ -716,7 +709,7 @@ static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, Lo
     // Support detached offset as next token (e.g., "line-start -2l")
     if (*idx < token_count) {
         i64 offset_tmp;
-        enum Unit unit_tmp;
+        Unit unit_tmp;
         enum Err off_err = parse_signed_number(tokens[*idx], &offset_tmp, &unit_tmp);
         if (off_err == E_OK) {
             at->offset = offset_tmp;
@@ -728,7 +721,7 @@ static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, Lo
     return E_OK;
 }
 
-static enum Err parse_unsigned_number(const char* token, i32* sign, u64* n, enum Unit* unit)
+static enum Err parse_unsigned_number(const char* token, i32* sign, u64* n, Unit* unit)
 {
     if (!token || strlen(token) == 0)
         return E_PARSE;
@@ -787,7 +780,7 @@ static enum Err parse_unsigned_number(const char* token, i32* sign, u64* n, enum
     return E_OK;
 }
 
-static enum Err parse_signed_number(const char* token, i64* offset, enum Unit* unit)
+static enum Err parse_signed_number(const char* token, i64* offset, Unit* unit)
 {
     if (!token || strlen(token) == 0)
         return E_PARSE;

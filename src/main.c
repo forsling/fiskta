@@ -266,6 +266,8 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
     VM* vm_exec = vm ? vm : &local_vm;
     if (!vm) {
         memset(vm_exec, 0, sizeof(*vm_exec));
+        for (i32 i = 0; i < 128; i++)
+            vm_exec->label_pos[i] = -1;
     }
 
     i64 lo = clamp64(window_lo, 0, io_size(io));
@@ -883,6 +885,8 @@ int main(int argc, char** argv)
     uint64_t last_change_ms = now_millis();
     VM saved_vm;
     memset(&saved_vm, 0, sizeof(saved_vm));
+    for (i32 i = 0; i < 128; i++)
+        saved_vm.label_pos[i] = -1;
     bool have_saved_vm = false;
     const int loop_enabled = (loop_ms > 0);
     if (!loop_enabled)
