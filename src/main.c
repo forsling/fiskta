@@ -122,7 +122,7 @@ static const char* err_str(enum Err e)
     case E_NO_MATCH:
         return "no match in window";
     case E_LABEL_FMT:
-        return "bad label (A-Z, _ or -, <=16)";
+        return "bad label (A-Z, _ or -, <16)";
     case E_IO:
         return "I/O error";
     case E_OOM:
@@ -412,7 +412,7 @@ static void print_usage(void)
     printf("  c                           UTF-8 code points (never splits sequences)\n");
     printf("\n");
     printf("LABELS:\n");
-    printf("  NAME                        UPPERCASE, <=16 chars, [A-Z0-9_-] (first must be A-Z)\n");
+    printf("  NAME                        UPPERCASE, <16 chars, [A-Z0-9_-] (first must be A-Z)\n");
     printf("\n");
     printf("LOCATIONS:\n");
     printf("  cursor                      Current cursor position\n");

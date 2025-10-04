@@ -74,7 +74,7 @@ UNITS:
   c                           UTF-8 code points (never splits sequences)
 
 LABELS:
-  NAME                        UPPERCASE, <=16 chars, [A-Z0-9_-] (first must be A-Z)
+  NAME                        UPPERCASE, <16 chars, [A-Z0-9_-] (first must be A-Z)
 
 LOCATIONS:
   cursor                      Current cursor position
