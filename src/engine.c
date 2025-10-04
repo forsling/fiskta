@@ -246,10 +246,11 @@ cleanup:
     return err;
 }
 
-enum Err execute_clause_with_scratch(const Clause* clause,
-    void* io_ptr, VM* vm, FILE* out,
+enum Err execute_clause_stage_only(const Clause* clause,
+    void* io_ptr, VM* vm,
     Range* ranges, i32 ranges_cap,
-    LabelWrite* label_writes, i32 label_cap)
+    LabelWrite* label_writes, i32 label_cap,
+    StagedResult* result)
 {
     File* io = (File*)io_ptr;
     i64 c_cursor = vm->cursor;
@@ -270,23 +271,48 @@ enum Err execute_clause_with_scratch(const Clause* clause,
             break;
     }
 
+    // Fill result with staged state
+    result->staged_vm.cursor = c_cursor;
+    result->staged_vm.last_match = c_last_match;
+    result->staged_vm.view = c_view;
+    result->staged_vm.label_set[0] = 0; // Not used in staging
+    result->ranges = ranges;
+    result->range_count = range_count;
+    result->label_writes = label_writes;
+    result->label_count = label_count;
+    result->err = err;
+
+    return err;
+}
+
+enum Err execute_clause_with_scratch(const Clause* clause,
+    void* io_ptr, VM* vm, FILE* out,
+    Range* ranges, i32 ranges_cap,
+    LabelWrite* label_writes, i32 label_cap)
+{
+    StagedResult result;
+    enum Err err = execute_clause_stage_only(clause, io_ptr, vm,
+        ranges, ranges_cap, label_writes, label_cap, &result);
+    
     if (err == E_OK) {
-        for (i32 i = 0; i < range_count; i++) {
-            if (ranges[i].kind == RANGE_FILE) {
-                err = io_emit(io, ranges[i].file.start, ranges[i].file.end, out);
+        // Commit staged ranges to output
+        for (i32 i = 0; i < result.range_count; i++) {
+            if (result.ranges[i].kind == RANGE_FILE) {
+                err = io_emit((File*)io_ptr, result.ranges[i].file.start, result.ranges[i].file.end, out);
             } else {
                 // RANGE_LIT: write literal bytes
-                if ((size_t)fwrite(ranges[i].lit.bytes, 1, (size_t)ranges[i].lit.len, out) != (size_t)ranges[i].lit.len)
+                if ((size_t)fwrite(result.ranges[i].lit.bytes, 1, (size_t)result.ranges[i].lit.len, out) != (size_t)result.ranges[i].lit.len)
                     err = E_IO;
             }
             if (err != E_OK)
                 break;
         }
         if (err == E_OK) {
-            commit_labels(vm, label_writes, label_count);
-            vm->cursor = c_cursor;
-            vm->last_match = c_last_match;
-            vm->view = c_view; // commit view only on clause success
+            // Commit staged VM state
+            commit_labels(vm, result.label_writes, result.label_count);
+            vm->cursor = result.staged_vm.cursor;
+            vm->last_match = result.staged_vm.last_match;
+            vm->view = result.staged_vm.view; // commit view only on clause success
         }
     }
 

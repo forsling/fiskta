@@ -1847,6 +1847,19 @@ def tests():
              tokens=["take","+1b"], input_file="overlap.txt",
              extra_args=["--loop","1","--idle-timeout","2","--window-policy","rescan"],
              expect=dict(stdout_startswith="aa", exit=0)),
+
+        # ---------- Stage-only execution tests ----------
+        dict(id="stage-001-basic-staging",
+             tokens=["take","+2b","label","TEST"], input_file="overlap.txt",
+             expect=dict(stdout="ab", exit=0)),  # Verify staging works (output emitted, label committed)
+
+        dict(id="stage-002-failed-clause-no-output",
+             tokens=["find","NOTFOUND","take","+2b"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=2)),  # Failed clause should not emit staged output
+
+        dict(id="stage-003-successful-clause-commits",
+             tokens=["take","+1b","label","A","take","+1b","label","B"], input_file="overlap.txt",
+             expect=dict(stdout="ab", exit=0)),  # Both takes should emit, both labels should commit
     ]
 
 def main():

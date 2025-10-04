@@ -185,7 +185,22 @@ typedef struct {
     i32 name_idx;
 } LabelWrite;
 
+// Staged execution result
+typedef struct {
+    VM staged_vm;           // Staged VM state (cursor, last_match, view)
+    Range* ranges;           // Staged output ranges
+    i32 range_count;        // Number of staged ranges
+    LabelWrite* label_writes; // Staged label writes
+    i32 label_count;        // Number of staged labels
+    enum Err err;           // Execution result
+} StagedResult;
+
 void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap);
+enum Err execute_clause_stage_only(const Clause* clause,
+    void* io, VM* vm,
+    Range* ranges, i32 ranges_cap,
+    LabelWrite* label_writes, i32 label_cap,
+    StagedResult* result);
 enum Err execute_clause_with_scratch(const Clause* clause,
     void* io, VM* vm, FILE* out,
     Range* ranges, i32 ranges_cap,
