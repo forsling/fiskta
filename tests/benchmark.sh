@@ -89,7 +89,7 @@ declare -a CASES=(
     "utf8_chars|utf8_${SMALL_MB}MB.txt|${SMALL_MB}|skip 1000c take -500c take 2000c"
     "take_until_line_start|uniform_${SMALL_MB}MB.txt|${SMALL_MB}|take until ERROR at line-start"
     "binary_until|binary_${SMALL_MB}MB.bin|${SMALL_MB}|skip 100000b take until END at match-end"
-    "clauses_labels|uniform_${SMALL_MB}MB.txt|${SMALL_MB}|label A :: find NOTPRESENT take 10b :: goto A skip 500000b label B :: goto B take 100b"
+    "clauses_labels|uniform_${SMALL_MB}MB.txt|${SMALL_MB}|label A THEN find NOTPRESENT take 10b THEN goto A skip 500000b label B THEN goto B take 100b"
 )
 
 # Generate datasets if they don't exist

@@ -32,7 +32,7 @@ Regex capture of an email address, then emit the remainder of the line:
 ```
 Fall back to a secondary match when the primary clause fails:
 ```bash
-./fiskta findr "^WARN" take to line-end :: findr "^INFO" take to line-end service.log
+./fiskta findr "^WARN" take to line-end THEN findr "^INFO" take to line-end service.log
 ```
 
 ## Usage
@@ -99,7 +99,7 @@ REGEX SYNTAX:
   Special: . (any char except newline)
 
 CLAUSES:
-  All operations until the next :: are considered an independent clause.
+  All operations until the next THEN are considered an independent clause.
   A clause will succeed if all ops succeed, fail if any op fails.
   On Failure: clause rolls back (no output or label changes); later clauses still run.
   On Success: emits staged output in order, commits labels, updates cursor and last-match snapshot.
@@ -113,7 +113,7 @@ OPTIONS:
 
 ## Grammar
 ```
-Program        = Clause { "::" Clause } Input .
+Program        = Clause { "THEN" Clause } Input .
 Clause         = { Op } .
 Op             = Find | FindRegex | Skip | Take | Label | Goto | Viewset | Viewclear | Print .
 Find           = "find" [ "to" LocationExpr ] String .

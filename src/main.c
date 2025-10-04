@@ -33,13 +33,6 @@ static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
     const char* p = s;
 
     while (*p) {
-        // recognize '::' as a standalone token regardless of state if we're not inside quotes
-        if ((st == S_WS || st == S_TOKEN) && p[0] == ':' && p[1] == ':') {
-            if (st == S_TOKEN) { buf[boff++] = '\0'; if (ntok < max_tokens) ntok++; }
-            if (ntok < max_tokens) out[ntok++] = (char*)"::";
-            st = S_WS; p += 2; continue;
-        }
-
         unsigned char c = (unsigned char)*p;
         if (st == S_WS) {
             if (c == ' ' || c == '\t') { p++; continue; }
@@ -227,7 +220,7 @@ static void print_usage(void)
     printf("  Special: . (any char except newline)\n");
     printf("\n");
     printf("CLAUSES:\n");
-    printf("  All operations until the next :: are considered an independent clause.\n");
+    printf("  All operations until the next THEN are considered an independent clause.\n");
     printf("  A clause will succeed if all ops succeed, fail if any op fails.\n");
     printf("  On Failure: clause rolls back (no output or label changes); later clauses still run.\n");
     printf("  On Success: emits staged output in order, commits labels, updates cursor and last-match snapshot.\n");

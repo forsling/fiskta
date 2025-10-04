@@ -44,10 +44,10 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
     // Input path is passed separately
     *in_path_out = in_path;
 
-    // Count clauses (number of "::" + 1)
+    // Count clauses (number of "THEN" + 1)
     plan->clause_count = 1;
     for (i32 i = 0; i < token_count; i++) {
-        if (strcmp(tokens[i], "::") == 0) {
+        if (strcmp(tokens[i], "THEN") == 0) {
             plan->clause_count++;
         }
     }
@@ -57,7 +57,7 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
     while (idx < token_count) {
         // Count ops in this clause
         i32 clause_start = idx;
-        while (idx < token_count && strcmp(tokens[idx], "::") != 0) {
+        while (idx < token_count && strcmp(tokens[idx], "THEN") != 0) {
             const char* cmd = tokens[idx];
             plan->total_ops++;
 
@@ -200,7 +200,7 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
             }
         }
 
-        if (idx < token_count && strcmp(tokens[idx], "::") == 0) {
+        if (idx < token_count && strcmp(tokens[idx], "THEN") == 0) {
             idx++;
         }
     }
@@ -229,7 +229,7 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
     // Track string pool usage
     size_t str_pool_off = 0;
 
-    // Parse clauses separated by "::"
+    // Parse clauses separated by "THEN"
     i32 idx = 0;
     i32 op_cursor = 0;
 
@@ -241,7 +241,7 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
         // Count ops in this clause first
         i32 clause_start = idx;
         i32 clause_op_count = 0;
-        while (idx < token_count && strcmp(tokens[idx], "::") != 0) {
+        while (idx < token_count && strcmp(tokens[idx], "THEN") != 0) {
             const char* cmd = tokens[idx];
             clause_op_count++;
             idx++;
@@ -318,7 +318,7 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
 
         // 3 Reset idx to clause start and parse for real
         idx = clause_start;
-        while (idx < token_count && strcmp(tokens[idx], "::") != 0) {
+        while (idx < token_count && strcmp(tokens[idx], "THEN") != 0) {
             Op* op = &clause->ops[clause->op_count];
             enum Err err = parse_op_build(tokens, &idx, token_count, op, prg, str_pool, &str_pool_off, str_pool_cap);
             if (err != E_OK) {
@@ -330,7 +330,7 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
         prg->clause_count++;
         op_cursor += clause_op_count;
 
-        if (idx < token_count && strcmp(tokens[idx], "::") == 0) {
+        if (idx < token_count && strcmp(tokens[idx], "THEN") == 0) {
             idx++;
         }
     }

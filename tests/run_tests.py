@@ -217,12 +217,12 @@ def expect_stdout(actual: bytes, expect: dict) -> tuple[bool, str]:
     return ok, "" if ok else f"expected empty stdout, got {len(actual)}B"
 
 def tests():
-    # NOTE: Using '::' as the clause separator per your decision.
+    # NOTE: Using 'THEN' as the clause separator per your decision.
     # Each test: id, tokens (without input path), in, stdin (optional), expect {stdout|stdout_len|stdout_sha256, exit}
     return [
         # ---------- Grammar & parsing ----------
         dict(id="gram-001-clause-sep",
-             tokens=["take","+3b","::","take","+2b"], input_file="overlap.txt",
+             tokens=["take","+3b","THEN","take","+2b"], input_file="overlap.txt",
              expect=dict(stdout="abcde", exit=0)),
 
         dict(id="gram-002-no-signed-skip",
@@ -243,7 +243,7 @@ def tests():
              expect=dict(stdout="", exit=2)),  # whole clause fails, nothing emits
 
         dict(id="atom-002-independent-clauses",
-             tokens=["take","+3b","::","find","NOPE","::","take","+2b"], input_file="overlap.txt",
+             tokens=["take","+3b","THEN","find","NOPE","THEN","take","+2b"], input_file="overlap.txt",
              expect=dict(stdout="abcde", exit=0)),
 
         dict(id="atom-003-staging-order-overlap",
@@ -252,15 +252,15 @@ def tests():
 
         # ---------- Cursor & Locality ----------
         dict(id="cur-001-take-moves-to-far-end",
-             tokens=["take","+3b","::","take","+2b"], input_file="overlap.txt",
+             tokens=["take","+3b","THEN","take","+2b"], input_file="overlap.txt",
              expect=dict(stdout="abcde", exit=0)),
 
         dict(id="cur-002-empty-capture-no-move",
-             tokens=["take","+0b","::","take","+3b"], input_file="overlap.txt",
+             tokens=["take","+0b","THEN","take","+3b"], input_file="overlap.txt",
              expect=dict(stdout="abc", exit=0)),
 
         dict(id="cur-003-take-to-cursor-empty",
-             tokens=["take","to","cursor","::","take","+3b"], input_file="overlap.txt",
+             tokens=["take","to","cursor","THEN","take","+3b"], input_file="overlap.txt",
              expect=dict(stdout="abc", exit=0)),
 
         dict(id="cur-004-loc-expr-uses-staged-cursor",
@@ -322,7 +322,7 @@ def tests():
 
         # ---------- take until ----------
         dict(id="until-001-default-at-match-start",
-             tokens=["take","until","ERROR","::","take","+5b"], input_file="small.txt",
+             tokens=["take","until","ERROR","THEN","take","+5b"], input_file="small.txt",
              expect=dict(stdout="Header\nbody 1\nbody 2\nERROR", exit=0)),
 
         dict(id="until-002-at-line-start",
@@ -349,14 +349,14 @@ def tests():
         dict(id="lab-003-evict-lru-on-33rd",
              tokens=[
                 # 32 labels in 32 clauses at pos 0
-                "label","A01","::","label","A02","::","label","A03","::","label","A04","::",
-                "label","A05","::","label","A06","::","label","A07","::","label","A08","::",
-                "label","A09","::","label","A10","::","label","A11","::","label","A12","::",
-                "label","A13","::","label","A14","::","label","A15","::","label","A16","::",
-                "label","A17","::","label","A18","::","label","A19","::","label","A20","::",
-                "label","A21","::","label","A22","::","label","A23","::","label","A24","::",
-                "label","A25","::","label","A26","::","label","A27","::","label","A28","::",
-                "label","A29","::","label","A30","::","label","A31","::","label","A32","::",
+                "label","A01","THEN","label","A02","THEN","label","A03","THEN","label","A04","THEN",
+                "label","A05","THEN","label","A06","THEN","label","A07","THEN","label","A08","THEN",
+                "label","A09","THEN","label","A10","THEN","label","A11","THEN","label","A12","THEN",
+                "label","A13","THEN","label","A14","THEN","label","A15","THEN","label","A16","THEN",
+                "label","A17","THEN","label","A18","THEN","label","A19","THEN","label","A20","THEN",
+                "label","A21","THEN","label","A22","THEN","label","A23","THEN","label","A24","THEN",
+                "label","A25","THEN","label","A26","THEN","label","A27","THEN","label","A28","THEN",
+                "label","A29","THEN","label","A30","THEN","label","A31","THEN","label","A32","THEN",
                 # add A33 (no eviction with direct mapping), then goto A01 succeeds
                 "label","A33","goto","A01","take","+1b"
              ], input_file="labels-evict.txt",
@@ -609,7 +609,7 @@ def tests():
              expect=dict(stdout="", exit=2)),
 
         dict(id="label-106-label-after-failed-clause",
-             tokens=["label","A","find","XYZ","::","goto","A"], input_file="overlap.txt",
+             tokens=["label","A","find","XYZ","THEN","goto","A"], input_file="overlap.txt",
              expect=dict(stdout="", exit=2)),
 
         dict(id="label-107-goto-bof",
@@ -673,19 +673,19 @@ def tests():
 
         # ---------- Clause semantics and error handling ----------
         dict(id="clause-101-all-succeed",
-             tokens=["take","+2b","::","take","+2b","::","take","+2b"], input_file="overlap.txt",
+             tokens=["take","+2b","THEN","take","+2b","THEN","take","+2b"], input_file="overlap.txt",
              expect=dict(stdout="abcdef", exit=0)),
 
         dict(id="clause-102-first-fails-second-succeeds",
-             tokens=["find","XYZ","take","+2b","::","take","+3b"], input_file="overlap.txt",
+             tokens=["find","XYZ","take","+2b","THEN","take","+3b"], input_file="overlap.txt",
              expect=dict(stdout="abc", exit=0)),
 
         dict(id="clause-103-first-succeeds-second-fails",
-             tokens=["take","+3b","::","find","XYZ","take","+2b"], input_file="overlap.txt",
+             tokens=["take","+3b","THEN","find","XYZ","take","+2b"], input_file="overlap.txt",
              expect=dict(stdout="abc", exit=0)),
 
         dict(id="clause-104-all-fail",
-             tokens=["find","XYZ","take","+2b","::","find","ABC","take","+2b"], input_file="overlap.txt",
+             tokens=["find","XYZ","take","+2b","THEN","find","ABC","take","+2b"], input_file="overlap.txt",
              expect=dict(stdout="", exit=2)),
 
         dict(id="clause-105-staging-within-clause",
@@ -706,11 +706,11 @@ def tests():
 
         # ---------- Label staging precedence tests ----------
         dict(id="clause-109-staged-label-override",
-             tokens=["label","A","::","skip","3b","label","A","goto","A","take","+3b"], input_file="overlap.txt",
+             tokens=["label","A","THEN","skip","3b","label","A","goto","A","take","+3b"], input_file="overlap.txt",
              expect=dict(stdout="def", exit=0)),  # Should use staged A at position 3, not committed A at position 0
 
         dict(id="clause-110-failed-clause-label-isolation",
-             tokens=["label","A","::","skip","3b","label","A","::","find","XYZ","::","goto","A","take","+3b"], input_file="overlap.txt",
+             tokens=["label","A","THEN","skip","3b","label","A","THEN","find","XYZ","THEN","goto","A","take","+3b"], input_file="overlap.txt",
              expect=dict(stdout="def", exit=0)),  # Second clause succeeds and commits A at position 3, third clause fails, fourth clause uses committed A at position 3
 
         # ---------- Edge cases and boundary conditions ----------
@@ -773,14 +773,14 @@ def tests():
         # ---------- Label LRU eviction comprehensive tests ----------
         dict(id="lru-101-basic-eviction",
              tokens=[
-                 "label","A01","::","label","A02","::","label","A03","::","label","A04","::",
-                 "label","A05","::","label","A06","::","label","A07","::","label","A08","::",
-                 "label","A09","::","label","A10","::","label","A11","::","label","A12","::",
-                 "label","A13","::","label","A14","::","label","A15","::","label","A16","::",
-                 "label","A17","::","label","A18","::","label","A19","::","label","A20","::",
-                 "label","A21","::","label","A22","::","label","A23","::","label","A24","::",
-                 "label","A25","::","label","A26","::","label","A27","::","label","A28","::",
-                 "label","A29","::","label","A30","::","label","A31","::","label","A32","::",
+                 "label","A01","THEN","label","A02","THEN","label","A03","THEN","label","A04","THEN",
+                 "label","A05","THEN","label","A06","THEN","label","A07","THEN","label","A08","THEN",
+                 "label","A09","THEN","label","A10","THEN","label","A11","THEN","label","A12","THEN",
+                 "label","A13","THEN","label","A14","THEN","label","A15","THEN","label","A16","THEN",
+                 "label","A17","THEN","label","A18","THEN","label","A19","THEN","label","A20","THEN",
+                 "label","A21","THEN","label","A22","THEN","label","A23","THEN","label","A24","THEN",
+                 "label","A25","THEN","label","A26","THEN","label","A27","THEN","label","A28","THEN",
+                 "label","A29","THEN","label","A30","THEN","label","A31","THEN","label","A32","THEN",
                  "label","A33","goto","A01","take","+1b"
              ], input_file="labels-evict.txt",
              expect=dict(stdout="0", exit=0)),
@@ -807,7 +807,7 @@ def tests():
              expect=dict(stdout="ERROR: Critical failure occurred\n", exit=0)),
 
         dict(id="complex-104-extract-multiple-sections",
-             tokens=["find","Section 1","take","until","Section 2","::","find","Section 3","take","until","Section 4"], input_file="multiline.txt",
+             tokens=["find","Section 1","take","until","Section 2","THEN","find","Section 3","take","until","Section 4"], input_file="multiline.txt",
              expect=dict(stdout="Section 1: Introduction\nThis is the first section with multiple lines.\nIt contains various text patterns.\n\nSection 3: Results\nSUCCESS: Operation completed\nWARNING: Minor issue detected\nERROR: Critical failure occurred\nINFO: Additional information\n\n", exit=0)),
 
         dict(id="complex-105-nested-extraction",
@@ -974,7 +974,7 @@ def tests():
 
         # ---------- CRLF Complex Scenarios ----------
         dict(id="crlf-135-crlf-multi-clause",
-             tokens=["find","Line1","take","+1l","::","find","Line2","take","+1l"], input_file="crlf-comprehensive.txt",
+             tokens=["find","Line1","take","+1l","THEN","find","Line2","take","+1l"], input_file="crlf-comprehensive.txt",
              expect=dict(stdout="Line1\r\nLine2\r\n", exit=0)),
 
         dict(id="crlf-136-crlf-nested-extraction",
@@ -1000,7 +1000,7 @@ def tests():
         # ---------- Inverted takes & cursor law ----------
         dict(id="inv-001-take-to-symmetric-output",
              # Both programs must emit identical bytes: [min(A,B), max(A,B))
-             tokens=["label","A","skip","7b","label","B","goto","A","take","to","B","::",
+             tokens=["label","A","skip","7b","label","B","goto","A","take","to","B","THEN",
                      "goto","B","take","to","A"],
              input_file="overlap.txt",
              expect=dict(stdout="abcdefgabcdefg", exit=0)),
@@ -1010,7 +1010,7 @@ def tests():
              # Test that take until works correctly with at expressions
              tokens=["skip","5b",                 # cursor at 'f'
                      "take","until","hij","at","match-start","-2b",  # target at match-start-2b
-                     "::",
+                     "THEN",
                      "take","+3b"],              # must emit 'fgh'
              input_file="overlap.txt",
              expect=dict(stdout="fgh", exit=0)),
@@ -1027,7 +1027,7 @@ def tests():
         dict(id="inv-003-symmetric-output-and-poststate",
              tokens=["label","A","skip","4b","label","B",
                      # branch 1
-                     "goto","A","take","to","B","take","+1b","::",
+                     "goto","A","take","to","B","take","+1b","THEN",
                      # branch 2
                      "goto","B","take","to","A","take","+1b"],
              input_file="overlap.txt",
@@ -1060,11 +1060,11 @@ def tests():
              expect=dict(stdout="TEX", exit=0)),  # counts bytes T,E,X as 3 chars despite binary following
 
         dict(id="utf8-005-empty-char-capture-no-move",
-             tokens=["skip","5b","take","to","cursor+0c","::","take","+3b"], input_file="overlap.txt",
+             tokens=["skip","5b","take","to","cursor+0c","THEN","take","+3b"], input_file="overlap.txt",
              expect=dict(stdout="fgh", exit=0)),
 
         dict(id="edge-feedback-001-inline-offset-label-resolution",
-             tokens=["label","HERE","::","goto","HERE+1l","take","1l"], input_file="-", stdin=b"a\nb\nX\n",
+             tokens=["label","HERE","THEN","goto","HERE+1l","take","1l"], input_file="-", stdin=b"a\nb\nX\n",
              expect=dict(stdout="b\n", exit=0)),
 
         dict(id="edge-feedback-002-backward-window-find-rightmost",
@@ -1072,7 +1072,7 @@ def tests():
              expect=dict(stdout="ERROR", exit=0)),
 
         dict(id="edge-feedback-003-take-until-empty-span-no-move",
-             tokens=["take","until","HEAD","::","take","4b"], input_file="-", stdin=b"HEAD\nM1\nM2\n",
+             tokens=["take","until","HEAD","THEN","take","4b"], input_file="-", stdin=b"HEAD\nM1\nM2\n",
              expect=dict(stdout="HEAD", exit=0)),
 
         dict(id="edge-feedback-004-utf8-chopped-boundary",
@@ -1274,7 +1274,7 @@ def tests():
 
         # Complex multi-clause regex
         dict(id="regex-045-multi-clause-regex",
-             tokens=["findr","ERROR","take","+5b","::","findr","WARNING","take","+7b"], input_file="multiline.txt",
+             tokens=["findr","ERROR","take","+5b","THEN","findr","WARNING","take","+7b"], input_file="multiline.txt",
              expect=dict(stdout="ERROR", exit=0)),
 
         dict(id="regex-046-regex-with-labels",
@@ -1305,7 +1305,7 @@ def tests():
 
         # Mixed regex and literal find
         dict(id="regex-052-mixed-find-operations",
-             tokens=["find","Section 1","take","+1l","::","findr","ERROR","take","+5b"], input_file="multiline.txt",
+             tokens=["find","Section 1","take","+1l","THEN","findr","ERROR","take","+5b"], input_file="multiline.txt",
              expect=dict(stdout="Section 1: Introduction\nERROR", exit=0)),
 
         # Regex with line operations
@@ -1646,11 +1646,11 @@ def tests():
 
         # View atomicity
         dict(id="view-021-view-atomic-success",
-             tokens=["viewset","BOF+2b","EOF-2b","take","+2b","::","take","+2b"], input_file="overlap.txt",
+             tokens=["viewset","BOF+2b","EOF-2b","take","+2b","THEN","take","+2b"], input_file="overlap.txt",
              expect=dict(stdout="cdef", exit=0)),
 
         dict(id="view-022-view-atomic-failure",
-             tokens=["viewset","BOF+2b","EOF-2b","take","+2b","find","XYZ","::","take","+2b"], input_file="overlap.txt",
+             tokens=["viewset","BOF+2b","EOF-2b","take","+2b","find","XYZ","THEN","take","+2b"], input_file="overlap.txt",
              expect=dict(stdout="ab", exit=0)),  # First clause fails, view not committed, second clause uses original cursor
 
         # View edge cases
@@ -1672,7 +1672,7 @@ def tests():
              expect=dict(stdout="world", exit=0)),
 
         dict(id="view-027-view-multi-clause",
-             tokens=["viewset","BOF+2b","EOF-2b","take","+2b","::","viewclear","take","+2b"], input_file="overlap.txt",
+             tokens=["viewset","BOF+2b","EOF-2b","take","+2b","THEN","viewclear","take","+2b"], input_file="overlap.txt",
              expect=dict(stdout="cdef", exit=0)),  # First clause commits view, second clears it but cursor is at position 4
 
         # View with regex anchors
