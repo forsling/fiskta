@@ -250,6 +250,14 @@ def tests():
              tokens=["sleep","1s","THEN","take","+2b"], input_file="overlap.txt",
              expect=dict(stdout="ab", exit=0)),
 
+        dict(id="gram-008-print-hex",
+             tokens=["print", r"\x00\xFA"], input_file="overlap.txt",
+             expect=dict(stdout_sha256="d96bdf2090bd7dafe1ab0d9f7ffc4720d002c07abbf48df3969af497b1edbfb9", exit=0)),
+
+        dict(id="gram-009-print-hex-invalid",
+             tokens=["print", r"\x0G"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=2)),
+
         # ---------- Clause atomicity & staging ----------
         dict(id="atom-001-discard-within-clause",
              tokens=["take","+3b","find","NOPE"], input_file="overlap.txt",
@@ -1029,11 +1037,11 @@ def tests():
              expect=dict(stdout="fgh", exit=0)),
 
         # ---------- Inline offsets in loc/at expressions ----------
-        dict(id="gram-008-inline-loc-offset",
+        dict(id="gram-010-inline-loc-offset",
              tokens=["take","to","BOF+3b"], input_file="overlap.txt",
              expect=dict(stdout="abc", exit=0)),
 
-        dict(id="gram-009-inline-at-offset",
+        dict(id="gram-011-inline-at-offset",
              tokens=["take","until","ERROR","at","line-start+1l"], input_file="small.txt",
              expect=dict(stdout="Header\nbody 1\nbody 2\nERROR hit\n", exit=0)),
 

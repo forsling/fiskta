@@ -50,24 +50,29 @@ static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
             }
             if (c == '\'') { st = S_SQ; p++; continue; }
             if (c == '"')  { st = S_DQ; p++; continue; }
-            if (c == '\\' && p[1]) { 
-                if (boff+1 >= sizeof buf) return -1; 
-                buf[boff++] = (char)p[1]; p += 2; continue; 
+            if (c == '\\' && p[1]) {
+                unsigned char next = (unsigned char)p[1];
+                if (next == ' ' || next == '\t' || next == '\\' || next == '\'' || next == '"') {
+                    if (boff+1 >= sizeof buf) return -1;
+                    buf[boff++] = (char)next; p += 2; continue;
+                }
             }
-            if (boff+1 >= sizeof buf) return -1; 
+            if (boff+1 >= sizeof buf) return -1;
             buf[boff++] = (char)c; p++; continue;
         } else if (st == S_SQ) { // single quotes: no escapes
             if (c == '\'') { st = S_TOKEN; p++; continue; }
-            if (boff+1 >= sizeof buf) return -1; 
+            if (boff+1 >= sizeof buf) return -1;
             buf[boff++] = (char)c; p++; continue;
         } else { // S_DQ
             if (c == '"') { st = S_TOKEN; p++; continue; }
-            if (c == '\\' && p[1]) { // 3 standard simple escapes
+            if (c == '\\' && p[1]) {
                 unsigned char esc = (unsigned char)p[1];
-                if (boff+1 >= sizeof buf) return -1; 
-                buf[boff++] = (char)esc; p += 2; continue;
+                if (esc == '"' || esc == '\\') {
+                    if (boff+1 >= sizeof buf) return -1;
+                    buf[boff++] = (char)esc; p += 2; continue;
+                }
             }
-            if (boff+1 >= sizeof buf) return -1; 
+            if (boff+1 >= sizeof buf) return -1;
             buf[boff++] = (char)c; p++; continue;
         }
     }
@@ -185,7 +190,7 @@ static void print_usage(void)
     printf("  viewclear                   Clear view; return to full file\n");
     printf("  sleep <duration>            Pause execution; duration suffix ms or s (e.g., 500ms, 1s)\n");
     printf("  print <string>              Emit literal bytes (alias: echo)\n");
-    printf("                              Supports escape sequences: \\n \\t \\r \\0 \\\\\n");
+    printf("                              Supports escape sequences: \\n \\t \\r \\0 \\\\ \\xHH\n");
     printf("                              Participates in clause atomicity\n");
     printf("\n");
     printf("UNITS:\n");

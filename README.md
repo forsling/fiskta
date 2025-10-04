@@ -63,7 +63,7 @@ OPERATIONS:
   viewclear                   Clear view; return to full file
   sleep <duration>            Pause execution; duration suffix ms or s (e.g., 500ms, 1s)
   print <string>              Emit literal bytes (alias: echo)
-                              Supports escape sequences: \n \t \r \0 \\
+                              Supports escape sequences: \n \t \r \0 \\ \xHH
                               Participates in clause atomicity
 
 UNITS:

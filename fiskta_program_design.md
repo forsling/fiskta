@@ -197,49 +197,53 @@ This plan keeps core fiskta semantics unchanged while enabling powerful long‑r
 Small, testable steps to de-risk complexity and allow course corrections:
 
 1) Switch clause separator to `THEN`
-   - Parser/tokenizer updates (including ops-string splitter)
-   - Update help/README/examples; migrate tests
+ - Parser/tokenizer updates (including ops-string splitter)
+  - Update help/README/examples; migrate tests
 
-2) Add `sleep <n>ms` op
+2) Introduce explicit CLI flags
+   - Require `--input` (defaulting to stdin) and add `--commands`
+   - Remove positional file heuristics and update tooling/tests
+
+3) Add `sleep <n>ms` op
    - Parse/build support; `OP_SLEEP` in engine as no-op side-effect
    - Unit tests to ensure no state/output changes
 
-3) Add iterative loop (Rescan-All policy)
+4) Add iterative loop (Rescan-All policy)
    - Flags: `--iterate`, `--tick-ms`, `--idle-exit-ms`
    - Re-run program each tick without windowing yet
 
-4) Add delta window via temporary `viewset`
+5) Add delta window via temporary `viewset`
    - Maintain `processed_hi`; intersect driver view with user `view`
    - Tests appending to a file; assert only new data is emitted
 
-5) Add `--ops-stdin` command-stream mode
+6) Add `--ops-stdin` command-stream mode
    - One ops string per line; default VM reset; `--persist-state` option
    - Error reporting per-line, continue processing
 
-6) Refactor clause execution to stage-only
+7) Refactor clause execution to stage-only
    - Extract a function that stages ranges/labels and returns a staged VM without emitting
    - Make current `execute_clause_with_scratch` a thin stage+commit wrapper
 
-7) Introduce ClauseExpr AST scaffolding
+8) Introduce ClauseExpr AST scaffolding
    - Build AST with `LEAF` nodes only (sequencing via `THEN` remains a list of exprs)
    - Preflight hooks ready for boolean nodes
 
-8) Implement `OR` with short-circuit
+9) Implement `OR` with short-circuit
    - Require parentheses for mixed expressions initially
    - Stage-only executor returns the winning branch; commit on success
 
-9) Implement `AND` with group atomicity
+10) Implement `AND` with group atomicity
    - Stage left, then right using left’s staged VM; commit combined outputs on success
    - Tests for atomicity, view/label behavior
 
-10) Add expression-level caps and flags
-   - `--max-ranges-per-expr`, `--max-labels-per-expr`, `--max-depth`; clear failure messages
+11) Add expression-level caps and flags
+    - `--max-ranges-per-expr`, `--max-labels-per-expr`, `--max-depth`; clear failure messages
 
-11) Add window policy options
-   - `--window-policy=delta|rescan|sliding[:W]`; ensure default remains delta for iterative mode
+12) Add window policy options
+    - `--window-policy=delta|rescan|sliding[:W]`; ensure default remains delta for iterative mode
 
-12) Polish docs and examples
-   - Update README/help with THEN, sleep, iterate/ops-stdin, window policies, and logical expressions
+13) Polish docs and examples
+    - Update README/help with THEN, sleep, iterate/ops-stdin, window policies, and logical expressions
 
 Each step is independently useful, minimizes rewrites, and provides observable behavior for evaluation.
 

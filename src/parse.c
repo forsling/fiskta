@@ -29,6 +29,7 @@ static enum Err parse_signed_number(const char* token, i64* offset, enum Unit* u
 static enum Err parse_milliseconds(const char* token, i32* out_ms);
 static i32 find_or_add_name_build(Program* prg, const char* name);
 static bool is_valid_label_name(const char* name);
+static int hex_value(char c);
 enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
 enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
     Clause* clauses_buf, Op* ops_buf,
@@ -58,7 +59,6 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
     i32 idx = 0;
     while (idx < token_count) {
         // Count ops in this clause
-        i32 clause_start = idx;
         while (idx < token_count && strcmp(tokens[idx], "THEN") != 0) {
             const char* cmd = tokens[idx];
             plan->total_ops++;
@@ -195,6 +195,7 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                 if (idx < token_count) {
                     plan->needle_count++;
                     plan->needle_bytes += strlen(tokens[idx]);
+                    plan->sum_take_ops++;
                     idx++; // skip string token
                 }
             } else if (strcmp(cmd, "sleep") == 0) {
@@ -875,6 +876,17 @@ static bool is_valid_label_name(const char* name)
     return true;
 }
 
+static int hex_value(char c)
+{
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return 10 + (c - 'a');
+    if (c >= 'A' && c <= 'F')
+        return 10 + (c - 'A');
+    return -1;
+}
+
 static enum Err parse_string_to_bytes(const char* str, String* out_string, char* str_pool, size_t* str_pool_off, size_t str_pool_cap)
 {
     // Process escape sequences and calculate final length
@@ -884,21 +896,28 @@ static enum Err parse_string_to_bytes(const char* str, String* out_string, char*
     // First pass: calculate the final length after processing escapes
     for (size_t i = 0; i < src_len; i++) {
         if (str[i] == '\\' && i + 1 < src_len) {
-            // Escape sequence
             char esc = str[i + 1];
-            switch (esc) {
-            case 'n': case 't': case 'r': case '0': case '\\':
+            if (esc == 'n' || esc == 't' || esc == 'r' || esc == '0' || esc == '\\') {
                 dst_len++;
-                i++; // skip the escape character
-                break;
-            default:
-                // Unknown escape - treat as literal backslash
-                dst_len++;
-                break;
+                i++; // skip escape type
+                continue;
             }
-        } else {
+            if (esc == 'x') {
+                if (i + 3 >= src_len)
+                    return E_PARSE;
+                int hi = hex_value(str[i + 2]);
+                int lo = hex_value(str[i + 3]);
+                if (hi < 0 || lo < 0)
+                    return E_PARSE;
+                dst_len++;
+                i += 3; // skip 'x' and two hex digits
+                continue;
+            }
+            // Unknown escape - treat as literal backslash
             dst_len++;
+            continue;
         }
+        dst_len++;
     }
     
     // Check if we have space in the string pool
@@ -911,37 +930,48 @@ static enum Err parse_string_to_bytes(const char* str, String* out_string, char*
     
     for (size_t i = 0; i < src_len; i++) {
         if (str[i] == '\\' && i + 1 < src_len) {
-            // Escape sequence
             char esc = str[i + 1];
-            switch (esc) {
-            case 'n':
+            if (esc == 'n') {
                 dst[dst_pos++] = '\n';
                 i++;
-                break;
-            case 't':
+                continue;
+            }
+            if (esc == 't') {
                 dst[dst_pos++] = '\t';
                 i++;
-                break;
-            case 'r':
+                continue;
+            }
+            if (esc == 'r') {
                 dst[dst_pos++] = '\r';
                 i++;
-                break;
-            case '0':
+                continue;
+            }
+            if (esc == '0') {
                 dst[dst_pos++] = '\0';
                 i++;
-                break;
-            case '\\':
+                continue;
+            }
+            if (esc == '\\') {
                 dst[dst_pos++] = '\\';
                 i++;
-                break;
-            default:
-                // Unknown escape - treat as literal backslash
-                dst[dst_pos++] = '\\';
-                break;
+                continue;
             }
-        } else {
-            dst[dst_pos++] = str[i];
+            if (esc == 'x') {
+                if (i + 3 >= src_len)
+                    return E_PARSE;
+                int hi = hex_value(str[i + 2]);
+                int lo = hex_value(str[i + 3]);
+                if (hi < 0 || lo < 0)
+                    return E_PARSE;
+                dst[dst_pos++] = (char)((hi << 4) | lo);
+                i += 3;
+                continue;
+            }
+            // Unknown escape - treat as literal backslash
+            dst[dst_pos++] = '\\';
+            continue;
         }
+        dst[dst_pos++] = str[i];
     }
     
     *str_pool_off += dst_len;
