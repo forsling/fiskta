@@ -48,6 +48,23 @@ Different workloads may benefit from different policies. Initial support can foc
 
 The driver view always intersects with any `viewset` expressed by the program so user constraints still apply.
 
+### Delta vs. Sliding (clarification)
+
+- Delta (append-only):
+  - Window per tick: `[processed_hi, sz)` where `processed_hi` advances to `sz` on success.
+  - Never re-processes old bytes; ideal for tailing append-only logs and streaming inputs.
+  - Outputs are naturally de-duplicated since prior regions are not revisited.
+
+- Sliding:
+  - Window per tick: `[max(0, sz - W), sz)` for a fixed width `W`.
+  - Re-processes an overlapping suffix every tick; useful when matches depend on cross-boundary context or you need a rolling analysis window.
+  - May re-emit the same bytes unless the program is written to be idempotent within the sliding window (e.g., constrained by labels or content markers).
+
+Notes:
+- Rescan-All is the extreme case of Sliding with `W = sz`.
+- For log rotation/truncation: Sliding and Rescan-All are robust; Delta should be paired with detection of shrink and reset the checkpoint when a truncation is observed.
+- For stdin spooling, all policies apply identically since the spool is a growing random-access file.
+
 ## State Persistence
 
 - VM (cursor, labels, last_match snapshot, and active view) persists across ticks within Iterative Window Mode.
@@ -139,6 +156,57 @@ All flags are optional; running without them preserves existing one‑shot behav
 5) Extend tests with a small set of iterative/command‑stream cases.
 
 This plan keeps core fiskta semantics unchanged while enabling powerful long‑running workflows, with clear boundaries on memory and complexity.
+
+## Incremental Implementation Plan (WIP)
+
+Small, testable steps to de-risk complexity and allow course corrections:
+
+1) Switch clause separator to `THEN`
+   - Parser/tokenizer updates (including ops-string splitter)
+   - Update help/README/examples; migrate tests
+
+2) Add `sleep <n>ms` op
+   - Parse/build support; `OP_SLEEP` in engine as no-op side-effect
+   - Unit tests to ensure no state/output changes
+
+3) Add iterative loop (Rescan-All policy)
+   - Flags: `--iterate`, `--tick-ms`, `--idle-exit-ms`
+   - Re-run program each tick without windowing yet
+
+4) Add delta window via temporary `viewset`
+   - Maintain `processed_hi`; intersect driver view with user `view`
+   - Tests appending to a file; assert only new data is emitted
+
+5) Add `--ops-stdin` command-stream mode
+   - One ops string per line; default VM reset; `--persist-state` option
+   - Error reporting per-line, continue processing
+
+6) Refactor clause execution to stage-only
+   - Extract a function that stages ranges/labels and returns a staged VM without emitting
+   - Make current `execute_clause_with_scratch` a thin stage+commit wrapper
+
+7) Introduce ClauseExpr AST scaffolding
+   - Build AST with `LEAF` nodes only (sequencing via `THEN` remains a list of exprs)
+   - Preflight hooks ready for boolean nodes
+
+8) Implement `OR` with short-circuit
+   - Require parentheses for mixed expressions initially
+   - Stage-only executor returns the winning branch; commit on success
+
+9) Implement `AND` with group atomicity
+   - Stage left, then right using left’s staged VM; commit combined outputs on success
+   - Tests for atomicity, view/label behavior
+
+10) Add expression-level caps and flags
+   - `--max-ranges-per-expr`, `--max-labels-per-expr`, `--max-depth`; clear failure messages
+
+11) Add window policy options
+   - `--window-policy=delta|rescan|sliding[:W]`; ensure default remains delta for iterative mode
+
+12) Polish docs and examples
+   - Update README/help with THEN, sleep, iterate/ops-stdin, window policies, and logical expressions
+
+Each step is independently useful, minimizes rewrites, and provides observable behavior for evaluation.
 
 ## Logical Clause Expressions (WIP)
 
