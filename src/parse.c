@@ -390,6 +390,7 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
             op->u.find.to.name_idx = -1;
             op->u.find.to.offset = 0;
             op->u.find.to.unit = UNIT_BYTES;
+            op->u.find.to.ref = REF_CURSOR;
         }
 
         // Parse needle
@@ -419,6 +420,7 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
             op->u.findr.to.name_idx = -1;
             op->u.findr.to.offset = 0;
             op->u.findr.to.unit = UNIT_BYTES;
+            op->u.findr.to.ref = REF_CURSOR;
         }
         if (*idx >= token_count)
             return E_PARSE;
@@ -572,6 +574,11 @@ static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, L
     if (*idx >= token_count)
         return E_PARSE;
 
+    // Default resolution context for general location expressions: cursor
+    loc->ref = REF_CURSOR;
+    // Initialize defaults
+    loc->name_idx = -1;
+
     const char* token = tokens[*idx];
     (*idx)++;
 
@@ -641,6 +648,9 @@ static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, Lo
 {
     if (*idx >= token_count)
         return E_PARSE;
+
+    // 'at' expressions resolve relative to the last match
+    at->ref = REF_MATCH;
 
     const char* token = tokens[*idx];
     (*idx)++;

@@ -45,6 +45,12 @@ enum LocBase {
     LOC_LINE_END
 };
 
+// Resolution reference for location expressions
+typedef enum {
+    REF_CURSOR, // resolve relative to staged cursor
+    REF_MATCH   // resolve relative to last match (used by 'at' expressions)
+} LocRef;
+
 enum Err {
     E_OK = 0,
     E_PARSE,
@@ -57,6 +63,7 @@ enum Err {
 };
 
 typedef struct {
+    LocRef ref;       // resolution reference (cursor vs match)
     enum LocBase base;
     enum Unit unit;
     i64 offset;
