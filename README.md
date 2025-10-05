@@ -6,9 +6,11 @@ This makes it easier to extract text between delimiters, navigate multi-line str
 
 fiskta sits between grep (pattern matching) and awk (field processing). Use it when grep is too simple but you don't need awk's transformation capabilities—you just need to navigate and extract.
 
-* Zero dependencies beyond a C11 compiler and libc.
-* Binary size: Stripped binary < 100 KiB.
-* Memory Usage: ~2-10 MiB.
+## Features
+
+* **Zero dependencies** - except for libc
+* **Lightweight** - Stripped binary < 100 KiB
+* **Streaming support** - Monitor files and process new data as it arrives
 
 ## What does it do?
 
@@ -37,6 +39,8 @@ alice
 # Gets alice even though age parsing fails
 # Without AND: find "user:" skip 5b take until " " find "age:" skip 4b take until " "
 # Would output nothing (atomic rollback)
+# With THEN: find "user:" skip 5b take until " " THEN find "age:" skip 4b take until " "
+# Would output "alice unknown" (both clauses run)
 ```
 
 Try multiple patterns—first match wins:
@@ -51,54 +55,67 @@ $ echo 'start: [content here] end' | fiskta find "[" skip 1b take until "]"
 content here
 ```
 
-## Core concepts
 
-### Cursor and Position
+## Overview
 
-You have a **cursor** that points to a position in the file (starting at byte 0). Operations move the cursor or extract text relative to it.
+**Extracting and Moving:**
+- `take <n><unit>` - Extract n units from current position
+- `skip <n><unit>` - Move cursor n units forward (no output)
+- `take to <location>` - Order-normalized: emits `[min(cursor,L), max(cursor,L))`; cursor moves to the high end
+- `take until <string> [at <location>]` - Forward-only: emits `[cursor, B)` where B is derived from the match; cursor moves only if B > cursor
+
+**Searching:**
+- `find [to <location>] <string>` - Search within `[min(cursor,L), max(cursor,L))`, default L=EOF; picks match closest to cursor
+- `findr [to <location>] <regex>` - Search using regular expressions within `[min(cursor,L), max(cursor,L))`; supports character classes, quantifiers, anchors
+
+**Navigation:**
+- `label <name>` - Mark current position with label
+- `goto <location>` - Jump to labeled position
+- `viewset <L1> <L2>` - Limit all ops to `[min(L1,L2), max(L1,L2))`
+- `viewclear` - Clear view; return to full file
+
+**Utilities:**
+- `sleep <duration>` - Pause execution; duration suffix ms or s (e.g., 500ms, 1s)
+- `print <string>` - Emit literal bytes (alias: echo). Supports escape sequences: `\n \t \r \0 \\ \xHH`. Participates in clause atomicity
 
 ### Units
 
-Operations measure distance in:
-- **`b`** - bytes
-- **`l`** - lines (LF-terminated; `\r` is treated as a regular byte)
-- **`c`** - UTF-8 code points (never splits multi-byte sequences)
+- `b` - Bytes
+- `l` - Lines (LF only, CR treated as bytes)
+- `c` - UTF-8 code points (never splits sequences)
 
-Examples: `10b`, `5l`, `20c`, `-3b` (negative = backward)
+### Labels
+
+- Names must be UPPERCASE, <16 chars, `[A-Z0-9_-]` (first must be A-Z)
 
 ### Locations
 
-You can refer to specific positions:
-- **`cursor`** - current position
-- **`BOF`** / **`EOF`** - beginning/end of file
-- **`match-start`** / **`match-end`** - from last `find`/`findr`
-- **`line-start`** / **`line-end`** - current line boundaries
-- **`LABEL_NAME`** - saved positions (uppercase names)
+- `cursor` - Current cursor position
+- `BOF` - Beginning of file
+- `EOF` - End of file
+- `match-start` - Start of last match
+- `match-end` - End of last match
+- `line-start` - Start of current line
+- `line-end` - End of current line
+- `<label>` - Named label position
 
-Locations can have offsets: `BOF+100b`, `EOF-50b`, `cursor+10l`
+**Note**: `line-start`/`line-end` are relative to the cursor here; in "at" (for "take until") they're relative to the last match.
 
-### Basic Operations
+### Offsets
 
-**Finding**: Search for patterns and move cursor to them
-- `find "text"` - search forward for literal text
-- `find to BOF "text"` - search backward
-- `find to cursor+1000b "text"` - search forward but only 1000 bytes
-- `findr "regex"` - search using regular expressions
+- `<location> +<n><unit>` - n units after location
+- `<location> -<n><unit>` - n units before location
+- (inline offsets like `BOF+100b` are allowed)
 
-**Extracting**: Output text and move cursor
-- `take 10b` - extract 10 bytes forward
-- `take -5b` - extract 5 bytes backward
-- `take to EOF` - extract from cursor to end of file
-- `take until ";"` - extract until pattern found (forward only)
+### Regex Syntax
 
-**Moving**: Change cursor position without output
-- `skip 100b` - move forward 100 bytes
-- `goto EOF` - jump to end of file
-- `goto MYLABEL` - jump to saved position
-
-**Labels**: Save and reuse positions
-- `label NAME` - save current cursor position (uppercase names: `A-Z`, `0-9`, `_`, `-`)
-- `goto NAME` - jump to saved position
+- **Character Classes**: `\d` (digits), `\w` (word), `\s` (space), `[a-z]`, `[^0-9]`
+- **Quantifiers**: `*` (0+), `+` (1+), `?` (0-1), `{n}` (exactly n), `{n,m}` (n to m)
+- **Grouping**: `( ... )` (group subpatterns), `(a|b)+` (quantified groups)
+- **Anchors**: `^` (line start), `$` (line end)
+- **Alternation**: `|` (OR)
+- **Escape**: `\n`, `\t`, `\r`, `\f`, `\v`, `\0`
+- **Special**: `.` (any char except newline)
 
 ### Clauses and Atomicity
 
@@ -121,114 +138,84 @@ Connect clauses with:
 find "user" THEN take to line-end       # always take, even if find fails
 ```
 
-**`AND`** - run next clause only if this one succeeds
+#### **`AND`** - run next clause only if this one succeeds
 
-This is useful for getting **partial results** when you have multiple extraction steps:
+This provides **conditional execution with short-circuiting**:
 ```bash
-# With AND: separate clauses, each commits independently
-take 10b label START AND find "end" AND goto START
-# Outputs the 10 bytes even if "end" isn't found
+# AND: conditional execution - skip remaining clauses if any fails
+find "ERROR" AND take to line-end AND print "\n"
+# If ERROR found: outputs line + newline
+# If ERROR not found: outputs nothing (short-circuits)
 
-# Without AND: one atomic clause
-take 10b label START find "end" goto START
-# Outputs nothing if "end" isn't found (complete rollback)
+# Without AND (single clause): atomic rollback
+find "ERROR" take to line-end print "\n"
+# If ERROR not found: outputs nothing (atomic rollback)
+# Same output as AND, but different mechanism
+
+# With THEN: always runs all clauses
+find "ERROR" THEN take to line-end THEN print "\n"
+# If ERROR not found: outputs newline anyway (no short-circuit)
+# Different output than AND!
 ```
+
+AND combines the commit after clause success (regardless of outcome of later clauses)
+behavior of THEN with the cascading failure mode of single-clause constructions.
 
 **`OR`** - run next clause only if this one fails
 ```bash
 find "cache" OR find "buffer"           # try cache first, fallback to buffer
 ```
 
+Use OR when you want to try multiple alternatives - only the first successful clause runs.
+
 Evaluation is strictly left-to-right (no operator precedence).
 
-**Key insight**: Use AND when you want multiple independent extraction steps where early successes should output even if later steps fail. Without AND (single clause), everything rolls back on any failure.
+### Command-Line Options
+
+**Input/Output:**
+- `-i, --input <path>` - Read from file instead of stdin
+
+**Command Modes:**
+- `-c, --commands <string>` - Provide operations as a string
+- `--commands-stdin` - Read operations from stdin (one program per line)
+- `--` - Treat remaining args as operations
+
+**Looping & Streaming:**
+- `--loop <ms>` - Re-run program every N milliseconds
+- `--idle-timeout <ms>` - Stop after N ms with no input growth
+- `--window-policy <policy>` - How to process data on each loop:
+  - `cursor` - continue from last cursor position (default)
+  - `delta` - only new data since last run
+  - `rescan` - re-scan entire file each time
+
+**Examples:**
+```bash
+# Operations as arguments (default)
+fiskta find "ERROR" take to line-end < log.txt
+
+# Operations as string
+fiskta -c 'find "ERROR" take to line-end' --input log.txt
+
+# Tail-like behavior
+fiskta --loop 1000 --idle-timeout 0 --input service.log find "ERROR" take to line-end
+```
 
 ## Installation
 
 ```bash
-make          # builds ./fiskta
-make test     # runs test suite
+make              # Build optimized binary (./fiskta)
+make debug        # Build with debug symbols
+make test         # Run test suite (requires Python 3)
 ```
 
-Zero dependencies (only libc). Works on Linux, macOS, BSDs, Windows.
+**Requirements:**
+- C11 compiler
+- libc
+- Python 3 (for running tests)
 
-## Common Patterns
+**Platforms:** Tested on Linux, compatibility with other platforms unknown.
 
-### Extract fixed-length fields
-
-Problem: Get the first 10 characters from each line in a log file
-
-```bash
-fiskta --input app.log take 10b skip to line-end skip 1b
-```
-
-### Skip header, extract body
-
-Problem: Skip first 5 lines of a report, then extract the next 20 lines
-
-```bash
-fiskta --input report.txt skip 5l take 20l
-```
-
-### Extract after a marker
-
-Problem: Find "ERROR:" and extract the rest of the line
-
-```bash
-fiskta --input app.log find "ERROR:" take to line-end
-```
-
-### Conditional extraction
-
-Problem: Extract the username only if the line contains "login success"
-
-```bash
-fiskta --input auth.log \
-    find "login success" AND skip to line-end skip -1l find "user=" skip 5b take until " "
-```
-
-### Try multiple patterns
-
-Problem: Extract error messages that might start with "ERROR:" or "FATAL:"
-
-```bash
-fiskta --input app.log \
-    find "ERROR:" OR find "FATAL:" AND take to line-end
-```
-
-### Extract between delimiters
-
-Problem: Extract content between `<tag>` and `</tag>`
-
-```bash
-fiskta --input data.xml find "<tag>" skip 5b take until "<"
-```
-
-### Extract all occurrences
-
-Problem: Extract all email addresses (using labels and goto for loops)
-
-```bash
-fiskta --input contacts.txt \
-    label START \
-    findr "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+" take to match-end print "\n" \
-    goto START
-```
-
-### Extract from specific section
-
-Problem: Extract all config values from the `[database]` section only
-
-```bash
-fiskta --input config.ini \
-    find "[database]" skip to line-end \
-    viewset cursor cursor+1000b \
-    label LOOP \
-    find "=" skip -1l take to line-end \
-    goto LOOP
-```
-
-## Operations Reference
+## Command Reference
 
 ### Finding
 
@@ -399,185 +386,7 @@ sleep 1s         # sleep 1 second
 sleep 500ms      # sleep half a second
 ```
 
-## Logical Operators
-
-Operations are grouped into **clauses** separated by logical operators. Each clause is atomic—all operations succeed and commit together, or all fail and roll back.
-
-### The Three Operators
-
-**`THEN`** - Sequential execution (always run next clause)
-```bash
-find "user" THEN take to line-end       # always take, even if find fails
-```
-
-**`AND`** - Conditional execution (run next only if this succeeds)
-```bash
-take 10b AND find "marker" AND take 5b  # partial output: gets first 10b even if marker not found
-```
-
-**`OR`** - Alternative execution (run next only if this fails)
-```bash
-find "cache" OR find "buffer"           # try cache, fallback to buffer
-```
-
-### The Four Rules
-
-Evaluation is **strictly left-to-right** with these rules:
-
-1. **THEN always executes** - the next clause runs regardless of previous success/failure
-2. **AND creates chains** - if any clause in an AND chain fails, skip the rest of the chain
-3. **OR short-circuits** - if a clause succeeds, skip remaining consecutive OR clauses
-4. **THEN breaks chains** - clauses after THEN always run, even if previous AND/OR chains failed
-
-### Common Patterns
-
-```bash
-# Sequential: always do both
-find "start" THEN take 10b
-
-# Partial results: first clause commits even if later fails
-take 20b AND find "marker" AND take 10b
-# Without AND: take 20b find "marker" take 10b
-# would output nothing if marker not found
-
-# Fallback: try first, then second
-find "primary" OR find "secondary"
-
-# Cleanup: always run final clause
-take 100b THEN print "\n"
-```
-
-### Important: Left-to-Right Evaluation
-
-There's **no operator precedence**. Evaluation is strictly left-to-right, which creates some non-obvious behaviors:
-
-```bash
-# A OR B AND C evaluates as (A OR B) AND C
-# If A succeeds, B is skipped, then C runs
-find abc OR find def AND take +3b
-
-# A AND B OR C evaluates as (A AND B) OR C
-# If A AND B succeeds, C is skipped
-# If A AND B fails, C runs as fallback
-find abc AND take +3b OR skip 1b
-
-# A AND B OR C AND D evaluates as ((A AND B) OR C) AND D
-# NOT as (A AND B) OR (C AND D)
-# If (A AND B) succeeds, skip C but run D
-find abc AND skip 3b OR find def AND take +3b
-```
-
-**Rule of thumb**: Chains only contain one operator type. An AND chain ends when you hit OR or THEN. An OR chain ends when you hit AND or THEN.
-
-If you need different grouping, use THEN to break chains or use multiple invocations.
-
-### Exit Status
-
-`fiskta` uses a diagnostic exit code system to help you understand what happened:
-
-**Success:**
-- **0** - Success: at least one clause succeeded
-
-**System/Parse Errors (1-9):**
-- **1** - I/O error (file not found, permission denied, disk full, etc.)
-- **2** - Parse error (invalid syntax, unknown operation, bad arguments)
-- **3** - Regex error (invalid regex pattern)
-- **4** - Resource limit (program too large, out of memory)
-
-**Execution Failures (10+):**
-- **10+** - Clause N failed (exit code = 10 + clause index)
-  - Exit 10: First clause (index 0) failed
-  - Exit 11: Second clause (index 1) failed
-  - Exit 12: Third clause (index 2) failed
-  - And so on...
-
-## Locations, Units & Syntax
-
-### Units
-
-- `b` - Bytes
-- `l` - Lines (LF-terminated; CR is treated as a regular byte)
-- `c` - UTF-8 code points (never splits multi-byte sequences)
-
-### Locations
-
-- `cursor` - Current cursor position
-- `BOF` - Beginning of file (position 0)
-- `EOF` - End of file
-- `match-start` - Start of last successful find/findr match
-- `match-end` - End of last successful find/findr match
-- `line-start` - Start of current line (line containing cursor)
-- `line-end` - End of current line
-- `<NAME>` - Position of a labeled location
-
-**Note**: In most contexts, `line-start`/`line-end` are relative to the cursor. In the `at` clause of `take until`, they're relative to the match position.
-
-### Offsets
-
-Locations can be modified with offsets:
-
-```bash
-BOF+100b         # 100 bytes after beginning
-EOF-50b          # 50 bytes before end
-cursor+10l       # 10 lines after cursor
-MYLABEL-5c       # 5 characters before label
-match-end+1b     # 1 byte after match end
-```
-
-### Label Names
-
-- Must start with uppercase letter (A-Z)
-- Can contain: A-Z, 0-9, `_`, `-`
-- Maximum 15 characters
-- Examples: `START`, `SECTION_A`, `END-OF-BLOCK`
-
-
-## Command-Line Options
-
-### Input/Output
-
-```bash
--i, --input <path>              # Read from file instead of stdin
-```
-
-### Command Modes
-
-```bash
--c, --commands <string>         # Provide operations as a string
---commands-stdin                # Read operations from stdin (one program per line)
---                              # Treat remaining args as operations
-```
-
-Examples:
-```bash
-# Operations as arguments (default)
-fiskta find "ERROR" take to line-end < log.txt
-
-# Operations as string
-fiskta -c 'find "ERROR" take to line-end' --input log.txt
-
-# Operations from stdin, data from file
-echo 'find "ERROR" take to line-end' | fiskta --commands-stdin --input log.txt
-```
-
-### Looping & Streaming
-
-```bash
---loop <ms>                     # Re-run program every N milliseconds
---idle-timeout <ms>             # Stop after N ms with no input growth
---window-policy <policy>        # How to process data on each loop:
-                                #   cursor - continue from last cursor position (default)
-                                #   delta  - only new data since last run
-                                #   rescan - re-scan entire file each time
-```
-
-Example - tail-like behavior:
-```bash
-fiskta --loop 1000 --idle-timeout 0 --input service.log \
-    find "ERROR" take to line-end
-```
-
-## Advanced: Streaming and Looping
+## Streaming and Looping
 
 fiskta can monitor a file and repeatedly execute your program as new data arrives, useful for tailing log files or processing streams.
 
@@ -637,7 +446,7 @@ Useful for:
 
 ---
 
-## Advanced: Views and Scoping
+## Views and Scoping
 
 Views let you restrict operations to a specific region of the file. This is useful for extracting from sections or preventing operations from wandering too far.
 
@@ -682,7 +491,7 @@ viewset BOF EOF-1000b    # exclude last 1000 bytes
 viewset BOF EOF          # back to full file
 ```
 
-### Common Patterns
+## Common Patterns
 
 **Extract from specific section:**
 ```bash
@@ -700,6 +509,82 @@ goto LOOP
 viewset cursor cursor+1000b find "marker"
 ```
 
+## Examples
+
+### Extract fixed-length fields
+
+Problem: Get the first 10 characters from each line in a log file
+
+```bash
+fiskta --input app.log take 10b skip to line-end skip 1b
+```
+
+### Skip header, extract body
+
+Problem: Skip first 5 lines of a report, then extract the next 20 lines
+
+```bash
+fiskta --input report.txt skip 5l take 20l
+```
+
+### Extract after a marker
+
+Problem: Find "ERROR:" and extract the rest of the line
+
+```bash
+fiskta --input app.log find "ERROR:" take to line-end
+```
+
+### Conditional extraction
+
+Problem: Extract the username only if the line contains "login success"
+
+```bash
+fiskta --input auth.log \
+    find "login success" AND skip to line-end skip -1l find "user=" skip 5b take until " "
+```
+
+### Try multiple patterns
+
+Problem: Extract error messages that might start with "ERROR:" or "FATAL:"
+
+```bash
+fiskta --input app.log \
+    find "ERROR:" OR find "FATAL:" AND take to line-end
+```
+
+### Extract between delimiters
+
+Problem: Extract content between `<tag>` and `</tag>`
+
+```bash
+fiskta --input data.xml find "<tag>" skip 5b take until "<"
+```
+
+### Extract all occurrences
+
+Problem: Extract all email addresses (using labels and goto for loops)
+
+```bash
+fiskta --input contacts.txt \
+    label START \
+    findr "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+" take to match-end print "\n" \
+    goto START
+```
+
+### Extract from specific section
+
+Problem: Extract all config values from the `[database]` section only
+
+```bash
+fiskta --input config.ini \
+    find "[database]" skip to line-end \
+    viewset cursor cursor+1000b \
+    label LOOP \
+    find "=" skip -1l take to line-end \
+    goto LOOP
+```
+
 ---
 
 ## Grammar
@@ -713,8 +598,8 @@ Find           = "find" [ "to" LocationExpr ] String .
 FindRegex      = "findr" [ "to" LocationExpr ] String .
 Skip           = "skip" Number Unit .
 Take           = "take" ( SignedNumber Unit
-                        | "to" LocationExpr
-                        | "until" String [ "at" AtExpr ] ) .
+                          | "to" LocationExpr
+                          | "until" String [ "at" AtExpr ] ) .
 Label          = "label" Name .
 Goto           = "goto" LocationExpr .
 Viewset        = "viewset" LocationExpr LocationExpr .
@@ -743,11 +628,4 @@ Digit          = "0" | "1" | "2" | "3" | "4" | "5"
 ShellString    = shell-quoted non-empty byte string .
 ```
 
-## Build & Test
-
-```bash
-make              # Build optimized binary (./fiskta)
-make debug        # Build with debug symbols
-make test         # Run test suite (requires Python 3)
-```
 
