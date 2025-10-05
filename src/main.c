@@ -329,6 +329,8 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
     i32 ok = 0;
     enum Err last_err = E_OK;
     StagedResult result;
+    bool and_chain_failed = false;
+    bool clauses_succeeded_after_and_failure = false;
 
     for (i32 ci = 0; ci < prg->clause_count; ++ci) {
         i32 rc = 0, lc = 0;
@@ -359,10 +361,13 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
                 vm_exec->view = result.staged_vm.view;
             }
         }
-        
+
         // Handle links - the clause's link tells us what to do next
         if (e == E_OK) {
             ok++;
+            if (and_chain_failed) {
+                clauses_succeeded_after_and_failure = true;
+            }
             // Success: check this clause's link
             if (prg->clauses[ci].link == LINK_OR) {
                 // This clause succeeded and links with OR
@@ -374,21 +379,18 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
             // For LINK_AND, LINK_THEN, or LINK_NONE: just continue to next clause
         } else {
             last_err = e;
-            // Failure: check if previous clause linked to this with AND
-            if (ci > 0 && prg->clauses[ci - 1].link == LINK_AND) {
-                // Previous clause said AND - this failure breaks the chain
-                // Return 0 to indicate overall failure
-                if (last_err_out)
-                    *last_err_out = last_err;
-                return 0;
-            }
-            // Also check if this clause itself has an AND link (meaning it would have ANDed with next)
-            if (prg->clauses[ci].link == LINK_AND) {
-                // This clause failed and was supposed to AND with next
-                // Stop execution - the AND chain is broken
-                if (last_err_out)
-                    *last_err_out = last_err;
-                return 0;
+
+            bool drop_and_chain = false;
+            if (ci > 0 && prg->clauses[ci - 1].link == LINK_AND)
+                drop_and_chain = true;
+            if (prg->clauses[ci].link == LINK_AND)
+                drop_and_chain = true;
+
+            if (drop_and_chain) {
+                and_chain_failed = true;
+                while (ci + 1 < prg->clause_count && prg->clauses[ci].link == LINK_AND)
+                    ci++;
+                continue;
             }
             // For LINK_OR, LINK_THEN, or LINK_NONE: continue to next clause
         }
@@ -396,7 +398,7 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
 
     if (last_err_out)
         *last_err_out = last_err;
-    return ok;
+    return (and_chain_failed && !clauses_succeeded_after_and_failure) ? -1 : ok;
 }
 
 static void print_usage(void)
@@ -487,13 +489,34 @@ static void print_usage(void)
     printf("  Escape: \\n, \\t, \\r, \\f, \\v, \\0\n");
     printf("  Special: . (any char except newline)\n");
     printf("\n");
-    printf("CLAUSES:\n");
-    printf("  All operations until the next THEN are considered an independent clause.\n");
-    printf("  A clause will succeed if all ops succeed, fail if any op fails.\n");
-    printf("  On Failure: clause rolls back (no output or label changes); later clauses still run.\n");
-    printf("  On Success: emits staged output in order, commits labels, updates cursor and last-match snapshot.\n");
-    printf("  Exit status: succeeds if any clause commits; otherwise returns the last failure code.\n");
-    printf("  Empty captures succeed and leave the cursor in place.\n");
+    printf("CLAUSES AND LOGICAL OPERATORS:\n");
+    printf("  Operations are grouped into clauses connected by logical operators:\n");
+    printf("    THEN    Sequential execution (always runs next clause)\n");
+    printf("    AND     Both clauses must succeed (short-circuits on failure)\n");
+    printf("    OR      First success wins (short-circuits on success)\n");
+    printf("\n");
+    printf("  Within a clause: all ops must succeed or the clause fails atomically.\n");
+    printf("  On Failure: clause rolls back (no output or label changes).\n");
+    printf("  On Success: emits staged output, commits labels, updates cursor and last-match.\n");
+    printf("\n");
+    printf("  Evaluation is strictly left-to-right with these rules:\n");
+    printf("    1. THEN always executes the next clause (regardless of previous result)\n");
+    printf("    2. AND creates a chain - if any clause in an AND chain fails, skip\n");
+    printf("       remaining clauses in that chain and continue after it\n");
+    printf("    3. OR short-circuits - if a clause succeeds, skip all remaining OR\n");
+    printf("       alternatives in that chain\n");
+    printf("    4. THEN acts as a \"chain breaker\" - clauses after THEN always run,\n");
+    printf("       even if previous AND chains failed\n");
+    printf("\n");
+    printf("  Examples:\n");
+    printf("    find abc THEN take +3b               # Sequential: always do both\n");
+    printf("    find abc AND take +3b                # Conditional: take only if find succeeds\n");
+    printf("    find abc OR find xyz                 # Alternative: try abc, or try xyz\n");
+    printf("    find abc AND take +3b THEN skip 1b   # Mixed: skip runs even if AND fails\n");
+    printf("\n");
+    printf("  Exit status: succeeds (0) if any clause commits OR if AND chains fail but\n");
+    printf("  later THEN clauses succeed; fails (2) if AND chains fail with no successful\n");
+    printf("  clauses after.\n");
     printf("\n");
     printf("OPTIONS:\n");
     printf("  -i, --input <path>          Read input from path (default: stdin)\n");
@@ -807,7 +830,7 @@ int main(int argc, char** argv)
     const size_t re_prog_bytes = (size_t)plan.sum_findr_ops * sizeof(ReProg);
     const size_t re_ins_bytes = (size_t)plan.re_ins_estimate * sizeof(ReInst);
     const size_t re_cls_bytes = (size_t)plan.re_classes_estimate * sizeof(ReClass);
-    
+
     // Choose per-run thread capacity as ~4x max nins (like old logic), min 32.
     int re_threads_cap = plan.re_ins_estimate_max > 0 ? 4 * plan.re_ins_estimate_max : 32;
     if (re_threads_cap < 32)
@@ -975,6 +998,11 @@ int main(int argc, char** argv)
                 exit_code = 2;
                 goto cleanup;
             }
+            if (ok == -1) {
+                // AND chain failed
+                exit_code = 2;
+                goto cleanup;
+            }
 
             fflush(stdout);
 
@@ -1080,6 +1108,11 @@ int main(int argc, char** argv)
                     exit_code = 2;
                     goto cleanup;
                 }
+            }
+            if (ok == -1) {
+                // AND chain failed
+                exit_code = 2;
+                goto cleanup;
             }
 
             fflush(stdout);

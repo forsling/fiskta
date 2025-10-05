@@ -2002,6 +2002,14 @@ def tests():
              tokens=["find","abc","THEN","find","xyz"], input_file="overlap.txt",
              expect=dict(stdout="", exit=0)),  # THEN continues on failure (first succeeds, second fails, exit code from success count)
 
+        dict(id="logic-029a-and-chain-then-after-first-fail",
+             tokens=["find","xyz","AND","take","+1b","THEN","take","+1b"], input_file="overlap.txt",
+             expect=dict(stdout="a", exit=0)),  # AND chain fails early; THEN clause still runs
+
+        dict(id="logic-029b-and-chain-then-after-second-fail",
+             tokens=["skip","1b","AND","find","xyz","THEN","take","+1b"], input_file="overlap.txt",
+             expect=dict(stdout="b", exit=0)),  # Second clause fails; THEN clause observes state from first
+
         # Verify cursor state across OR when second executes
         dict(id="logic-029-or-cursor-state",
              tokens=["find","xyz","OR","find","def","AND","take","+3b"], input_file="overlap.txt",

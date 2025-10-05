@@ -102,13 +102,34 @@ REGEX SYNTAX:
   Escape: \n, \t, \r, \f, \v, \0
   Special: . (any char except newline)
 
-CLAUSES:
-  All operations until the next THEN are considered an independent clause.
-  A clause will succeed if all ops succeed, fail if any op fails.
-  On Failure: clause rolls back (no output or label changes); later clauses still run.
-  On Success: emits staged output in order, commits labels, updates cursor and last-match snapshot.
-  Exit status: succeeds if any clause commits; otherwise returns the last failure code.
-  Empty captures succeed and leave the cursor in place.
+CLAUSES AND LOGICAL OPERATORS:
+  Operations are grouped into clauses connected by logical operators:
+    THEN    Sequential execution (always runs next clause)
+    AND     Both clauses must succeed (short-circuits on failure)
+    OR      First success wins (short-circuits on success)
+
+  Within a clause: all ops must succeed or the clause fails atomically.
+  On Failure: clause rolls back (no output or label changes).
+  On Success: emits staged output, commits labels, updates cursor and last-match.
+
+  Evaluation is strictly left-to-right with these rules:
+    1. THEN always executes the next clause (regardless of previous result)
+    2. AND creates a chain - if any clause in an AND chain fails, skip
+       remaining clauses in that chain and continue after it
+    3. OR short-circuits - if a clause succeeds, skip all remaining OR
+       alternatives in that chain
+    4. THEN acts as a "chain breaker" - clauses after THEN always run,
+       even if previous AND chains failed
+
+  Examples:
+    find abc THEN take +3b          # Sequential: always do both
+    find abc AND take +3b           # Conditional: take only if find succeeds
+    find abc OR find xyz            # Alternative: try abc, or try xyz
+    find abc AND take +3b THEN skip 1b   # Mixed: skip runs even if AND fails
+
+  Exit status: succeeds (0) if any clause commits OR if AND chains fail but
+  later THEN clauses succeed; fails (2) if AND chains fail with no successful
+  clauses after.
 
 OPTIONS:
   -i, --input <path>          Read input from path (default: stdin)
