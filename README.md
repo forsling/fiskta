@@ -1,6 +1,10 @@
 # fiskta
 
-**fiskta** (FInd SKip TAke) is a cursor-oriented data extraction tool. You write imperative programs that navigate through files and extract what you need—find a pattern, skip ahead, take some bytes. No cryptic syntax, just straightforward step-by-step (hopefully) intuitive operations.
+**fiskta** (FInd SKip TAke) is a cursor-oriented data extraction tool. Unlike traditional text tools that match patterns on lines, fiskta lets you navigate through files with explicit position and movement commands—find a pattern, skip ahead, take some bytes. You think in terms of "where am I?" and "what do I do from here?" rather than "what pattern matches this line?"
+
+This makes it easier to extract text between delimiters, navigate multi-line structures, and build complex conditional extractions step by step. No cryptic syntax, just straightforward imperative operations.
+
+fiskta sits between grep (pattern matching) and awk (field processing). Use it when grep is too simple but you don't need awk's transformation capabilities—you just need to navigate and extract.
 
 * Zero dependencies beyond a C11 compiler and libc.
 * Binary size: Stripped binary < 100 KiB.
@@ -43,30 +47,6 @@ Extract text between delimiters:
 $ echo 'start: [content here] end' | fiskta find "[" skip 1b take until "]"
 content here
 ```
-
-## How is this different?
-
-Most text tools are pattern-based: you write a pattern that matches a line, then extract fields from it. fiskta is cursor-based: you write a sequence of operations that move a cursor and extract regions.
-
-**Traditional approach** (awk):
-```bash
-# Match lines starting with ERROR, extract field 2
-awk '/^ERROR/ {print $2}' log.txt
-```
-
-**fiskta approach**:
-```bash
-# Find "ERROR", move past it, take until space
-fiskta --input log.txt find "ERROR" skip 6b take until " "
-```
-
-The fiskta approach is more explicit about position and movement, which makes it easier to:
-- Extract text between delimiters without regex capture groups
-- Navigate multi-line structures (skip 5 lines, take 3 lines)
-- Build up complex extractions step by step
-- Conditionally extract based on what you find
-
-You think in terms of "where am I?" and "what do I do from here?" rather than "what pattern matches this line?"
 
 ## Core concepts
 
@@ -149,23 +129,6 @@ find "cache" OR find "buffer"           # try cache first, fallback to buffer
 ```
 
 Evaluation is strictly left-to-right (no operator precedence).
-
-## When to use fiskta
-
-**Good fit:**
-- Extracting fields from structured logs or data files
-- Navigating multi-line text structures (skip headers, extract body)
-- Conditional extraction (take X only if Y is present)
-- Extracting regions between delimiters
-- Building extraction logic step-by-step
-
-**Not a good fit:**
-- Simple line filtering (use `grep`)
-- Field splitting on single-character delimiters (use `cut` or `awk`)
-- Complex transformations of content (use `sed` or `awk`)
-- Full document parsing (use a proper parser)
-
-fiskta sits between grep (simple pattern matching) and awk (field processing/transformation). It's for when grep is too simple but you don't need awk's transformation capabilities—you just need to navigate and extract.
 
 ## Installation
 
