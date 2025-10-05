@@ -68,8 +68,6 @@ static enum Err new_class(ReB* b, const ReClass* src, int* idx_out)
     return E_OK;
 }
 
-static int peek(const char* s, int i) { return (unsigned char)s[i]; }
-
 // Parse a character class: pattern points at first char AFTER '['; returns index AFTER ']'
 static enum Err parse_class(ReB* b, String pat, int* i_inout, int* out_cls_idx)
 {
@@ -460,7 +458,6 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
 
     // --- NEW: grouping atom '(' ... ')' with nested alternation ---
     if (pat.bytes[i - 1] == '(') {
-        int start_i = i - 1;
         int j = i, depth = 1;
         while (j < pat.len) {
             if (pat.bytes[j] == '\\') {
@@ -637,9 +634,9 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
 
     // Emit sequence based on (ak, q)
     enum Err e = E_OK;
-    int idx_atom, idx_split, idx_jmp;
     if (!is_quantified) {
         // No quantifier - emit single atom
+        int idx_atom;
         switch (ak) {
         case A_CHAR:
             e = emit_inst(b, RI_CHAR, 0, 0, ch, -1, NULL);
@@ -739,7 +736,6 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
         } else {
             // {n,m} quantifier - more complex NFA structure needed
             // For now, implement a simple approach: emit min_count atoms, then add optional ones
-            int first_atom = -1;
 
             // Emit minimum required atoms
             for (int i = 0; i < min_count; i++) {
@@ -759,8 +755,6 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
                 }
                 if (e != E_OK)
                     return e;
-                if (i == 0)
-                    first_atom = idx_atom;
             }
 
             if (max_count == -1) {
