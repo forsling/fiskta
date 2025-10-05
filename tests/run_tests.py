@@ -1838,6 +1838,18 @@ def tests():
              extra_args=["-c", str(FIX / "commands_take_plus_2b.txt")],
              expect=dict(stdout="ab", exit=0)),
 
+        dict(id="cli-006-command-stream-multi",
+             tokens=[], input_file="overlap.txt",
+             extra_args=["-c", "-"],
+             stdin=b"take +1b\nskip 2b THEN take +1b\nskip 4b THEN take +1b\n",
+             expect=dict(stdout="ace", exit=0)),
+
+        dict(id="cli-007-command-stream-continue-after-error",
+             tokens=[], input_file="overlap.txt",
+             extra_args=["-c", "-"],
+             stdin=b"take +1b\nfind\nskip 2b THEN take +1b\n",
+             expect=dict(stdout="ac", exit=0)),
+
         dict(id="loop-001-basic",
              tokens=["take","+2b"], input_file="overlap.txt",
              extra_args=["--loop","1","--idle-timeout","0"],
