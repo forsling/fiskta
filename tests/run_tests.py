@@ -263,6 +263,47 @@ def tests():
              tokens=["print", r"\x0G"], input_file="overlap.txt",
              expect=dict(stdout="", exit=2)),
 
+        # ---------- Error path tests ----------
+        dict(id="error-001-unknown-operation",
+             tokens=["unknown","arg"], input_file="small.txt",
+             expect=dict(stdout="", exit=2)),
+
+        dict(id="error-002-missing-argument",
+             tokens=["find"], input_file="small.txt",
+             expect=dict(stdout="", exit=2)),
+
+        dict(id="error-003-invalid-number",
+             tokens=["take","notanumber"], input_file="small.txt",
+             expect=dict(stdout="", exit=2)),
+
+        dict(id="error-004-invalid-unit",
+             tokens=["take","10x"], input_file="small.txt",
+             expect=dict(stdout="", exit=2)),
+
+        dict(id="error-005-invalid-location",
+             tokens=["goto","NOTEXIST"], input_file="small.txt",
+             expect=dict(stdout="", exit=2)),
+
+        dict(id="error-006-find-not-found",
+             tokens=["find","NOTFOUND","AND","take","10b"], input_file="small.txt",
+             expect=dict(stdout="", exit=2)),
+
+        dict(id="error-007-negative-skip-beyond-bof",
+             tokens=["skip","-1000b"], input_file="small.txt",
+             expect=dict(stdout="", exit=2)),
+
+        dict(id="error-008-invalid-regex",
+             tokens=["findr","[unclosed"], input_file="small.txt",
+             expect=dict(stdout="", exit=2)),
+
+        dict(id="error-009-take-until-not-found",
+             tokens=["take","until","NOTFOUND"], input_file="small.txt",
+             expect=dict(stdout="", exit=2)),
+
+        dict(id="error-010-findr-not-found",
+             tokens=["findr","^NOTFOUND$","AND","take","10b"], input_file="small.txt",
+             expect=dict(stdout="", exit=2)),
+
         # ---------- Clause atomicity & staging ----------
         dict(id="atom-001-discard-within-clause",
              tokens=["take","+3b","find","NOPE"], input_file="overlap.txt",
@@ -2029,6 +2070,19 @@ def tests():
         dict(id="logic-032-complex-or-and-outputs",
              tokens=["find","xyz","OR","find","abc","take","+2b","AND","take","+2b"], input_file="overlap.txt",
              expect=dict(stdout="abcd", exit=0)),  # first OR fails, (find take AND take) succeeds with two outputs
+
+        # Edge case: A AND B OR C AND D evaluates as ((A AND B) OR C) AND D
+        dict(id="logic-033-and-or-and-chain-success",
+             tokens=["find","abc","AND","skip","3b","OR","find","def","AND","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="def", exit=0)),  # (find AND skip) succeeds, skip C, run D
+
+        dict(id="logic-034-and-or-and-chain-first-fails",
+             tokens=["find","xyz","AND","skip","3b","OR","find","def","AND","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="def", exit=0)),  # (find AND skip) fails, run (find AND take)
+
+        dict(id="logic-035-and-or-and-chain-all-fail",
+             tokens=["find","xyz","AND","skip","3b","OR","find","nope","AND","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=2)),  # both groups fail
     ]
 
 def main():
