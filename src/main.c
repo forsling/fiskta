@@ -163,20 +163,20 @@ static const char* err_str(enum Err e)
     }
 }
 
-static void die(enum Err e, const char* msg)
+static void print_err(enum Err e, const char* msg)
 {
     if (msg)
         fprintf(stderr, "fiskta: %s (%s)\n", msg, err_str(e));
     else
         fprintf(stderr, "fiskta: %s\n", err_str(e));
-    exit(e == E_OK ? 0 : 2);
 }
 
 static size_t align_or_die(size_t x, size_t align)
 {
     size_t aligned = safe_align(x, align);
     if (aligned == SIZE_MAX) {
-        die(E_OOM, "arena alignment overflow");
+        print_err(E_OOM, "arena alignment overflow");
+        exit(4);
     }
     return aligned;
 }
@@ -328,8 +328,10 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
 
     i32 ok = 0;
     enum Err last_err = E_OK;
+    i32 last_failed_clause = -1;
     StagedResult result;
     bool and_chain_failed = false;
+    i32 and_chain_failed_at = -1;
     bool clauses_succeeded_after_and_failure = false;
 
     for (i32 ci = 0; ci < prg->clause_count; ++ci) {
@@ -379,6 +381,7 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
             // For LINK_AND, LINK_THEN, or LINK_NONE: just continue to next clause
         } else {
             last_err = e;
+            last_failed_clause = ci;
 
             bool drop_and_chain = false;
             if (ci > 0 && prg->clauses[ci - 1].link == LINK_AND)
@@ -388,6 +391,8 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
 
             if (drop_and_chain) {
                 and_chain_failed = true;
+                if (and_chain_failed_at == -1)
+                    and_chain_failed_at = ci;
                 while (ci + 1 < prg->clause_count && prg->clauses[ci].link == LINK_AND)
                     ci++;
                 continue;
@@ -398,7 +403,18 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
 
     if (last_err_out)
         *last_err_out = last_err;
-    return (and_chain_failed && !clauses_succeeded_after_and_failure) ? -1 : ok;
+
+    // Determine return value for exit code calculation:
+    // - Positive: number of successful clauses
+    // - -1: No clauses succeeded (return last failed clause index)
+    // - -2 - N: AND chain failed at clause (N + 2)
+    if (and_chain_failed && !clauses_succeeded_after_and_failure) {
+        return -2 - and_chain_failed_at;  // AND chain failure
+    } else if (ok == 0 && last_failed_clause >= 0) {
+        return -2 - last_failed_clause;  // All clauses failed
+    } else {
+        return ok;  // Success (at least one clause succeeded)
+    }
 }
 
 static void print_usage(void)
@@ -514,9 +530,16 @@ static void print_usage(void)
     printf("    find abc OR find xyz                 # Alternative: try abc, or try xyz\n");
     printf("    find abc AND take +3b THEN skip 1b   # Mixed: skip runs even if AND fails\n");
     printf("\n");
-    printf("  Exit status: succeeds (0) if any clause commits OR if AND chains fail but\n");
-    printf("  later THEN clauses succeed; fails (2) if AND chains fail with no successful\n");
-    printf("  clauses after.\n");
+    printf("EXIT CODES:\n");
+    printf("  0               Success (at least one clause succeeded)\n");
+    printf("  1               I/O error (file not found, permission denied, etc.)\n");
+    printf("  2               Parse error (invalid syntax, unknown operation)\n");
+    printf("  3               Regex error (invalid regex pattern)\n");
+    printf("  4               Resource limit (program too large, out of memory)\n");
+    printf("  10+             Clause N failed (exit code = 10 + clause index)\n");
+    printf("\n");
+    printf("  Example: exit code 11 means clause 1 (second clause) failed\n");
+    printf("  Scripts can extract the failing clause: clause_index=$((exit_code - 10))\n");
     printf("\n");
     printf("OPTIONS:\n");
     printf("  -i, --input <path>          Read input from path (default: stdin)\n");
@@ -805,8 +828,8 @@ int main(int argc, char** argv)
     if (!streaming_mode) {
         e = parse_preflight(token_count, tokens, input_path, &plan, &path);
         if (e != E_OK) {
-            die(e, "parse preflight");
-            return 2;
+            print_err(e, "parse preflight");
+            return 2;  // Exit code 2: Parse error
         }
     } else {
         path = input_path;
@@ -865,14 +888,14 @@ int main(int argc, char** argv)
         add_ovf(total, ranges_bytes, &total) ||
         add_ovf(total, labels_bytes, &total) ||
         add_ovf(total, 64, &total)) { // 3 small cushion
-        die(E_OOM, "arena size overflow");
-        return 2;
+        print_err(E_OOM, "arena size overflow");
+        return 4;  // Exit code 4: Resource limit
     }
 
     void* block = malloc(total);
     if (!block) {
-        die(E_OOM, "arena alloc");
-        return 2;
+        print_err(E_OOM, "arena alloc");
+        return 4;  // Exit code 4: Resource limit
     }
     Arena A;
     arena_init(&A, block, total);
@@ -897,9 +920,9 @@ int main(int argc, char** argv)
         || !re_progs || !re_ins || !re_cls || !str_pool
         || (plan.sum_take_ops > 0 && !clause_ranges)
         || (plan.sum_label_ops > 0 && !clause_labels)) {
-        die(E_OOM, "arena carve");
+        print_err(E_OOM, "arena carve");
         free(block);
-        return 2;
+        return 4;  // Exit code 4: Resource limit
     }
 
     // 5) Prepare program storage; parse immediately for one-shot mode
@@ -908,9 +931,9 @@ int main(int argc, char** argv)
         e = parse_build(token_count, tokens, input_path, &prg, &path, clauses_buf, ops_buf,
             str_pool, str_pool_bytes);
         if (e != E_OK) {
-            die(e, "parse build");
+            print_err(e, "parse build");
             free(block);
-            return 2;
+            return 2;  // Exit code 2: Parse error
         }
 
         // Compile regex programs once
@@ -925,9 +948,17 @@ int main(int argc, char** argv)
                         re_ins + re_ins_idx, (i32)(re_ins_bytes / sizeof(ReInst)) - re_ins_idx, &re_ins_idx,
                         re_cls + re_cls_idx, (i32)(re_cls_bytes / sizeof(ReClass)) - re_cls_idx, &re_cls_idx);
                     if (err != E_OK) {
-                        die(err, "regex compile");
-                        free(block);
-                        return 2;
+                        // Regex compilation error
+                        if (err == E_PARSE || err == E_BAD_NEEDLE) {
+                            print_err(err, "regex compile");
+                            free(block);
+                            return 3;  // Exit code 3: Regex error
+                        } else {
+                            // Resource error (E_OOM)
+                            print_err(err, "regex compile");
+                            free(block);
+                            return 4;  // Exit code 4: Resource limit
+                        }
                     }
                     op->u.findr.prog = prog;
                 }
@@ -940,8 +971,8 @@ int main(int argc, char** argv)
     e = io_open(&io, path, search_buf, search_buf_cap);
     if (e != E_OK) {
         free(block);
-        die(e, "I/O open");
-        return 2;
+        print_err(e, "I/O open");
+        return 1;  // Exit code 1: I/O error
     }
 
     io_set_regex_scratch(&io, re_curr_thr, re_next_thr, re_threads_cap,
@@ -993,14 +1024,19 @@ int main(int argc, char** argv)
             VM* vm_ptr = (window_policy == WINDOW_POLICY_CURSOR) ? &saved_vm : NULL;
             int ok = run_program_once(&prg, &io, vm_ptr, clause_ranges, clause_labels, &last_err,
                 effective_start, window_end);
-            if (ok == 0) {
-                fprintf(stderr, "fiskta: execution error (%s)\n", err_str(last_err));
-                exit_code = 2;
+
+            // Handle exit codes
+            if (ok > 0) {
+                // Success - at least one clause succeeded
+            } else if (ok == 0) {
+                // I/O error during execution
+                fprintf(stderr, "fiskta: I/O error (%s)\n", err_str(last_err));
+                exit_code = 1;
                 goto cleanup;
-            }
-            if (ok == -1) {
-                // AND chain failed
-                exit_code = 2;
+            } else {
+                // ok is (-2 - clause_index), extract the clause index
+                i32 failed_clause = (-ok) - 2;
+                exit_code = 10 + failed_clause;
                 goto cleanup;
             }
 
@@ -1033,7 +1069,7 @@ int main(int argc, char** argv)
                 break; // EOF, normal exit
             if (len == -2) {
                 fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", CMD_STREAM_BUF_CAP);
-                exit_code = 2;
+                exit_code = 4;  // Exit code 4: Resource limit
                 goto cleanup;
             }
             if (len == 0) {
@@ -1102,17 +1138,18 @@ int main(int argc, char** argv)
             enum Err last_err = E_OK;
             int ok = run_program_once(&prg, &io, NULL, clause_ranges, clause_labels, &last_err,
                 0, io_size(&io));
-            if (ok == 0) {
-                fprintf(stderr, "fiskta: command stream execution error (%s)\n", err_str(last_err));
-                if (last_err == E_IO) {
-                    exit_code = 2;
-                    goto cleanup;
-                }
-            }
-            if (ok == -1) {
-                // AND chain failed
-                exit_code = 2;
+
+            // Handle exit codes (for streaming mode, only I/O errors terminate)
+            if (ok > 0) {
+                // Success - at least one clause succeeded
+            } else if (ok == 0) {
+                // I/O error during execution
+                fprintf(stderr, "fiskta: command stream I/O error (%s)\n", err_str(last_err));
+                exit_code = 1;
                 goto cleanup;
+            } else {
+                // Execution failure - in streaming mode we just continue
+                // (clauses can fail without terminating the stream)
             }
 
             fflush(stdout);
