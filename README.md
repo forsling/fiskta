@@ -70,26 +70,85 @@ You think in terms of "where am I?" and "what do I do from here?" rather than "w
 
 ## Core concepts
 
-**Cursor**: You have a position in the file. Operations move it or extract from it.
+### Cursor and Position
 
-**Operations**: Imperative commands that find patterns, skip ahead, extract text, or mark positions:
-- `find "text"` - search forward/backward for text, move cursor to it
-- `skip 10b` - move cursor 10 bytes forward
-- `take 5l` - extract 5 lines from cursor position
-- `take until "end"` - extract from cursor until pattern found
-- `label NAME` - mark current position
-- `goto NAME` - jump to marked position
+You have a **cursor** that points to a position in the file (starting at byte 0). Operations move the cursor or extract text relative to it.
 
-**Clauses**: Operations are grouped into clauses. A clause succeeds if all its operations succeed, and fails if any operation fails. On failure, nothing is output (atomic rollback). On success, all output is emitted.
+### Units
 
-**Logical operators**: Connect clauses with `THEN` (always run next), `AND` (run next only if this succeeds), or `OR` (run next only if this fails):
+Operations measure distance in:
+- **`b`** - bytes
+- **`l`** - lines (LF-terminated; `\r` is treated as a regular byte)
+- **`c`** - UTF-8 code points (never splits multi-byte sequences)
+
+Examples: `10b`, `5l`, `20c`, `-3b` (negative = backward)
+
+### Locations
+
+You can refer to specific positions:
+- **`cursor`** - current position
+- **`BOF`** / **`EOF`** - beginning/end of file
+- **`match-start`** / **`match-end`** - from last `find`/`findr`
+- **`line-start`** / **`line-end`** - current line boundaries
+- **`LABEL_NAME`** - saved positions (uppercase names)
+
+Locations can have offsets: `BOF+100b`, `EOF-50b`, `cursor+10l`
+
+### Basic Operations
+
+**Finding**: Search for patterns and move cursor to them
+- `find "text"` - search forward for literal text
+- `find to BOF "text"` - search backward
+- `find to cursor+1000b "text"` - search forward but only 1000 bytes
+- `findr "regex"` - search using regular expressions
+
+**Extracting**: Output text and move cursor
+- `take 10b` - extract 10 bytes forward
+- `take -5b` - extract 5 bytes backward
+- `take to EOF` - extract from cursor to end of file
+- `take until ";"` - extract until pattern found (forward only)
+
+**Moving**: Change cursor position without output
+- `skip 100b` - move forward 100 bytes
+- `goto EOF` - jump to end of file
+- `goto MYLABEL` - jump to saved position
+
+**Labels**: Save and reuse positions
+- `label NAME` - save current cursor position (uppercase names: `A-Z`, `0-9`, `_`, `-`)
+- `goto NAME` - jump to saved position
+
+### Clauses and Atomicity
+
+Operations are grouped into **clauses** separated by logical operators. Each clause is atomic:
+- **All operations succeed** → clause commits (output emitted, labels saved, cursor moved)
+- **Any operation fails** → clause rolls back (no output, no state changes)
+
+Example:
 ```bash
-find "config" AND take to line-end    # conditional
-find "cache" OR find "buffer"         # fallback
-find "[" THEN take until "]"          # sequential
+find "user=" skip 5b take until " "  # One clause with 3 operations
+                                     # All succeed or all fail together
 ```
 
-**Units**: Operations work on bytes (`b`), lines (`l`), or UTF-8 characters (`c`). Lines are LF-terminated. Characters never split UTF-8 sequences.
+### Logical Operators
+
+Connect clauses with:
+
+**`THEN`** - always run next clause
+```bash
+find "user" THEN take to line-end       # always take, even if find fails
+```
+
+**`AND`** - run next clause only if this one succeeds
+```bash
+find "ERROR" AND take to line-end       # take only if ERROR found
+```
+
+**`OR`** - run next clause only if this one fails
+```bash
+find "cache" OR find "buffer"           # try cache first, fallback to buffer
+```
+
+Evaluation is strictly left-to-right (no operator precedence).
 
 ## When to use fiskta
 
@@ -436,8 +495,23 @@ If you need different grouping, use THEN to break chains or use multiple invocat
 
 ### Exit Status
 
-- **0 (success)**: If any clause commits, OR if AND chains fail but later THEN clauses succeed
-- **2 (failure)**: If AND chains fail AND no clauses succeed afterward
+`fiskta` uses a diagnostic exit code system to help you understand what happened:
+
+**Success:**
+- **0** - Success: at least one clause succeeded
+
+**System/Parse Errors (1-9):**
+- **1** - I/O error (file not found, permission denied, disk full, etc.)
+- **2** - Parse error (invalid syntax, unknown operation, bad arguments)
+- **3** - Regex error (invalid regex pattern)
+- **4** - Resource limit (program too large, out of memory)
+
+**Execution Failures (10+):**
+- **10+** - Clause N failed (exit code = 10 + clause index)
+  - Exit 10: First clause (index 0) failed
+  - Exit 11: Second clause (index 1) failed
+  - Exit 12: Third clause (index 2) failed
+  - And so on...
 
 ## Locations, Units & Syntax
 
