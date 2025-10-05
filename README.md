@@ -30,10 +30,13 @@ $ echo 'ERROR: connection failed' | fiskta find "ERROR:" take to line-end
 ERROR: connection failed
 ```
 
-Extract fields conditionally—take the path only if the method is POST:
+Extract multiple fields, getting partial results even if later steps fail:
 ```bash
-$ echo 'POST /api/login HTTP/1.1' | fiskta find POST AND skip 1b take until " "
-/api/login
+$ echo 'user:alice age:unknown' | fiskta find "user:" skip 5b take until " " AND find "age:" skip 4b take until " "
+alice
+# Gets alice even though age parsing fails
+# Without AND: find "user:" skip 5b take until " " find "age:" skip 4b take until " "
+# Would output nothing (atomic rollback)
 ```
 
 Try multiple patterns—first match wins:
@@ -119,8 +122,16 @@ find "user" THEN take to line-end       # always take, even if find fails
 ```
 
 **`AND`** - run next clause only if this one succeeds
+
+This is useful for getting **partial results** when you have multiple extraction steps:
 ```bash
-find "ERROR" AND take to line-end       # take only if ERROR found
+# With AND: separate clauses, each commits independently
+take 10b label START AND find "end" AND goto START
+# Outputs the 10 bytes even if "end" isn't found
+
+# Without AND: one atomic clause
+take 10b label START find "end" goto START
+# Outputs nothing if "end" isn't found (complete rollback)
 ```
 
 **`OR`** - run next clause only if this one fails
@@ -129,6 +140,8 @@ find "cache" OR find "buffer"           # try cache first, fallback to buffer
 ```
 
 Evaluation is strictly left-to-right (no operator precedence).
+
+**Key insight**: Use AND when you want multiple independent extraction steps where early successes should output even if later steps fail. Without AND (single clause), everything rolls back on any failure.
 
 ## Installation
 
@@ -399,7 +412,7 @@ find "user" THEN take to line-end       # always take, even if find fails
 
 **`AND`** - Conditional execution (run next only if this succeeds)
 ```bash
-find "ERROR" AND take to line-end       # take only if ERROR is found
+take 10b AND find "marker" AND take 5b  # partial output: gets first 10b even if marker not found
 ```
 
 **`OR`** - Alternative execution (run next only if this fails)
@@ -422,14 +435,16 @@ Evaluation is **strictly left-to-right** with these rules:
 # Sequential: always do both
 find "start" THEN take 10b
 
-# Conditional: only take if find succeeds
-find "ERROR" AND take to line-end
+# Partial results: first clause commits even if later fails
+take 20b AND find "marker" AND take 10b
+# Without AND: take 20b find "marker" take 10b
+# would output nothing if marker not found
 
 # Fallback: try first, then second
 find "primary" OR find "secondary"
 
 # Cleanup: always run final clause
-find "data" AND take until "end" THEN skip 1l
+take 100b THEN print "\n"
 ```
 
 ### Important: Left-to-Right Evaluation

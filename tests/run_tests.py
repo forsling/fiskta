@@ -1928,6 +1928,23 @@ def tests():
              tokens=["find","abc","AND","find","xyz"], input_file="overlap.txt",
              expect=dict(stdout="", exit=11)),  # first succeeds but second fails -> overall fails
 
+        # AND partial output - first clause commits even if later fails
+        dict(id="logic-003a-and-partial-output",
+             tokens=["take","+3b","AND","find","xyz"], input_file="overlap.txt",
+             expect=dict(stdout="abc", exit=11)),  # first clause outputs, second fails
+
+        dict(id="logic-003b-and-vs-single-clause",
+             tokens=["take","+3b","find","xyz"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=10)),  # single clause: atomic rollback, no output
+
+        dict(id="logic-003c-and-multiple-partial",
+             tokens=["take","+2b","AND","print","-","AND","take","+2b","AND","find","xyz"], input_file="overlap.txt",
+             expect=dict(stdout="ab-cd", exit=13)),  # first 3 clauses output before 4th (clause 3) fails
+
+        dict(id="logic-003d-and-label-commit",
+             tokens=["take","+3b","label","X","AND","find","xyz","THEN","goto","X","take","+2b"], input_file="overlap.txt",
+             expect=dict(stdout="abcde", exit=0)),  # label from first clause persists even though second failed
+
         # Basic OR - first success wins
         dict(id="logic-004-or-first-succeeds",
              tokens=["find","abc","take","+3b","OR","find","xyz"], input_file="overlap.txt",

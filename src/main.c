@@ -526,9 +526,9 @@ static void print_usage(void)
     printf("\n");
     printf("  Examples:\n");
     printf("    find abc THEN take +3b               # Sequential: always do both\n");
-    printf("    find abc AND take +3b                # Conditional: take only if find succeeds\n");
+    printf("    take 10b AND find xyz AND take 5b    # Partial output: gets first 10b even if xyz not found\n");
     printf("    find abc OR find xyz                 # Alternative: try abc, or try xyz\n");
-    printf("    find abc AND take +3b THEN skip 1b   # Mixed: skip runs even if AND fails\n");
+    printf("    take 100b THEN skip 1b               # Mixed: skip runs even if take fails\n");
     printf("\n");
     printf("EXIT CODES:\n");
     printf("  0               Success (at least one clause succeeded)\n");
