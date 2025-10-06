@@ -2,10 +2,9 @@
 #define _GNU_SOURCE
 #endif
 
-#include "arena.h"
+#include "util.h"
 #include "fiskta.h"
 #include "iosearch.h"
-#include "util.h"
 #include <errno.h>
 #include <limits.h>
 #include <stdlib.h>

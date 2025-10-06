@@ -11,6 +11,9 @@ typedef uint64_t u64;
 typedef int32_t i32;
 typedef uint32_t u32;
 
+// Constants
+enum { MAX_LABELS = 128, MAX_LABEL_LEN = 15 };
+
 typedef struct {
     const char* bytes;
     i32 len;
@@ -168,7 +171,7 @@ typedef struct {
 typedef struct {
     Clause* clauses;
     i32 clause_count;
-    char names[128][16];
+    char names[MAX_LABELS][MAX_LABEL_LEN + 1];
     i32 name_count;
 } Program;
 
@@ -182,7 +185,7 @@ typedef struct {
     Match last_match;
     View view;
 
-    i64 label_pos[128]; // name_idx -> position mapping (-1 = not set)
+    i64 label_pos[MAX_LABELS]; // name_idx -> position mapping (-1 = not set)
 } VM;
 
 // Staged capture range or literal string

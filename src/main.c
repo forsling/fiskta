@@ -2,12 +2,11 @@
 #define _GNU_SOURCE
 #endif
 
-#include "arena.h"
+#include "util.h"
 #include "fiskta.h"
 #include "iosearch.h"
 #include "parse_plan.h"
 #include "reprog.h"
-#include "util.h"
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
@@ -291,7 +290,7 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
     VM* vm_exec = vm ? vm : &local_vm;
     if (!vm) {
         memset(vm_exec, 0, sizeof(*vm_exec));
-        for (i32 i = 0; i < 128; i++)
+        for (i32 i = 0; i < MAX_LABELS; i++)
             vm_exec->label_pos[i] = -1;
     }
 
@@ -855,7 +854,11 @@ int main(int argc, char** argv)
     size_t str_pool_size = align_or_die(str_pool_bytes, alignof(char));
     // Two thread buffers + two seen arrays sized to max estimated nins
     size_t re_seen_bytes_each = (size_t)(plan.re_ins_estimate_max > 0 ? plan.re_ins_estimate_max : 32);
-    size_t re_seen_size = safe_align(re_seen_bytes_each, 1) * 2;
+    size_t re_seen_size;
+    if (add_ovf(re_seen_bytes_each, re_seen_bytes_each, &re_seen_size)) {
+        print_err(E_OOM, "regex 'seen' size overflow");
+        return 4;
+    }
     size_t re_thrbufs_size = align_or_die(re_threads_bytes, alignof(ReThread)) * 2;
 
     size_t ranges_bytes = (plan.sum_take_ops > 0) ? align_or_die((size_t)plan.sum_take_ops * sizeof(Range), alignof(Range)) : 0;
@@ -969,7 +972,7 @@ int main(int argc, char** argv)
     uint64_t last_change_ms = now_millis();
     VM saved_vm;
     memset(&saved_vm, 0, sizeof(saved_vm));
-    for (i32 i = 0; i < 128; i++)
+    for (i32 i = 0; i < MAX_LABELS; i++)
         saved_vm.label_pos[i] = -1;
     bool have_saved_vm = false;
     const int loop_enabled = (loop_ms > 0);
