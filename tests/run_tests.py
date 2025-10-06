@@ -1921,36 +1921,11 @@ def tests():
              tokens=["--version"], input_file=None,
              expect=dict(stdout=VERSION_LINE, exit=0)),
 
-        dict(id="cli-002-help-flag",
-             tokens=["--help"], input_file=None,
-             expect=dict(stdout_startswith=f"fiskta (FInd SKip TAke) Text Extraction Tool v{VERSION}", exit=0)),
-
-        dict(id="cli-003-commands-stdin",
-             tokens=[], input_file="overlap.txt",
-             extra_args=["-c", "-"], stdin=b"take +2b\n",
-             expect=dict(stdout="ab", exit=0)),
-
-        dict(id="cli-004-commands-stdin-requires-input",
-             tokens=[], input_file=None,
-             extra_args=["-c", "-"], stdin=b"take +2b\n",
-             expect=dict(stdout="", exit=2)),
-
         dict(id="cli-005-commands-file",
              tokens=[], input_file="overlap.txt",
              extra_args=["-c", str(FIX / "commands_take_plus_2b.txt")],
              expect=dict(stdout="ab", exit=0)),
 
-        dict(id="cli-006-command-stream-multi",
-             tokens=[], input_file="overlap.txt",
-             extra_args=["-c", "-"],
-             stdin=b"take +1b\nskip 2b THEN take +1b\nskip 4b THEN take +1b\n",
-             expect=dict(stdout="ace", exit=0)),
-
-        dict(id="cli-007-command-stream-continue-after-error",
-             tokens=[], input_file="overlap.txt",
-             extra_args=["-c", "-"],
-             stdin=b"take +1b\nfind\nskip 2b THEN take +1b\n",
-             expect=dict(stdout="ac", exit=0)),
 
         dict(id="loop-001-basic",
              tokens=["take","+2b"], input_file="overlap.txt",

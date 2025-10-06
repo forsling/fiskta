@@ -177,8 +177,7 @@ Evaluation is strictly left-to-right (no operator precedence).
 - `-i, --input <path>` - Read from file instead of stdin
 
 **Command Modes:**
-- `-c, --commands <string>` - Provide operations as a string
-- `--commands-stdin` - Read operations from stdin (one program per line)
+- `-c, --commands <string|file>` - Provide operations as a string or file path
 - `--` - Treat remaining args as operations
 
 **Looping & Streaming:**
@@ -441,22 +440,6 @@ fiskta --loop 1000 --idle-timeout 5000 --input log.txt find "ERROR"
 
 This will loop every second, but stop after 5 seconds of no new data. Use `--idle-timeout 0` to wait forever.
 
-### Command Stream Mode
-
-Read operations from stdin, data from a file. Each line of stdin is a separate program:
-
-```bash
-echo -e 'find "ERROR"\nfind "WARN"' | fiskta --commands-stdin --input log.txt
-```
-
-This runs two programs sequentially: first extracts ERROR lines, then WARN lines.
-
-Useful for:
-- Processing a file multiple ways without re-reading
-- Dynamic program generation
-- Scripting complex extraction logic
-
----
 
 ## Views and Scoping
 

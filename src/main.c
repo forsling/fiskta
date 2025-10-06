@@ -151,37 +151,6 @@ static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
     return ntok;
 }
 
-static int read_command_stream_line(char* buf, size_t cap)
-{
-    size_t total = 0;
-    int ch;
-    bool overflow = false;
-
-    while ((ch = fgetc(stdin)) != EOF) {
-        if (ch == '\n')
-            break;
-        if (total + 1 >= cap) {
-            overflow = true;
-            continue;
-        }
-        buf[total++] = (char)ch;
-    }
-
-    if (ch == EOF && total == 0 && !overflow)
-        return -1; // EOF with no data
-
-    if (overflow) {
-        buf[0] = '\0';
-        return -2;
-    }
-
-    while (total > 0 && buf[total - 1] == '\r')
-        total--;
-
-    buf[total] = '\0';
-    return (int)total;
-}
-
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
@@ -254,17 +223,16 @@ typedef enum {
 } WindowPolicy;
 
 enum {
-    CMD_STREAM_BUF_CAP = 4096,
-    CMD_STREAM_MAX_TOKENS = 1024,
-    CMD_STREAM_MAX_OPS = 2048,
-    CMD_STREAM_MAX_CLAUSES = 1024,
-    CMD_STREAM_MAX_NEEDLE_BYTES = CMD_STREAM_BUF_CAP,
-    CMD_STREAM_MAX_FINDR = CMD_STREAM_MAX_OPS,
-    CMD_STREAM_MAX_TAKE = CMD_STREAM_MAX_OPS,
-    CMD_STREAM_MAX_LABEL = CMD_STREAM_MAX_OPS,
-    CMD_STREAM_MAX_RE_INS_TOTAL = (CMD_STREAM_MAX_NEEDLE_BYTES * 4) + (CMD_STREAM_MAX_FINDR * 8),
-    CMD_STREAM_MAX_RE_INS_SINGLE = (CMD_STREAM_MAX_NEEDLE_BYTES * 4) + 8,
-    CMD_STREAM_MAX_RE_CLASSES = CMD_STREAM_MAX_NEEDLE_BYTES
+    MAX_TOKENS = 1024,
+    MAX_OPS = 2048,
+    MAX_CLAUSES = 1024,
+    MAX_NEEDLE_BYTES = 4096,
+    MAX_FINDR = MAX_OPS,
+    MAX_TAKE = MAX_OPS,
+    MAX_LABEL = MAX_OPS,
+    MAX_RE_INS_TOTAL = (MAX_NEEDLE_BYTES * 4) + (MAX_FINDR * 8),
+    MAX_RE_INS_SINGLE = (MAX_NEEDLE_BYTES * 4) + 8,
+    MAX_RE_CLASSES = MAX_NEEDLE_BYTES
 };
 
 static void sleep_msec(int msec)
@@ -564,7 +532,7 @@ static void print_usage(void)
     printf("\n");
     printf("OPTIONS:\n");
     printf("  -i, --input <path>          Read input from path (default: stdin)\n");
-    printf("  -c, --commands <string|-|file> Provide operations as a single string ( '-' or file path allowed)\n");
+    printf("  -c, --commands <string|file>  Provide operations as a single string or file path\n");
     printf("      --                      Treat subsequent arguments as operations\n");
     printf("      --loop <ms>             Re-run the program every ms (0 disables looping)\n");
     printf("      --idle-timeout <ms>     Stop looping after ms with no input growth\n");
@@ -643,9 +611,6 @@ static void print_examples(void)
     printf("  # Process stdin\n");
     printf("  echo \"Hello world\" | fiskta find \"world\" take to match-end\n");
     printf("\n");
-    printf("  # Command stream mode\n");
-    printf("  echo -e 'find \"ERROR\"\\nfind \"WARN\"' | fiskta --commands-stdin --input log.txt\n");
-    printf("\n");
 }
 
 int main(int argc, char** argv)
@@ -657,8 +622,6 @@ int main(int argc, char** argv)
     const char* input_path = "-";
     const char* command_arg = NULL;
     const char* command_file = NULL;
-    bool input_explicit = false;
-    bool commands_from_stdin = false;
     int loop_ms = 0;
     int idle_timeout_ms = -1;
     WindowPolicy window_policy = WINDOW_POLICY_CURSOR;
@@ -688,7 +651,6 @@ int main(int argc, char** argv)
                 return 2;
             }
             input_path = argv[argi + 1];
-            input_explicit = true;
             argi += 2;
             continue;
         }
@@ -698,7 +660,6 @@ int main(int argc, char** argv)
                 return 2;
             }
             input_path = arg + 8;
-            input_explicit = true;
             argi++;
             continue;
         }
@@ -751,7 +712,7 @@ int main(int argc, char** argv)
             continue;
         }
         if (strcmp(arg, "-c") == 0 || strcmp(arg, "--commands") == 0) {
-            if (command_arg || command_file || commands_from_stdin) {
+            if (command_arg || command_file) {
                 fprintf(stderr, "fiskta: --commands specified multiple times\n");
                 return 2;
             }
@@ -760,22 +721,18 @@ int main(int argc, char** argv)
                 return 2;
             }
             const char* value = argv[argi + 1];
-            if (strcmp(value, "-") == 0) {
-                commands_from_stdin = true;
+            FILE* test = fopen(value, "rb");
+            if (test) {
+                fclose(test);
+                command_file = value;
             } else {
-                FILE* test = fopen(value, "rb");
-                if (test) {
-                    fclose(test);
-                    command_file = value;
-                } else {
-                    command_arg = value;
-                }
+                command_arg = value;
             }
             argi += 2;
             continue;
         }
         if (strncmp(arg, "--commands=", 11) == 0) {
-            if (command_arg || command_file || commands_from_stdin) {
+            if (command_arg || command_file) {
                 fprintf(stderr, "fiskta: --commands specified multiple times\n");
                 return 2;
             }
@@ -784,16 +741,12 @@ int main(int argc, char** argv)
                 return 2;
             }
             const char* value = arg + 11;
-            if (strcmp(value, "-") == 0) {
-                commands_from_stdin = true;
+            FILE* test = fopen(value, "rb");
+            if (test) {
+                fclose(test);
+                command_file = value;
             } else {
-                FILE* test = fopen(value, "rb");
-                if (test) {
-                    fclose(test);
-                    command_file = value;
-                } else {
-                    command_arg = value;
-                }
+                command_arg = value;
             }
             argi++;
             continue;
@@ -811,34 +764,10 @@ int main(int argc, char** argv)
     int ops_index = argi;
     char** tokens = NULL;
     i32 token_count = 0;
-    char* splitv[CMD_STREAM_MAX_TOKENS];
+    char* splitv[MAX_TOKENS];
+    char file_content_buf[MAX_NEEDLE_BYTES];
 
-    char stdin_commands_buf[CMD_STREAM_BUF_CAP];
-
-    bool streaming_mode = commands_from_stdin;
-
-    if (streaming_mode) {
-        if (ops_index < argc) {
-            fprintf(stderr, "fiskta: --commands cannot be combined with positional operations\n");
-            return 2;
-        }
-        if (!input_explicit || strcmp(input_path, "-") == 0) {
-            fprintf(stderr, "fiskta: -c - requires --input pointing to a file\n");
-            return 2;
-        }
-        if (loop_ms > 0) {
-            fprintf(stderr, "fiskta: --loop is not supported with -c - command streams\n");
-            return 2;
-        }
-        if (idle_timeout_ms >= 0) {
-            fprintf(stderr, "fiskta: --idle-timeout is not supported with -c - command streams\n");
-            return 2;
-        }
-        if (window_policy != WINDOW_POLICY_CURSOR) {
-            fprintf(stderr, "fiskta: --window-policy cannot be combined with -c - command streams\n");
-            return 2;
-        }
-    } else if (command_file) {
+    if (command_file) {
         if (ops_index < argc) {
             fprintf(stderr, "fiskta: --commands cannot be combined with positional operations\n");
             return 2;
@@ -848,7 +777,7 @@ int main(int argc, char** argv)
             fprintf(stderr, "fiskta: unable to open commands file %s\n", command_file);
             return 2;
         }
-        size_t total = fread(stdin_commands_buf, 1, sizeof(stdin_commands_buf) - 1, cf);
+        size_t total = fread(file_content_buf, 1, sizeof(file_content_buf) - 1, cf);
         if (ferror(cf)) {
             fclose(cf);
             fprintf(stderr, "fiskta: error reading commands file %s\n", command_file);
@@ -856,22 +785,22 @@ int main(int argc, char** argv)
         }
         if (!feof(cf)) {
             fclose(cf);
-            fprintf(stderr, "fiskta: operations file too long (max 4096 bytes)\n");
+            fprintf(stderr, "fiskta: operations file too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
             return 2;
         }
         fclose(cf);
-        stdin_commands_buf[total] = '\0';
+        file_content_buf[total] = '\0';
         if (total == 0) {
             fprintf(stderr, "fiskta: empty commands file\n");
             return 2;
         }
         for (size_t i = 0; i < total; ++i) {
-            if (stdin_commands_buf[i] == '\n' || stdin_commands_buf[i] == '\r')
-                stdin_commands_buf[i] = ' ';
+            if (file_content_buf[i] == '\n' || file_content_buf[i] == '\r')
+                file_content_buf[i] = ' ';
         }
-        i32 n = split_ops_string(stdin_commands_buf, splitv, (i32)(sizeof splitv / sizeof splitv[0]));
+        i32 n = split_ops_string(file_content_buf, splitv, (i32)(sizeof splitv / sizeof splitv[0]));
         if (n == -1) {
-            fprintf(stderr, "fiskta: operations string too long (max 4096 bytes)\n");
+            fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
             return 2;
         }
         if (n <= 0) {
@@ -887,7 +816,7 @@ int main(int argc, char** argv)
         }
         i32 n = split_ops_string(command_arg, splitv, (i32)(sizeof splitv / sizeof splitv[0]));
         if (n == -1) {
-            fprintf(stderr, "fiskta: operations string too long (max 4096 bytes)\n");
+            fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
             return 2;
         }
         if (n <= 0) {
@@ -907,7 +836,7 @@ int main(int argc, char** argv)
         if (token_count == 1 && strchr(tokens[0], ' ')) {
             i32 n = split_ops_string(tokens[0], splitv, (i32)(sizeof splitv / sizeof splitv[0]));
             if (n == -1) {
-                fprintf(stderr, "fiskta: operations string too long (max 4096 bytes)\n");
+                fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
                 return 2;
             }
             if (n <= 0) {
@@ -919,28 +848,13 @@ int main(int argc, char** argv)
         }
     }
 
-    // 1) Preflight or establish streaming bounds
-    ParsePlan plan = { 0 };
+    // 1) Preflight parse to size allocations (works for both --commands and positional ops)
+    ParsePlan plan = (ParsePlan){0};
     const char* path = NULL;
-
-    enum Err e = E_OK;
-    if (!streaming_mode) {
-        e = parse_preflight(token_count, tokens, input_path, &plan, &path);
-        if (e != E_OK) {
-            print_err(e, "parse preflight");
-            return 2; // Exit code 2: Parse error
-        }
-    } else {
-        path = input_path;
-        plan.total_ops = CMD_STREAM_MAX_OPS;
-        plan.clause_count = CMD_STREAM_MAX_CLAUSES;
-        plan.needle_bytes = CMD_STREAM_MAX_NEEDLE_BYTES;
-        plan.sum_take_ops = CMD_STREAM_MAX_TAKE;
-        plan.sum_label_ops = CMD_STREAM_MAX_LABEL;
-        plan.sum_findr_ops = CMD_STREAM_MAX_FINDR;
-        plan.re_ins_estimate = CMD_STREAM_MAX_RE_INS_TOTAL;
-        plan.re_ins_estimate_max = CMD_STREAM_MAX_RE_INS_SINGLE;
-        plan.re_classes_estimate = CMD_STREAM_MAX_RE_CLASSES;
+    enum Err e = parse_preflight(token_count, tokens, input_path, &plan, &path);
+    if (e != E_OK) {
+        print_err(e, "parse preflight");
+        return 2; // Exit code 2: Parse error
     }
 
     // 2) Compute sizes
@@ -1014,62 +928,49 @@ int main(int argc, char** argv)
         return 4; // Exit code 4: Resource limit
     }
 
-    // 5) Prepare program storage; parse immediately for one-shot mode
-    Program prg = { 0 };
-    if (!streaming_mode) {
-        e = parse_build(token_count, tokens, input_path, &prg, &path, clauses_buf, ops_buf,
-            str_pool, str_pool_bytes);
-        if (e != E_OK) {
-            print_err(e, "parse build");
-            free(block);
-            return 2; // Exit code 2: Parse error
-        }
+    // 5) Build the program (both code paths)
+    Program prg = (Program){0};
+    e = parse_build(token_count, tokens, input_path, &prg, &path,
+                    clauses_buf, ops_buf, str_pool, str_pool_bytes);
+    if (e != E_OK) {
+        print_err(e, "parse build");
+        free(block);
+        return 2; // Exit code 2: Parse error
+    }
+    if (prg.clause_count == 0) {
+        print_err(E_PARSE, "no operations parsed");
+        free(block);
+        return 2;
+    }
 
-        // Compile regex programs once
-        i32 re_prog_idx = 0, re_ins_idx = 0, re_cls_idx = 0;
-        for (i32 ci = 0; ci < prg.clause_count; ++ci) {
-            Clause* clause = &prg.clauses[ci];
-            for (i32 i = 0; i < clause->op_count; ++i) {
-                Op* op = &clause->ops[i];
-                if (op->kind == OP_FIND_RE) {
-                    ReProg* prog = &re_progs[re_prog_idx++];
-                    enum Err err = re_compile_into(op->u.findr.pattern, prog,
-                        re_ins + re_ins_idx, (i32)(re_ins_bytes / sizeof(ReInst)) - re_ins_idx, &re_ins_idx,
-                        re_cls + re_cls_idx, (i32)(re_cls_bytes / sizeof(ReClass)) - re_cls_idx, &re_cls_idx);
-                    if (err != E_OK) {
-                        // Regex compilation error
-                        if (err == E_PARSE || err == E_BAD_NEEDLE) {
-                            print_err(err, "regex compile");
-                            free(block);
-                            return 3; // Exit code 3: Regex error
-                        } else {
-                            // Resource error (E_OOM)
-                            print_err(err, "regex compile");
-                            free(block);
-                            return 4; // Exit code 4: Resource limit
-                        }
-                    }
-                    op->u.findr.prog = prog;
-                } else if (op->kind == OP_TAKE_UNTIL_RE) {
-                    ReProg* prog = &re_progs[re_prog_idx++];
-                    enum Err err = re_compile_into(op->u.take_until_re.pattern, prog,
-                        re_ins + re_ins_idx, (i32)(re_ins_bytes / sizeof(ReInst)) - re_ins_idx, &re_ins_idx,
-                        re_cls + re_cls_idx, (i32)(re_cls_bytes / sizeof(ReClass)) - re_cls_idx, &re_cls_idx);
-                    if (err != E_OK) {
-                        // Regex compilation error
-                        if (err == E_PARSE || err == E_BAD_NEEDLE) {
-                            print_err(err, "regex compile");
-                            free(block);
-                            return 3; // Exit code 3: Regex error
-                        } else {
-                            // Resource error (E_OOM)
-                            print_err(err, "regex compile");
-                            free(block);
-                            return 4; // Exit code 4: Resource limit
-                        }
-                    }
-                    op->u.take_until_re.prog = prog;
+    // Compile regex programs once for both find:re and take until:re
+    i32 re_prog_idx = 0, re_ins_idx = 0, re_cls_idx = 0;
+    for (i32 ci = 0; ci < prg.clause_count; ++ci) {
+        Clause* clause = &prg.clauses[ci];
+        for (i32 i = 0; i < clause->op_count; ++i) {
+            Op* op = &clause->ops[i];
+            if (op->kind == OP_FIND_RE) {
+                ReProg* prog = &re_progs[re_prog_idx++];
+                enum Err err = re_compile_into(op->u.findr.pattern, prog,
+                    re_ins + re_ins_idx, (i32)(re_ins_bytes / sizeof(ReInst)) - re_ins_idx, &re_ins_idx,
+                    re_cls + re_cls_idx, (i32)(re_cls_bytes / sizeof(ReClass)) - re_cls_idx, &re_cls_idx);
+                if (err != E_OK) {
+                    print_err(err, "regex compile");
+                    free(block);
+                    return (err == E_PARSE || err == E_BAD_NEEDLE) ? 3 : 4;
                 }
+                op->u.findr.prog = prog;
+            } else if (op->kind == OP_TAKE_UNTIL_RE) {
+                ReProg* prog = &re_progs[re_prog_idx++];
+                enum Err err = re_compile_into(op->u.take_until_re.pattern, prog,
+                    re_ins + re_ins_idx, (i32)(re_ins_bytes / sizeof(ReInst)) - re_ins_idx, &re_ins_idx,
+                    re_cls + re_cls_idx, (i32)(re_cls_bytes / sizeof(ReClass)) - re_cls_idx, &re_cls_idx);
+                if (err != E_OK) {
+                    print_err(err, "regex compile");
+                    free(block);
+                    return (err == E_PARSE || err == E_BAD_NEEDLE) ? 3 : 4;
+                }
+                op->u.take_until_re.prog = prog;
             }
         }
     }
@@ -1089,182 +990,85 @@ int main(int argc, char** argv)
     // 7) Execute programs using precomputed scratch buffers
     int exit_code = 0;
 
-    if (!streaming_mode) {
+    // Single execution mode (no looping)
+    refresh_file_size(&io);
+    i64 window_start = 0;
+    i64 last_size = io_size(&io);
+    uint64_t last_change_ms = now_millis();
+    VM saved_vm;
+    memset(&saved_vm, 0, sizeof(saved_vm));
+    for (i32 i = 0; i < 128; i++)
+        saved_vm.label_pos[i] = -1;
+    bool have_saved_vm = false;
+    const int loop_enabled = (loop_ms > 0);
+    if (!loop_enabled)
+        idle_timeout_ms = -1;
+
+    for (;;) {
         refresh_file_size(&io);
-        i64 window_start = 0;
-        i64 last_size = io_size(&io);
-        uint64_t last_change_ms = now_millis();
-        VM saved_vm;
-        memset(&saved_vm, 0, sizeof(saved_vm));
-        for (i32 i = 0; i < 128; i++)
-            saved_vm.label_pos[i] = -1;
-        bool have_saved_vm = false;
-        const int loop_enabled = (loop_ms > 0);
-        if (!loop_enabled)
-            idle_timeout_ms = -1;
+        i64 window_end = io_size(&io);
+        uint64_t now_ms = now_millis();
+        if (window_end != last_size) {
+            last_size = window_end;
+            last_change_ms = now_ms;
+        }
+        if (window_start > window_end)
+            window_start = window_end;
 
-        for (;;) {
-            refresh_file_size(&io);
-            i64 window_end = io_size(&io);
-            uint64_t now_ms = now_millis();
-            if (window_end != last_size) {
-                last_size = window_end;
-                last_change_ms = now_ms;
-            }
-            if (window_start > window_end)
-                window_start = window_end;
+        i64 effective_start = window_start;
+        if (window_policy == WINDOW_POLICY_RESCAN)
+            effective_start = 0;
+        else if (window_policy == WINDOW_POLICY_CURSOR && have_saved_vm)
+            effective_start = clamp64(saved_vm.cursor, 0, window_end);
 
-            i64 effective_start = window_start;
-            if (window_policy == WINDOW_POLICY_RESCAN)
-                effective_start = 0;
-            else if (window_policy == WINDOW_POLICY_CURSOR && have_saved_vm)
-                effective_start = clamp64(saved_vm.cursor, 0, window_end);
-
-            if (loop_enabled && window_policy == WINDOW_POLICY_DELTA && effective_start >= window_end) {
-                if (idle_timeout_ms >= 0 && (now_ms - last_change_ms) >= (uint64_t)idle_timeout_ms)
-                    break;
-                sleep_msec(loop_ms);
-                continue;
-            }
-
-            enum Err last_err = E_OK;
-            i64 prev_cursor = have_saved_vm ? saved_vm.cursor : effective_start;
-            VM* vm_ptr = (window_policy == WINDOW_POLICY_CURSOR) ? &saved_vm : NULL;
-            int ok = run_program_once(&prg, &io, vm_ptr, clause_ranges, clause_labels, &last_err,
-                effective_start, window_end);
-
-            // Handle exit codes
-            if (ok > 0) {
-                // Success - at least one clause succeeded
-            } else if (ok == 0) {
-                // I/O error during execution
-                fprintf(stderr, "fiskta: I/O error (%s)\n", err_str(last_err));
-                exit_code = 1;
-                goto cleanup;
-            } else {
-                // ok is (-2 - clause_index), extract the clause index
-                i32 failed_clause = (-ok) - 2;
-                exit_code = 10 + failed_clause;
-                goto cleanup;
-            }
-
-            fflush(stdout);
-
-            if (!loop_enabled)
-                break;
-
-            if (window_policy == WINDOW_POLICY_CURSOR) {
-                have_saved_vm = true;
-                window_start = clamp64(saved_vm.cursor, 0, window_end);
-                if (saved_vm.cursor != prev_cursor)
-                    last_change_ms = now_ms;
-            } else if (window_policy == WINDOW_POLICY_DELTA) {
-                window_start = window_end;
-            } else {
-                window_start = 0;
-            }
-
-            now_ms = now_millis();
+        if (loop_enabled && window_policy == WINDOW_POLICY_DELTA && effective_start >= window_end) {
             if (idle_timeout_ms >= 0 && (now_ms - last_change_ms) >= (uint64_t)idle_timeout_ms)
                 break;
-
             sleep_msec(loop_ms);
+            continue;
         }
-    } else {
-        for (;;) {
-            int len = read_command_stream_line(stdin_commands_buf, sizeof(stdin_commands_buf));
-            if (len == -1)
-                break; // EOF, normal exit
-            if (len == -2) {
-                fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", CMD_STREAM_BUF_CAP);
-                exit_code = 4; // Exit code 4: Resource limit
-                goto cleanup;
-            }
-            if (len == 0) {
-                fprintf(stderr, "fiskta: empty command string\n");
-                continue;
-            }
 
-            i32 n = split_ops_string(stdin_commands_buf, splitv, (i32)(sizeof splitv / sizeof splitv[0]));
-            if (n == -1 || n <= 0) {
-                fprintf(stderr, "fiskta: command stream token limit exceeded (max %d tokens)\n", CMD_STREAM_MAX_TOKENS);
-                continue;
-            }
-
-            ParsePlan line_plan = { 0 };
-            const char* dummy_path = NULL;
-            enum Err perr = parse_preflight(n, splitv, input_path, &line_plan, &dummy_path);
-            if (perr != E_OK) {
-                fprintf(stderr, "fiskta: command stream parse error (%s)\n", err_str(perr));
-                continue;
-            }
-
-            if (line_plan.total_ops > CMD_STREAM_MAX_OPS || line_plan.clause_count > CMD_STREAM_MAX_CLAUSES || line_plan.needle_bytes > CMD_STREAM_MAX_NEEDLE_BYTES || line_plan.sum_take_ops > CMD_STREAM_MAX_TAKE || line_plan.sum_label_ops > CMD_STREAM_MAX_LABEL || line_plan.sum_findr_ops > CMD_STREAM_MAX_FINDR || line_plan.re_ins_estimate > CMD_STREAM_MAX_RE_INS_TOTAL || line_plan.re_ins_estimate_max > CMD_STREAM_MAX_RE_INS_SINGLE || line_plan.re_classes_estimate > CMD_STREAM_MAX_RE_CLASSES) {
-                fprintf(stderr, "fiskta: command stream exceeds built-in limits\n");
-                continue;
-            }
-
-            perr = parse_build(n, splitv, input_path, &prg, &dummy_path, clauses_buf, ops_buf,
-                str_pool, str_pool_bytes);
-            if (perr != E_OK) {
-                fprintf(stderr, "fiskta: command stream parse build error (%s)\n", err_str(perr));
-                continue;
-            }
-
-            i32 re_prog_idx = 0, re_ins_idx = 0, re_cls_idx = 0;
-            bool regex_ok = true;
-            for (i32 ci = 0; ci < prg.clause_count && regex_ok; ++ci) {
-                Clause* clause = &prg.clauses[ci];
-                for (i32 i = 0; i < clause->op_count; ++i) {
-                    Op* op = &clause->ops[i];
-                    if (op->kind == OP_FIND_RE) {
-                        ReProg* prog = &re_progs[re_prog_idx++];
-                        enum Err err = re_compile_into(op->u.findr.pattern, prog,
-                            re_ins + re_ins_idx, (i32)(re_ins_bytes / sizeof(ReInst)) - re_ins_idx, &re_ins_idx,
-                            re_cls + re_cls_idx, (i32)(re_cls_bytes / sizeof(ReClass)) - re_cls_idx, &re_cls_idx);
-                        if (err != E_OK) {
-                            fprintf(stderr, "fiskta: regex compile error (%s)\n", err_str(err));
-                            regex_ok = false;
-                            break;
-                        }
-                        op->u.findr.prog = prog;
-                    } else if (op->kind == OP_TAKE_UNTIL_RE) {
-                        ReProg* prog = &re_progs[re_prog_idx++];
-                        enum Err err = re_compile_into(op->u.take_until_re.pattern, prog,
-                            re_ins + re_ins_idx, (i32)(re_ins_bytes / sizeof(ReInst)) - re_ins_idx, &re_ins_idx,
-                            re_cls + re_cls_idx, (i32)(re_cls_bytes / sizeof(ReClass)) - re_cls_idx, &re_cls_idx);
-                        if (err != E_OK) {
-                            fprintf(stderr, "fiskta: regex compile error (%s)\n", err_str(err));
-                            regex_ok = false;
-                            break;
-                        }
-                        op->u.take_until_re.prog = prog;
-                    }
-                }
-            }
-            if (!regex_ok)
-                continue;
-
-            refresh_file_size(&io);
-            enum Err last_err = E_OK;
-            int ok = run_program_once(&prg, &io, NULL, clause_ranges, clause_labels, &last_err,
-                0, io_size(&io));
-
-            // Handle exit codes (for streaming mode, only I/O errors terminate)
-            if (ok > 0) {
-                // Success - at least one clause succeeded
-            } else if (ok == 0) {
-                // I/O error during execution
-                fprintf(stderr, "fiskta: command stream I/O error (%s)\n", err_str(last_err));
-                exit_code = 1;
-                goto cleanup;
-            } else {
-                // Execution failure - in streaming mode we just continue
-                // (clauses can fail without terminating the stream)
-            }
-
-            fflush(stdout);
+        enum Err last_err = E_OK;
+        i64 prev_cursor = have_saved_vm ? saved_vm.cursor : effective_start;
+        VM* vm_ptr = (window_policy == WINDOW_POLICY_CURSOR) ? &saved_vm : NULL;
+        int ok = run_program_once(&prg, &io, vm_ptr, clause_ranges, clause_labels, &last_err,
+            effective_start, window_end);
+        // Handle exit codes
+        if (ok > 0) {
+            // Success - at least one clause succeeded
+        } else if (ok == 0) {
+            // I/O error during execution
+            fprintf(stderr, "fiskta: I/O error (%s)\n", err_str(last_err));
+            exit_code = 1;
+            goto cleanup;
+        } else {
+            // ok is (-2 - clause_index), extract the clause index
+            i32 failed_clause = (-ok) - 2;
+            exit_code = 10 + failed_clause;
+            goto cleanup;
         }
+
+        fflush(stdout);
+
+        if (!loop_enabled)
+            break;
+
+        if (window_policy == WINDOW_POLICY_CURSOR) {
+            have_saved_vm = true;
+            window_start = clamp64(saved_vm.cursor, 0, window_end);
+            if (saved_vm.cursor != prev_cursor)
+                last_change_ms = now_ms;
+        } else if (window_policy == WINDOW_POLICY_DELTA) {
+            window_start = window_end;
+        } else {
+            window_start = 0;
+        }
+
+        now_ms = now_millis();
+        if (idle_timeout_ms >= 0 && (now_ms - last_change_ms) >= (uint64_t)idle_timeout_ms)
+            break;
+
+        sleep_msec(loop_ms);
     }
 
 cleanup:
@@ -1272,3 +1076,4 @@ cleanup:
     free(block);
     return exit_code;
 }
+
