@@ -307,6 +307,22 @@ take until:re "\\s+" at line-start       # extract until whitespace, up to line 
 take until:re "\\n\\n"                   # extract until blank line
 ```
 
+#### `box <right_offset> <down_offset>`
+
+Extract a rectangular section from the cursor position. Creates a box of specified width and height, adding newlines after each line segment.
+
+- `right_offset`: bytes to the right (negative = left)
+- `down_offset`: lines down (negative = up)
+- Clamps to file bounds without failing
+- Always adds newlines after each line segment
+
+```bash
+box 0 0                    # extract single byte at cursor + newline
+box 2 1                    # extract 3x2 box (3 bytes wide, 2 lines tall)
+box -1 -1                  # extract box going left and up
+box 10 5                   # extract large rectangular section
+```
+
 ### Movement
 
 #### `skip <n><unit>`

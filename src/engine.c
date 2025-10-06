@@ -84,6 +84,13 @@ void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap)
         case OP_PRINT:
             rc++;
             break;
+        case OP_BOX: {
+            // Box operation produces multiple ranges (2 per line: content + newline)
+            i32 down_offset = c->ops[i].u.box.down_offset;
+            i32 lines = (down_offset < 0 ? -down_offset : down_offset) + 1;
+            rc += lines * 2; // content + newline for each line
+            break;
+        }
         case OP_LABEL:
             lc++;
             break;
@@ -717,6 +724,91 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
 
     case OP_SLEEP: {
         sleep_msec(op->u.sleep.msec);
+        break;
+    }
+
+    case OP_BOX: {
+        i32 right_offset = op->u.box.right_offset;
+        i32 down_offset = op->u.box.down_offset;
+
+        // Start from cursor position
+        i64 start_pos = *c_cursor;
+
+        // Find current line start
+        i64 current_line_start;
+        enum Err err = io_line_start(io, start_pos, &current_line_start);
+        if (err != E_OK) return err;
+
+        // Calculate the offset of start_pos within its line
+        i64 col_offset = start_pos - current_line_start;
+
+        // Find the starting line for the box
+        i64 box_start_line = current_line_start;
+        if (down_offset < 0) {
+            // Go up by |down_offset| lines
+            err = io_step_lines_from(io, current_line_start, (i32)down_offset, &box_start_line);
+            if (err != E_OK) return err;
+        }
+
+        // Output each line in the box
+        i64 current_line = box_start_line;
+        i64 last_output_pos = start_pos;
+        i64 lines_to_process = (down_offset < 0 ? -down_offset : down_offset) + 1;
+
+        for (i64 line_idx = 0; line_idx < lines_to_process; line_idx++) {
+            // Check if we've reached the end of the file
+            if (current_line >= io_size(io)) break;
+
+            // Find line end
+            i64 line_end;
+            err = io_line_end(io, current_line, &line_end);
+            if (err != E_OK) return err;
+
+            // Calculate line bounds for this row based on the column offset
+            i64 line_left = current_line + col_offset;
+            i64 line_right = current_line + col_offset + right_offset + 1;
+
+            // Ensure we have at least 1 byte
+            if (line_right <= line_left) {
+                line_right = line_left + 1;
+            }
+
+            // Clamp to actual line bounds
+            if (line_left < current_line) line_left = current_line;
+            if (line_left > line_end) line_left = line_end;
+            if (line_right > line_end) line_right = line_end;
+            if (line_right < line_left) line_right = line_left;
+
+            // Stage this line segment
+            if (*range_count >= *range_cap)
+                return E_OOM;
+            Range* r = &(*ranges)[(*range_count)++];
+            r->kind = RANGE_FILE;
+            r->file.start = line_left;
+            r->file.end = line_right;
+
+            // Track the last position we output
+            if (line_right > last_output_pos) {
+                last_output_pos = line_right;
+            }
+
+            // Add newline after each line segment
+            if (*range_count >= *range_cap)
+                return E_OOM;
+            Range* nl = &(*ranges)[(*range_count)++];
+            nl->kind = RANGE_LIT;
+            nl->lit.bytes = "\n";
+            nl->lit.len = 1;
+
+            // Move to next line
+            if (line_idx < lines_to_process - 1) {
+                err = io_step_lines_from(io, current_line, 1, &current_line);
+                if (err != E_OK) return err;
+            }
+        }
+
+        // Move cursor to the last output position
+        *c_cursor = last_output_pos;
         break;
     }
 

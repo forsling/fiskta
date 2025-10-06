@@ -1683,6 +1683,54 @@ def tests():
              tokens=["take","until:re","\\n"], input_file="-", stdin=b"hello\nworld",
              expect=dict(stdout="hello", exit=0)),
 
+        # ---------- Box Feature Tests ----------
+        # Basic box operations
+        dict(id="box-001-single-byte",
+             tokens=["box","0","0"], input_file="-", stdin=b"hello",
+             expect=dict(stdout="h\n", exit=0)),
+
+        dict(id="box-002-single-line-multiple-bytes",
+             tokens=["box","2","0"], input_file="-", stdin=b"hello",
+             expect=dict(stdout="hel\n", exit=0)),
+
+        dict(id="box-003-multiple-lines-single-byte",
+             tokens=["box","0","1"], input_file="-", stdin=b"hello\nworld",
+             expect=dict(stdout="h\nw\n", exit=0)),
+
+        dict(id="box-004-multiple-lines-multiple-bytes",
+             tokens=["box","2","1"], input_file="-", stdin=b"hello\nworld",
+             expect=dict(stdout="hel\nwor\n", exit=0)),
+
+        dict(id="box-005-large-box",
+             tokens=["box","3","2"], input_file="-", stdin=b"hello\nworld\ntest",
+             expect=dict(stdout="hell\nworl\ntest\n", exit=0)),
+
+        # Negative offsets
+        dict(id="box-006-negative-right-offset",
+             tokens=["skip","2b","box","-1","0"], input_file="-", stdin=b"hello",
+             expect=dict(stdout="l\n", exit=0)),
+
+        dict(id="box-007-negative-down-offset",
+             tokens=["skip","1l","box","0","-1"], input_file="-", stdin=b"hello\nworld",
+             expect=dict(stdout="h\nw\n", exit=0)),
+
+        dict(id="box-008-both-negative-offsets",
+             tokens=["skip","1l","skip","2b","box","-1","-1"], input_file="-", stdin=b"hello\nworld",
+             expect=dict(stdout="l\nr\n", exit=0)),
+
+        # Edge cases
+        dict(id="box-009-zero-offsets",
+             tokens=["box","0","0"], input_file="-", stdin=b"hello",
+             expect=dict(stdout="h\n", exit=0)),
+
+        dict(id="box-010-beyond-line-bounds",
+             tokens=["box","10","0"], input_file="-", stdin=b"hello",
+             expect=dict(stdout="hello\n", exit=0)),
+
+        dict(id="box-011-beyond-file-bounds",
+             tokens=["box","2","5"], input_file="-", stdin=b"hello\nworld",
+             expect=dict(stdout="hel\nwor\n", exit=0)),
+
         # ---------- Views Feature Tests ----------
         # Basic view operations
         dict(id="view-001-basic-viewset",
