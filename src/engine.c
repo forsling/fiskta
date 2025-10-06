@@ -80,6 +80,7 @@ void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap)
         case OP_TAKE_LEN:
         case OP_TAKE_TO:
         case OP_TAKE_UNTIL:
+        case OP_TAKE_UNTIL_RE:
         case OP_PRINT:
             rc++;
             break;
@@ -133,7 +134,7 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
         const Clause* C = &prg->clauses[ci];
         for (i32 oi = 0; oi < C->op_count; ++oi) {
             const Op* op = &C->ops[oi];
-            if (op->kind == OP_FINDR && op->u.findr.prog) {
+            if (op->kind == OP_FIND_RE && op->u.findr.prog) {
                 if (op->u.findr.prog->nins > max_nins)
                     max_nins = op->u.findr.prog->nins;
             }
@@ -382,7 +383,7 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         break;
     }
 
-    case OP_FINDR: {
+    case OP_FIND_RE: {
         i64 win_lo, win_hi;
 
         enum Err err = resolve_loc_expr_cp(&op->u.findr.to, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_VIEW, &win_hi);
@@ -581,6 +582,46 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         i64 target;
         if (op->u.take_until.has_at) {
             err = resolve_loc_expr_cp(&op->u.take_until.at, io, vm, c_last_match, ms,
+                *label_writes, *label_count, c_view, CLAMP_VIEW, &target);
+            if (err != E_OK)
+                return err;
+        } else {
+            target = ms;
+        }
+
+        i64 dst = vclamp(c_view, io, target);
+
+        // Stage [cursor, dst) ONLY (no order-normalization)
+        if (*range_count >= *range_cap)
+            return E_OOM;
+        (*ranges)[*range_count].kind = RANGE_FILE;
+        (*ranges)[*range_count].file.start = vclamp(c_view, io, *c_cursor);
+        (*ranges)[*range_count].file.end = dst;
+        (*range_count)++;
+
+        // Move cursor only if non-empty
+        if (dst > *c_cursor) {
+            *c_cursor = dst;
+        }
+        break;
+    }
+
+    case OP_TAKE_UNTIL_RE: {
+        // Search forward from cursor to view end using regex
+        i64 ms, me;
+        enum Err err = io_findr_window(io, vclamp(c_view, io, *c_cursor), veof(c_view, io),
+            op->u.take_until_re.prog, DIR_FWD, &ms, &me);
+        if (err != E_OK)
+            return err;
+
+        // Update staged match
+        c_last_match->start = ms;
+        c_last_match->end = me;
+        c_last_match->valid = true;
+
+        i64 target;
+        if (op->u.take_until_re.has_at) {
+            err = resolve_loc_expr_cp(&op->u.take_until_re.at, io, vm, c_last_match, ms,
                 *label_writes, *label_count, c_view, CLAMP_VIEW, &target);
             if (err != E_OK)
                 return err;

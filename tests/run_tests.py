@@ -293,15 +293,15 @@ def tests():
              expect=dict(stdout="", exit=2)),
 
         dict(id="error-008-invalid-regex",
-             tokens=["findr","[unclosed"], input_file="small.txt",
+             tokens=["find:re","[unclosed"], input_file="small.txt",
              expect=dict(stdout="", exit=3)),
 
         dict(id="error-009-take-until-not-found",
              tokens=["take","until","NOTFOUND"], input_file="small.txt",
              expect=dict(stdout="", exit=10)),
 
-        dict(id="error-010-findr-not-found",
-             tokens=["findr","^NOTFOUND$","AND","take","10b"], input_file="small.txt",
+        dict(id="error-010-find:re-not-found",
+             tokens=["find:re","^NOTFOUND$","AND","take","10b"], input_file="small.txt",
              expect=dict(stdout="", exit=10)),
 
         # ---------- Clause atomicity & staging ----------
@@ -1150,477 +1150,538 @@ def tests():
              tokens=["skip","7b","take","-2l"], input_file="-", stdin=b"L1\nL2\nL3\nL4\n",
              expect=dict(stdout="L1\nL2\n", exit=0)),
 
-        # ---------- Regex (findr) Tests ----------
+        # ---------- Regex (find:re) Tests ----------
         # Basic character matching
         dict(id="regex-001-literal-char",
-             tokens=["findr","a","take","+1b"], input_file="overlap.txt",
+             tokens=["find:re","a","take","+1b"], input_file="overlap.txt",
              expect=dict(stdout="a", exit=0)),
 
         dict(id="regex-002-literal-string",
-             tokens=["findr","def","take","+3b"], input_file="overlap.txt",
+             tokens=["find:re","def","take","+3b"], input_file="overlap.txt",
              expect=dict(stdout="def", exit=0)),
 
         dict(id="regex-003-any-char",
-             tokens=["findr",".","take","+1b"], input_file="overlap.txt",
+             tokens=["find:re",".","take","+1b"], input_file="overlap.txt",
              expect=dict(stdout="a", exit=0)),
 
         dict(id="regex-004-any-char-multiple",
-             tokens=["findr","...","take","+3b"], input_file="overlap.txt",
+             tokens=["find:re","...","take","+3b"], input_file="overlap.txt",
              expect=dict(stdout="abc", exit=0)),
 
         # Character classes
         dict(id="regex-005-digit-class",
-             tokens=["findr","\\d","take","+1b"], input_file="-", stdin=b"abc123def",
+             tokens=["find:re","\\d","take","+1b"], input_file="-", stdin=b"abc123def",
              expect=dict(stdout="1", exit=0)),
 
         dict(id="regex-006-word-class",
-             tokens=["findr","\\w","take","+1b"], input_file="-", stdin=b"123abc456",
+             tokens=["find:re","\\w","take","+1b"], input_file="-", stdin=b"123abc456",
              expect=dict(stdout="1", exit=0)),
 
         dict(id="regex-007-space-class",
-             tokens=["findr","\\s","take","+1b"], input_file="-", stdin=b"abc def",
+             tokens=["find:re","\\s","take","+1b"], input_file="-", stdin=b"abc def",
              expect=dict(stdout=" ", exit=0)),
 
         dict(id="regex-008-negated-digit",
-             tokens=["findr","\\D","take","+1b"], input_file="-", stdin=b"123abc456",
+             tokens=["find:re","\\D","take","+1b"], input_file="-", stdin=b"123abc456",
              expect=dict(stdout="a", exit=0)),
 
         dict(id="regex-009-negated-word",
-             tokens=["findr","\\W","take","+1b"], input_file="-", stdin=b"abc def",
+             tokens=["find:re","\\W","take","+1b"], input_file="-", stdin=b"abc def",
              expect=dict(stdout=" ", exit=0)),
 
         dict(id="regex-010-negated-space",
-             tokens=["findr","\\S","take","+1b"], input_file="-", stdin=b"   abc",
+             tokens=["find:re","\\S","take","+1b"], input_file="-", stdin=b"   abc",
              expect=dict(stdout="a", exit=0)),
 
         # Custom character classes
         dict(id="regex-011-custom-class",
-             tokens=["findr","[aeiou]","take","+1b"], input_file="-", stdin=b"bcdefgh",
+             tokens=["find:re","[aeiou]","take","+1b"], input_file="-", stdin=b"bcdefgh",
              expect=dict(stdout="e", exit=0)),
 
         dict(id="regex-012-class-range",
-             tokens=["findr","[a-z]","take","+1b"], input_file="-", stdin=b"123abc456",
+             tokens=["find:re","[a-z]","take","+1b"], input_file="-", stdin=b"123abc456",
              expect=dict(stdout="a", exit=0)),
 
         dict(id="regex-013-class-multiple-ranges",
-             tokens=["findr","[0-9A-F]","take","+1b"], input_file="-", stdin=b"xyz5ABC",
+             tokens=["find:re","[0-9A-F]","take","+1b"], input_file="-", stdin=b"xyz5ABC",
              expect=dict(stdout="5", exit=0)),
 
         dict(id="regex-014-negated-class",
-             tokens=["findr","[^0-9]","take","+1b"], input_file="-", stdin=b"123abc456",
+             tokens=["find:re","[^0-9]","take","+1b"], input_file="-", stdin=b"123abc456",
              expect=dict(stdout="a", exit=0)),
 
         # Quantifiers
         dict(id="regex-015-star-quantifier",
-             tokens=["findr","a*","take","+3b"], input_file="-", stdin=b"aaabc",
+             tokens=["find:re","a*","take","+3b"], input_file="-", stdin=b"aaabc",
              expect=dict(stdout="aaa", exit=0)),
 
         dict(id="regex-016-plus-quantifier",
-             tokens=["findr","a+","take","+3b"], input_file="-", stdin=b"aaabc",
+             tokens=["find:re","a+","take","+3b"], input_file="-", stdin=b"aaabc",
              expect=dict(stdout="aaa", exit=0)),
 
         dict(id="regex-017-question-quantifier",
-             tokens=["findr","a?","take","+1b"], input_file="-", stdin=b"abc",
+             tokens=["find:re","a?","take","+1b"], input_file="-", stdin=b"abc",
              expect=dict(stdout="a", exit=0)),
 
         dict(id="regex-018-question-zero",
-             tokens=["findr","a?","take","+1b"], input_file="-", stdin=b"bc",
+             tokens=["find:re","a?","take","+1b"], input_file="-", stdin=b"bc",
              expect=dict(stdout="b", exit=0)),
 
         # Anchors
         dict(id="regex-019-bol-anchor",
-             tokens=["findr","^abc","take","+3b"], input_file="-", stdin=b"abc def",
+             tokens=["find:re","^abc","take","+3b"], input_file="-", stdin=b"abc def",
              expect=dict(stdout="abc", exit=0)),
 
         dict(id="regex-020-eol-anchor",
-             tokens=["findr","def$","take","+3b"], input_file="-", stdin=b"abc def",
+             tokens=["find:re","def$","take","+3b"], input_file="-", stdin=b"abc def",
              expect=dict(stdout="def", exit=0)),
 
         dict(id="regex-021-bol-eol-complete",
-             tokens=["findr","^abc$","take","+3b"], input_file="-", stdin=b"abc",
+             tokens=["find:re","^abc$","take","+3b"], input_file="-", stdin=b"abc",
              expect=dict(stdout="abc", exit=0)),
 
         dict(id="regex-022-eol-with-newline",
-             tokens=["findr","def$","take","+3b"], input_file="-", stdin=b"abc def\n",
+             tokens=["find:re","def$","take","+3b"], input_file="-", stdin=b"abc def\n",
              expect=dict(stdout="def", exit=0)),  # $ matches before newline (line end behavior)
 
         # Alternation
         dict(id="regex-023-alternation",
-             tokens=["findr","cat|dog","take","+3b"], input_file="-", stdin=b"I have a cat",
+             tokens=["find:re","cat|dog","take","+3b"], input_file="-", stdin=b"I have a cat",
              expect=dict(stdout="cat", exit=0)),
 
         dict(id="regex-024-alternation-second",
-             tokens=["findr","cat|dog","take","+3b"], input_file="-", stdin=b"I have a dog",
+             tokens=["find:re","cat|dog","take","+3b"], input_file="-", stdin=b"I have a dog",
              expect=dict(stdout="dog", exit=0)),
 
         dict(id="regex-025-alternation-multiple",
-             tokens=["findr","cat|dog|bird","take","+4b"], input_file="-", stdin=b"I have a bird",
+             tokens=["find:re","cat|dog|bird","take","+4b"], input_file="-", stdin=b"I have a bird",
              expect=dict(stdout="bird", exit=0)),
 
         # Escape sequences
         dict(id="regex-026-newline-escape",
-             tokens=["findr","\\n","take","+1b"], input_file="-", stdin=b"abc\ndef",
+             tokens=["find:re","\\n","take","+1b"], input_file="-", stdin=b"abc\ndef",
              expect=dict(stdout="\n", exit=0)),
 
         dict(id="regex-027-tab-escape",
-             tokens=["findr","\\t","take","+1b"], input_file="-", stdin=b"abc\tdef",
+             tokens=["find:re","\\t","take","+1b"], input_file="-", stdin=b"abc\tdef",
              expect=dict(stdout="\t", exit=0)),
 
         dict(id="regex-028-carriage-return-escape",
-             tokens=["findr","\\r","take","+1b"], input_file="-", stdin=b"abc\rdef",
+             tokens=["find:re","\\r","take","+1b"], input_file="-", stdin=b"abc\rdef",
              expect=dict(stdout="\r", exit=0)),
 
         dict(id="regex-029-form-feed-escape",
-             tokens=["findr","\\f","take","+1b"], input_file="-", stdin=b"abc\fdef",
+             tokens=["find:re","\\f","take","+1b"], input_file="-", stdin=b"abc\fdef",
              expect=dict(stdout="\f", exit=0)),
 
         dict(id="regex-030-vertical-tab-escape",
-             tokens=["findr","\\v","take","+1b"], input_file="-", stdin=b"abc\vdef",
+             tokens=["find:re","\\v","take","+1b"], input_file="-", stdin=b"abc\vdef",
              expect=dict(stdout="\v", exit=0)),
 
         dict(id="regex-031-null-escape",
-             tokens=["findr","\\0","take","+1b"], input_file="-", stdin=b"abc\0def",
+             tokens=["find:re","\\0","take","+1b"], input_file="-", stdin=b"abc\0def",
              expect=dict(stdout="\0", exit=0)),
 
         # Complex patterns
         dict(id="regex-032-word-boundary-pattern",
-             tokens=["findr","\\w+\\s+\\d+","take","+5b"], input_file="-", stdin=b"hello 123 world",
+             tokens=["find:re","\\w+\\s+\\d+","take","+5b"], input_file="-", stdin=b"hello 123 world",
              expect=dict(stdout="hello", exit=0)),
 
         dict(id="regex-033-email-like-pattern",
-             tokens=["findr","\\w+@\\w+\\.\\w+","take","+10b"], input_file="-", stdin=b"Contact: user@example.com for help",
+             tokens=["find:re","\\w+@\\w+\\.\\w+","take","+10b"], input_file="-", stdin=b"Contact: user@example.com for help",
              expect=dict(stdout="user@examp", exit=0)),
 
         dict(id="regex-034-phone-pattern",
-             tokens=["findr","\\d{3}-\\d{3}-\\d{4}","take","+12b"], input_file="-", stdin=b"Call 555-123-4567 now",
+             tokens=["find:re","\\d{3}-\\d{3}-\\d{4}","take","+12b"], input_file="-", stdin=b"Call 555-123-4567 now",
              expect=dict(stdout="555-123-4567", exit=0)),  # {n} quantifiers now implemented!
 
         dict(id="regex-035-mixed-quantifiers",
-             tokens=["findr","a+b*c?","take","+4b"], input_file="-", stdin=b"aaabcc",
+             tokens=["find:re","a+b*c?","take","+4b"], input_file="-", stdin=b"aaabcc",
              expect=dict(stdout="aaab", exit=0)),
 
         # Line-based patterns
         dict(id="regex-036-line-start-pattern",
-             tokens=["findr","^ERROR","take","+5b"], input_file="small.txt",
+             tokens=["find:re","^ERROR","take","+5b"], input_file="small.txt",
              expect=dict(stdout="ERROR", exit=0)),  # Now works with line boundary anchors!
 
         dict(id="regex-037-line-end-pattern",
-             tokens=["findr","hit$","take","+3b"], input_file="small.txt",
+             tokens=["find:re","hit$","take","+3b"], input_file="small.txt",
              expect=dict(stdout="hit", exit=0)),  # $ matches before newline (line end behavior)
 
         dict(id="regex-038-complete-line-pattern",
-             tokens=["findr","^ERROR hit$","take","+9b"], input_file="small.txt",
+             tokens=["find:re","^ERROR hit$","take","+9b"], input_file="small.txt",
              expect=dict(stdout="ERROR hit", exit=0)),  # ^ and $ match line boundaries
 
         # Binary data patterns
         dict(id="regex-039-binary-pattern",
-             tokens=["findr","TEXT_START.*TEXT_END","take","+25b"], input_file="binary-data.bin",
+             tokens=["find:re","TEXT_START.*TEXT_END","take","+25b"], input_file="binary-data.bin",
              expect=dict(stdout="TEXT_START\x00\x01\x02\x03BINARY_DATA", exit=0)),  # .* pattern works with binary data
 
         # Unicode patterns
         dict(id="regex-040-unicode-pattern",
-             tokens=["findr","世界","take","+6b"], input_file="unicode-test.txt",
+             tokens=["find:re","世界","take","+6b"], input_file="unicode-test.txt",
              expect=dict(stdout="世界", exit=0)),
 
         dict(id="regex-041-unicode-with-anchors",
-             tokens=["findr","^Hello 世界$","take","+12b"], input_file="-", stdin="Hello 世界".encode('utf-8'),
+             tokens=["find:re","^Hello 世界$","take","+12b"], input_file="-", stdin="Hello 世界".encode('utf-8'),
              expect=dict(stdout="Hello 世界", exit=0)),
 
         # Error cases
         dict(id="regex-042-no-match",
-             tokens=["findr","XYZ","take","+3b"], input_file="overlap.txt",
+             tokens=["find:re","XYZ","take","+3b"], input_file="overlap.txt",
              expect=dict(stdout="", exit=10)),
 
         dict(id="regex-043-empty-pattern",
-             tokens=["findr",""], input_file="overlap.txt",
+             tokens=["find:re",""], input_file="overlap.txt",
              expect=dict(stdout="", exit=3)),
 
         dict(id="regex-044-invalid-escape",
-             tokens=["findr","\\z","take","+1b"], input_file="-", stdin=b"abc",
+             tokens=["find:re","\\z","take","+1b"], input_file="-", stdin=b"abc",
              expect=dict(stdout="", exit=10)),
 
         # Complex multi-clause regex
         dict(id="regex-045-multi-clause-regex",
-             tokens=["findr","ERROR","take","+5b","THEN","findr","WARNING","take","+7b"], input_file="multiline.txt",
+             tokens=["find:re","ERROR","take","+5b","THEN","find:re","WARNING","take","+7b"], input_file="multiline.txt",
              expect=dict(stdout="ERROR", exit=0)),
 
         dict(id="regex-046-regex-with-labels",
-             tokens=["findr","Section 2","label","START","findr","Section 3","goto","START","take","until","Section 3"], input_file="multiline.txt",
+             tokens=["find:re","Section 2","label","START","find:re","Section 3","goto","START","take","until","Section 3"], input_file="multiline.txt",
              expect=dict(stdout="Section 2: Data\nKEY1=value1\nKEY2=value2\nKEY3=value3\n\n", exit=0)),
 
         # Edge cases
         dict(id="regex-047-empty-file",
-             tokens=["findr","a","take","+1b"], input_file="empty.txt",
+             tokens=["find:re","a","take","+1b"], input_file="empty.txt",
              expect=dict(stdout="", exit=10)),
 
         dict(id="regex-048-single-char-file",
-             tokens=["findr","a","take","+1b"], input_file="overlap.txt",
+             tokens=["find:re","a","take","+1b"], input_file="overlap.txt",
              expect=dict(stdout="a", exit=0)),
 
         dict(id="regex-049-regex-with-take-until",
-             tokens=["findr","Section 1","take","until","Section 2"], input_file="multiline.txt",
+             tokens=["find:re","Section 1","take","until","Section 2"], input_file="multiline.txt",
              expect=dict(stdout="Section 1: Introduction\nThis is the first section with multiple lines.\nIt contains various text patterns.\n\n", exit=0)),
 
         # Performance and large patterns
         dict(id="regex-050-large-pattern",
-             tokens=["findr","PATTERN","take","+7b"], input_file="repeated-patterns.txt",
+             tokens=["find:re","PATTERN","take","+7b"], input_file="repeated-patterns.txt",
              expect=dict(stdout="PATTERN", exit=0)),
 
         dict(id="regex-051-regex-in-large-file",
-             tokens=["findr","NEEDLE","take","+6b"], input_file="big-forward.bin",
+             tokens=["find:re","NEEDLE","take","+6b"], input_file="big-forward.bin",
              expect=dict(stdout="NEEDLE", exit=0)),
 
         # Mixed regex and literal find
         dict(id="regex-052-mixed-find-operations",
-             tokens=["find","Section 1","take","+1l","THEN","findr","ERROR","take","+5b"], input_file="multiline.txt",
+             tokens=["find","Section 1","take","+1l","THEN","find:re","ERROR","take","+5b"], input_file="multiline.txt",
              expect=dict(stdout="Section 1: Introduction\nERROR", exit=0)),
 
         # Regex with line operations
         dict(id="regex-053-regex-line-operations",
-             tokens=["findr","ERROR","goto","line-start","take","+1l"], input_file="multiline.txt",
+             tokens=["find:re","ERROR","goto","line-start","take","+1l"], input_file="multiline.txt",
              expect=dict(stdout="ERROR: Critical failure occurred\n", exit=0)),
 
         # Complex alternation
         dict(id="regex-054-complex-alternation",
-             tokens=["findr","SUCCESS|WARNING|ERROR|INFO","take","+7b"], input_file="multiline.txt",
+             tokens=["find:re","SUCCESS|WARNING|ERROR|INFO","take","+7b"], input_file="multiline.txt",
              expect=dict(stdout="SUCCESS", exit=0)),
 
         # Regex with quantifiers and classes
         dict(id="regex-055-quantified-classes",
-             tokens=["findr","\\d+\\s+\\w+","take","+8b"], input_file="-", stdin=b"123 abc 456 def",
+             tokens=["find:re","\\d+\\s+\\w+","take","+8b"], input_file="-", stdin=b"123 abc 456 def",
              expect=dict(stdout="123 abc ", exit=0)),
 
         # Anchors with complex patterns
         dict(id="regex-056-anchor-complex",
-             tokens=["findr","^\\w+\\s+\\d+\\s+\\w+$","take","+13b"], input_file="-", stdin=b"hello 123 world",
+             tokens=["find:re","^\\w+\\s+\\d+\\s+\\w+$","take","+13b"], input_file="-", stdin=b"hello 123 world",
              expect=dict(stdout="hello 123 wor", exit=0)),
 
         # Regex with binary data
         dict(id="regex-057-binary-regex",
-             tokens=["findr","[\\x00-\\xFF]+","take","+4b"], input_file="binary-data.bin",
+             tokens=["find:re","[\\x00-\\xFF]+","take","+4b"], input_file="binary-data.bin",
              expect=dict(stdout="TEXT", exit=0)),
 
         # Unicode with quantifiers
         dict(id="regex-058-unicode-quantified",
-             tokens=["findr","[\\u4e00-\\u9fff]+","take","+6b"], input_file="unicode-test.txt",
+             tokens=["find:re","[\\u4e00-\\u9fff]+","take","+6b"], input_file="unicode-test.txt",
              expect=dict(stdout="Hello ", exit=0)),  # Unicode ranges not implemented yet
 
         # Complex nested patterns
         dict(id="regex-059-nested-patterns",
-             tokens=["findr","(cat|dog)\\s+(food|toy)","take","+7b"], input_file="-", stdin=b"I bought cat food",
+             tokens=["find:re","(cat|dog)\\s+(food|toy)","take","+7b"], input_file="-", stdin=b"I bought cat food",
              expect=dict(stdout="cat foo", exit=0)),
 
         # Regex with special characters
         dict(id="regex-060-special-chars",
-             tokens=["findr","[!@#$%^&*()]+","take","+3b"], input_file="-", stdin=b"abc!@#def",
+             tokens=["find:re","[!@#$%^&*()]+","take","+3b"], input_file="-", stdin=b"abc!@#def",
              expect=dict(stdout="!@#", exit=0)),
 
         # Multiple matches (first match)
         dict(id="regex-061-first-match",
-             tokens=["findr","ERROR","take","+5b"], input_file="small.txt",
+             tokens=["find:re","ERROR","take","+5b"], input_file="small.txt",
              expect=dict(stdout="ERROR", exit=0)),
 
         # Regex with line boundaries
         dict(id="regex-062-line-boundaries",
-             tokens=["findr","^L\\d+","take","+4b"], input_file="lines.txt",
+             tokens=["find:re","^L\\d+","take","+4b"], input_file="lines.txt",
              expect=dict(stdout="L01 ", exit=0)),
 
         # Complex character class
         dict(id="regex-063-complex-class",
-             tokens=["findr","[A-Za-z0-9_]+","take","+6b"], input_file="-", stdin=b"123abc_456DEF",
+             tokens=["find:re","[A-Za-z0-9_]+","take","+6b"], input_file="-", stdin=b"123abc_456DEF",
              expect=dict(stdout="123abc", exit=0)),
 
         # Regex with mixed content
         dict(id="regex-064-mixed-content",
-             tokens=["findr","\\w+=\\w+","take","+7b"], input_file="multiline.txt",
+             tokens=["find:re","\\w+=\\w+","take","+7b"], input_file="multiline.txt",
              expect=dict(stdout="KEY1=va", exit=0)),
 
         # Edge case: very long pattern
         dict(id="regex-065-long-pattern",
-             tokens=["findr","X{1000}","take","+1000b"], input_file="large-lines.txt",
+             tokens=["find:re","X{1000}","take","+1000b"], input_file="large-lines.txt",
              expect=dict(stdout="", exit=4)),  # Large quantifiers cause memory issues (1000 individual instructions)
 
         # Regex with CRLF
         dict(id="regex-066-crlf-pattern",
-             tokens=["findr","Line\\d+\\r\\n","take","+7b"], input_file="crlf-comprehensive.txt",
+             tokens=["find:re","Line\\d+\\r\\n","take","+7b"], input_file="crlf-comprehensive.txt",
              expect=dict(stdout="Line1\r\n", exit=0)),
 
         # CRLF EOL anchor tests - these would have caught the bug!
         dict(id="regex-067-crlf-eol-anchor",
-             tokens=["findr","Line1$","take","+5b"], input_file="crlf-comprehensive.txt",
+             tokens=["find:re","Line1$","take","+5b"], input_file="crlf-comprehensive.txt",
              expect=dict(stdout="Line1", exit=0)),  # $ should match before \r\n
 
         dict(id="regex-068-crlf-eol-anchor-second-line",
-             tokens=["findr","Line2$","take","+5b"], input_file="crlf-comprehensive.txt",
+             tokens=["find:re","Line2$","take","+5b"], input_file="crlf-comprehensive.txt",
              expect=dict(stdout="Line2", exit=0)),  # $ should match before \r\n
 
         dict(id="regex-069-crlf-eol-anchor-last-line",
-             tokens=["findr","Line3$","take","+5b"], input_file="crlf-comprehensive.txt",
+             tokens=["find:re","Line3$","take","+5b"], input_file="crlf-comprehensive.txt",
              expect=dict(stdout="Line3", exit=0)),  # $ should match before \r\n
 
         dict(id="regex-070-crlf-eol-anchor-no-final-lf",
-             tokens=["findr","Line3$","take","+5b"], input_file="crlf-no-final-lf.txt",
+             tokens=["find:re","Line3$","take","+5b"], input_file="crlf-no-final-lf.txt",
              expect=dict(stdout="Line3", exit=0)),  # $ should match at EOF when no final \r\n
 
         dict(id="regex-071-crlf-mixed-eol-anchor",
-             tokens=["findr","CRLF line$","take","+9b"], input_file="mixed-line-endings.txt",
+             tokens=["find:re","CRLF line$","take","+9b"], input_file="mixed-line-endings.txt",
              expect=dict(stdout="CRLF line", exit=0)),  # $ should match before \r\n in mixed file
 
         # Complex regex with multiple features
         dict(id="regex-072-complex-features",
-             tokens=["findr","^\\w+\\s+\\d+\\s+\\w+\\s*$","take","+13b"], input_file="-", stdin=b"hello 123 world",
+             tokens=["find:re","^\\w+\\s+\\d+\\s+\\w+\\s*$","take","+13b"], input_file="-", stdin=b"hello 123 world",
              expect=dict(stdout="hello 123 wor", exit=0)),
 
         # Regex with alternation and quantifiers
         dict(id="regex-073-alternation-quantified",
-             tokens=["findr","(cat|dog)+","take","+6b"], input_file="-", stdin=b"catdogcat",
+             tokens=["find:re","(cat|dog)+","take","+6b"], input_file="-", stdin=b"catdogcat",
              expect=dict(stdout="catdog", exit=0)),  # Groups () treated as literal characters
 
         # Regex with anchors and classes
         dict(id="regex-074-anchor-classes",
-             tokens=["findr","^[A-Z]+\\s+[a-z]+$","take","+8b"], input_file="-", stdin=b"HELLO world",
+             tokens=["find:re","^[A-Z]+\\s+[a-z]+$","take","+8b"], input_file="-", stdin=b"HELLO world",
              expect=dict(stdout="HELLO wo", exit=0)),
 
         # Final comprehensive test
         dict(id="regex-075-comprehensive",
-             tokens=["findr","^\\w+\\s+\\d+\\s+\\w+\\s*$","take","+13b"], input_file="-", stdin=b"hello 123 world",
+             tokens=["find:re","^\\w+\\s+\\d+\\s+\\w+\\s*$","take","+13b"], input_file="-", stdin=b"hello 123 world",
              expect=dict(stdout="hello 123 wor", exit=0)),
 
         # NEW TESTS FOR GROUPING FUNCTIONALITY
         # Basic grouping
         dict(id="regex-076-basic-grouping",
-             tokens=["findr","(a)","take","+1b"], input_file="-", stdin=b"abc",
+             tokens=["find:re","(a)","take","+1b"], input_file="-", stdin=b"abc",
              expect=dict(stdout="a", exit=0)),
 
         # Grouping with alternation
         dict(id="regex-077-grouping-alternation",
-             tokens=["findr","(a|b)","take","+1b"], input_file="-", stdin=b"abc",
+             tokens=["find:re","(a|b)","take","+1b"], input_file="-", stdin=b"abc",
              expect=dict(stdout="a", exit=0)),
 
         # Nested grouping
         dict(id="regex-078-nested-grouping",
-             tokens=["findr","((a))","take","+1b"], input_file="-", stdin=b"abc",
+             tokens=["find:re","((a))","take","+1b"], input_file="-", stdin=b"abc",
              expect=dict(stdout="a", exit=0)),
 
         # Complex grouping with alternation
         dict(id="regex-079-complex-grouping",
-             tokens=["findr","(a|b)|c","take","+1b"], input_file="-", stdin=b"abc",
+             tokens=["find:re","(a|b)|c","take","+1b"], input_file="-", stdin=b"abc",
              expect=dict(stdout="a", exit=0)),
 
         # Grouping with multiple alternatives
         dict(id="regex-080-grouping-multiple-alternatives",
-             tokens=["findr","(a|b|c)","take","+1b"], input_file="-", stdin=b"abc",
+             tokens=["find:re","(a|b|c)","take","+1b"], input_file="-", stdin=b"abc",
              expect=dict(stdout="a", exit=0)),
 
         # Grouping with second alternative
         dict(id="regex-081-grouping-second-alternative",
-             tokens=["findr","(a|b|c)","take","+1b"], input_file="-", stdin=b"bcd",
+             tokens=["find:re","(a|b|c)","take","+1b"], input_file="-", stdin=b"bcd",
              expect=dict(stdout="b", exit=0)),
 
         # Grouping with third alternative
         dict(id="regex-082-grouping-third-alternative",
-             tokens=["findr","(a|b|c)","take","+1b"], input_file="-", stdin=b"cde",
+             tokens=["find:re","(a|b|c)","take","+1b"], input_file="-", stdin=b"cde",
              expect=dict(stdout="c", exit=0)),
 
         # Deeply nested grouping
         dict(id="regex-083-deeply-nested-grouping",
-             tokens=["findr","(((a|b)|c)|d)","take","+1b"], input_file="-", stdin=b"abc",
+             tokens=["find:re","(((a|b)|c)|d)","take","+1b"], input_file="-", stdin=b"abc",
              expect=dict(stdout="a", exit=0)),
 
         # Grouping with anchors
         dict(id="regex-084-grouping-with-anchors",
-             tokens=["findr","^(a|b)$","take","+1b"], input_file="-", stdin=b"a",
+             tokens=["find:re","^(a|b)$","take","+1b"], input_file="-", stdin=b"a",
              expect=dict(stdout="a", exit=0)),
 
         # Grouping with anchors - no match
         dict(id="regex-085-grouping-with-anchors-no-match",
-             tokens=["findr","^(a|b)$","take","+1b"], input_file="-", stdin=b"ab",
+             tokens=["find:re","^(a|b)$","take","+1b"], input_file="-", stdin=b"ab",
              expect=dict(stdout="", exit=10)),
 
         # Grouping with character classes
         dict(id="regex-086-grouping-with-classes",
-             tokens=["findr","([a-z]|[0-9])","take","+1b"], input_file="-", stdin=b"abc123",
+             tokens=["find:re","([a-z]|[0-9])","take","+1b"], input_file="-", stdin=b"abc123",
              expect=dict(stdout="a", exit=0)),
 
         # Grouping with character classes - digits
         dict(id="regex-087-grouping-with-classes-digits",
-             tokens=["findr","([a-z]|[0-9])","take","+1b"], input_file="-", stdin=b"123abc",
+             tokens=["find:re","([a-z]|[0-9])","take","+1b"], input_file="-", stdin=b"123abc",
              expect=dict(stdout="1", exit=0)),
 
         # Grouping with quantifiers (should use old parser)
         dict(id="regex-088-grouping-with-quantifiers",
-             tokens=["findr","(a+)","take","+3b"], input_file="-", stdin=b"aaabc",
+             tokens=["find:re","(a+)","take","+3b"], input_file="-", stdin=b"aaabc",
              expect=dict(stdout="aaa", exit=0)),
 
         # Grouping with alternation and quantifiers
         dict(id="regex-089-grouping-alternation-quantifiers",
-             tokens=["findr","(a|b)+","take","+3b"], input_file="-", stdin=b"aaabc",
+             tokens=["find:re","(a|b)+","take","+3b"], input_file="-", stdin=b"aaabc",
              expect=dict(stdout="aaa", exit=0)),
 
         # Complex grouping pattern
         dict(id="regex-090-complex-grouping-pattern",
-             tokens=["findr","(cat|dog)|(bird|fish)","take","+4b"], input_file="-", stdin=b"I have a cat",
+             tokens=["find:re","(cat|dog)|(bird|fish)","take","+4b"], input_file="-", stdin=b"I have a cat",
              expect=dict(stdout="cat", exit=0)),
 
         # Grouping with second group
         dict(id="regex-091-grouping-second-group",
-             tokens=["findr","(cat|dog)|(bird|fish)","take","+4b"], input_file="-", stdin=b"I have a bird",
+             tokens=["find:re","(cat|dog)|(bird|fish)","take","+4b"], input_file="-", stdin=b"I have a bird",
              expect=dict(stdout="bird", exit=0)),
 
         # Empty group (should not match)
         dict(id="regex-092-empty-group",
-             tokens=["findr","()","take","+1b"], input_file="-", stdin=b"abc",
+             tokens=["find:re","()","take","+1b"], input_file="-", stdin=b"abc",
              expect=dict(stdout="", exit=10)),
 
         # Grouping with escape sequences
         dict(id="regex-093-grouping-with-escapes",
-             tokens=["findr","(\\n|\\t)","take","+1b"], input_file="-", stdin=b"abc\ndef",
+             tokens=["find:re","(\\n|\\t)","take","+1b"], input_file="-", stdin=b"abc\ndef",
              expect=dict(stdout="\n", exit=0)),
 
         # Grouping with dot
         dict(id="regex-094-grouping-with-dot",
-             tokens=["findr","(.|a)","take","+1b"], input_file="-", stdin=b"abc",
+             tokens=["find:re","(.|a)","take","+1b"], input_file="-", stdin=b"abc",
              expect=dict(stdout="a", exit=0)),
 
         # Grouping with anchors and multiline
         dict(id="regex-095-grouping-multiline",
-             tokens=["findr","^(a|b)","take","+1b"], input_file="-", stdin=b"abc\ndef",
+             tokens=["find:re","^(a|b)","take","+1b"], input_file="-", stdin=b"abc\ndef",
              expect=dict(stdout="a", exit=0)),
 
         # Grouping with anchors and multiline - second line
         dict(id="regex-096-grouping-multiline-second",
-             tokens=["findr","^(a|b)","take","+1b"], input_file="-", stdin=b"xyz\ndef",
+             tokens=["find:re","^(a|b)","take","+1b"], input_file="-", stdin=b"xyz\ndef",
              expect=dict(stdout="", exit=10)),
 
         # Grouping with anchors and multiline - after newline
         dict(id="regex-097-grouping-multiline-after-newline",
-             tokens=["findr","^(a|b)","take","+1b"], input_file="-", stdin=b"xyz\na",
+             tokens=["find:re","^(a|b)","take","+1b"], input_file="-", stdin=b"xyz\na",
              expect=dict(stdout="a", exit=0)),
 
         # Regression tests for grouped quantifiers (catch issues old implementation accidentally allowed)
         dict(id="regex-098-star-quantifier-multiple-repeats",
-             tokens=["findr","(ab)*x","take","to","match-end"], input_file="-", stdin=b"ababx",
+             tokens=["find:re","(ab)*x","take","to","match-end"], input_file="-", stdin=b"ababx",
              expect=dict(stdout="ababx", exit=0)),
 
         dict(id="regex-099-question-quantifier-zero-occurrences",
-             tokens=["findr","(ab)?x","take","to","match-end"], input_file="-", stdin=b"x",
+             tokens=["find:re","(ab)?x","take","to","match-end"], input_file="-", stdin=b"x",
              expect=dict(stdout="x", exit=0)),
 
         dict(id="regex-100-question-quantifier-one-occurrence",
-             tokens=["findr","(ab)?x","take","to","match-end"], input_file="-", stdin=b"abx",
+             tokens=["find:re","(ab)?x","take","to","match-end"], input_file="-", stdin=b"abx",
              expect=dict(stdout="abx", exit=0)),
 
         dict(id="regex-101-question-quantifier-not-require-two",
-             tokens=["findr","(ab)?x","take","to","match-end"], input_file="-", stdin=b"ababx",
+             tokens=["find:re","(ab)?x","take","to","match-end"], input_file="-", stdin=b"ababx",
              expect=dict(stdout="x", exit=0)),  # Should find first match, not require 2 occurrences
 
         dict(id="regex-102-plus-quantifier-requires-one",
-             tokens=["findr","(ab)+x"], input_file="-", stdin=b"x",
+             tokens=["find:re","(ab)+x"], input_file="-", stdin=b"x",
              expect=dict(stdout="", exit=10)),  # Should fail - requires at least one occurrence
 
         dict(id="regex-103-plus-quantifier-multiple-occurrences",
-             tokens=["findr","(ab)+x","take","to","match-end"], input_file="-", stdin=b"ababx",
+             tokens=["find:re","(ab)+x","take","to","match-end"], input_file="-", stdin=b"ababx",
              expect=dict(stdout="ababx", exit=0)),
+
+        # ---------- Take Until:re Tests ----------
+        dict(id="regex-104-until-re-literal",
+             tokens=["take","until:re","world"], input_file="-", stdin=b"hello world test",
+             expect=dict(stdout="hello ", exit=0)),
+
+        dict(id="regex-105-until-re-at-match-end",
+             tokens=["take","until:re","world","at","match-end"], input_file="-", stdin=b"hello world test",
+             expect=dict(stdout="hello world", exit=0)),
+
+        dict(id="regex-106-until-re-digit-class",
+             tokens=["take","until:re","\\d+"], input_file="-", stdin=b"abc123def",
+             expect=dict(stdout="abc", exit=0)),
+
+        dict(id="regex-107-until-re-word-class",
+             tokens=["take","until:re","\\w+"], input_file="-", stdin=b"  hello world",
+             expect=dict(stdout="  ", exit=0)),
+
+        dict(id="regex-108-until-re-space-class",
+             tokens=["take","until:re","\\s+","at","match-end"], input_file="-", stdin=b"hello world",
+             expect=dict(stdout="hello ", exit=0)),
+
+        dict(id="regex-109-until-re-custom-class",
+             tokens=["take","until:re","[A-Z]"], input_file="-", stdin=b"hello World",
+             expect=dict(stdout="hello ", exit=0)),
+
+        dict(id="regex-110-until-re-alternation",
+             tokens=["take","until:re","cat|dog"], input_file="-", stdin=b"I have a cat",
+             expect=dict(stdout="I have a ", exit=0)),
+
+        dict(id="regex-111-until-re-at-line-start",
+             tokens=["take","until:re","world","at","line-start"], input_file="-", stdin=b"hello world",
+             expect=dict(stdout="", exit=0)),
+
+        dict(id="regex-112-until-re-at-line-end",
+             tokens=["take","until:re","world","at","line-end"], input_file="-", stdin=b"hello world\ntest",
+             expect=dict(stdout="hello world\n", exit=0)),
+
+        dict(id="regex-113-until-re-not-found",
+             tokens=["take","until:re","xyz"], input_file="-", stdin=b"hello world",
+             expect=dict(stdout="", exit=10)),
+
+        dict(id="regex-114-until-re-anchor-bol",
+             tokens=["skip","6b","take","until:re","^w"], input_file="-", stdin=b"hello\nworld",
+             expect=dict(stdout="", exit=0)),
+
+        dict(id="regex-115-until-re-anchor-eol",
+             tokens=["take","until:re","o$","at","match-end"], input_file="-", stdin=b"hello\nworld",
+             expect=dict(stdout="hello", exit=0)),
+
+        dict(id="regex-116-until-re-quantifier",
+             tokens=["take","until:re","o+"], input_file="-", stdin=b"hellooo world",
+             expect=dict(stdout="hell", exit=0)),
+
+        dict(id="regex-117-until-re-complex-pattern",
+             tokens=["take","until:re","\\d{3}-\\d{3}"], input_file="-", stdin=b"Call 555-123-4567 now",
+             expect=dict(stdout="Call ", exit=0)),
+
+        dict(id="regex-118-until-re-escaped-chars",
+             tokens=["take","until:re","\\n"], input_file="-", stdin=b"hello\nworld",
+             expect=dict(stdout="hello", exit=0)),
 
         # ---------- Views Feature Tests ----------
         # Basic view operations
@@ -1650,12 +1711,12 @@ def tests():
              expect=dict(stdout="", exit=10)),  # X is at EOF-1b, excluded from view
 
         # View with regex operations
-        dict(id="view-007-view-findr-anchors",
-             tokens=["viewset","BOF+3b","EOF","findr","^HEADER","take","to","match-end"], input_file="-", stdin=b"ZZ\nHEADER\n",
+        dict(id="view-007-view-find:re-anchors",
+             tokens=["viewset","BOF+3b","EOF","find:re","^HEADER","take","to","match-end"], input_file="-", stdin=b"ZZ\nHEADER\n",
              expect=dict(stdout="HEADER", exit=0)),
 
-        dict(id="view-008-view-findr-no-match",
-             tokens=["viewset","BOF","EOF-1b","findr","^HEADER","take","+6b"], input_file="-", stdin=b"ZZ\nHEADER\n",
+        dict(id="view-008-view-find:re-no-match",
+             tokens=["viewset","BOF","EOF-1b","find:re","^HEADER","take","+6b"], input_file="-", stdin=b"ZZ\nHEADER\n",
              expect=dict(stdout="HEADER", exit=0)),  # HEADER is at EOF-1b, but view includes it
 
         # View with goto operations
@@ -1744,11 +1805,11 @@ def tests():
 
         # View with regex anchors
         dict(id="view-028-view-regex-bol",
-             tokens=["viewset","BOF+3b","EOF","findr","^HEADER","take","to","match-end"], input_file="-", stdin=b"ZZ\nHEADER\n",
+             tokens=["viewset","BOF+3b","EOF","find:re","^HEADER","take","to","match-end"], input_file="-", stdin=b"ZZ\nHEADER\n",
              expect=dict(stdout="HEADER", exit=0)),
 
         dict(id="view-029-view-regex-eol",
-             tokens=["viewset","BOF","EOF-3b","findr","ZZ$","take","to","match-end"], input_file="-", stdin=b"ZZ\nHEADER\n",
+             tokens=["viewset","BOF","EOF-3b","find:re","ZZ$","take","to","match-end"], input_file="-", stdin=b"ZZ\nHEADER\n",
              expect=dict(stdout="ZZ", exit=0)),  # ZZ$ matches before newline (line end behavior)
 
         # View with match invalidation
@@ -1827,7 +1888,7 @@ def tests():
 
         # View with regex and views
         dict(id="view-045-view-regex-complex",
-             tokens=["viewset","BOF+2b","EOF-2b","findr","\\w+","take","+3b"], input_file="overlap.txt",
+             tokens=["viewset","BOF+2b","EOF-2b","find:re","\\w+","take","+3b"], input_file="overlap.txt",
              expect=dict(stdout="cde", exit=0)),
 
         # View with take until and views

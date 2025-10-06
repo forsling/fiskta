@@ -63,10 +63,11 @@ content here
 - `skip <n><unit>` - Move cursor n units forward (no output)
 - `take to <location>` - Order-normalized: emits `[min(cursor,L), max(cursor,L))`; cursor moves to the high end
 - `take until <string> [at <location>]` - Forward-only: emits `[cursor, B)` where B is derived from the match; cursor moves only if B > cursor
+- `take until:re <regex> [at <location>]` - Same as `take until` but with regex pattern support
 
 **Searching:**
 - `find [to <location>] <string>` - Search within `[min(cursor,L), max(cursor,L))`, default L=EOF; picks match closest to cursor
-- `findr [to <location>] <regex>` - Search using regular expressions within `[min(cursor,L), max(cursor,L))`; supports character classes, quantifiers, anchors
+- `find:re [to <location>] <regex>` - Search using regular expressions within `[min(cursor,L), max(cursor,L))`; supports character classes, quantifiers, anchors
 
 **Navigation:**
 - `label <name>` - Mark current position with label
@@ -234,7 +235,7 @@ find to BOF "START"       # search backward from cursor
 find to EOF+1000b "END"   # search forward but only 1000 bytes
 ```
 
-#### `findr [to <location>] <regex>`
+#### `find:re [to <location>] <regex>`
 
 Search using regular expressions. Same search behavior as `find`.
 
@@ -246,10 +247,10 @@ Regex syntax:
 - Escapes: `\n`, `\t`, `\r`, `\f`, `\v`, `\0`
 
 ```bash
-findr "ERROR|WARN"                    # alternation
-findr "^\[.*\]"                       # line start anchor
-findr "[0-9]{1,3}\.[0-9]{1,3}"        # IP address pattern
-findr "[A-Za-z]+@[A-Za-z.]+"          # simple email pattern
+find:re "ERROR|WARN"                    # alternation
+find:re "^\[.*\]"                       # line start anchor
+find:re "[0-9]{1,3}\.[0-9]{1,3}"        # IP address pattern
+find:re "[A-Za-z]+@[A-Za-z.]+"          # simple email pattern
 ```
 
 ### Extracting
@@ -294,6 +295,17 @@ take until ";"                    # extract until semicolon (excluded)
 take until "END" at match-end     # extract until END (included)
 take until "\n\n"                 # extract until blank line
 take until "---" at line-start    # extract until line with ---
+```
+
+#### `take until:re <regex> [at <location>]`
+
+Forward-only search using regular expressions. Extracts from cursor until regex pattern is found. Same behavior and `at` clause options as `take until`.
+
+```bash
+take until:re "\\d+"                     # extract until first number (excluded)
+take until:re "[A-Z]" at match-end       # extract until first capital letter (included)
+take until:re "\\s+" at line-start       # extract until whitespace, up to line start
+take until:re "\\n\\n"                   # extract until blank line
 ```
 
 ### Movement
@@ -476,7 +488,7 @@ find "[section]" AND viewset cursor cursor+1000b
 ### View Scope
 
 Once a view is set:
-- `find` and `findr` only search within the view
+- `find` and `find:re` only search within the view
 - `take` and `skip` can't move outside the view
 - `goto` fails if the target is outside the view
 - The view remains active until `viewclear` or program ends
@@ -568,7 +580,7 @@ Problem: Extract all email addresses (using labels and goto for loops)
 ```bash
 fiskta --input contacts.txt \
     label START \
-    findr "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+" take to match-end print "\n" \
+    find:re "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+" take to match-end print "\n" \
     goto START
 ```
 
@@ -595,11 +607,12 @@ Clause         = { Op } .
 Op             = Find | FindRegex | Skip | Take | Label | Goto
                | Viewset | Viewclear | Sleep | Print .
 Find           = "find" [ "to" LocationExpr ] String .
-FindRegex      = "findr" [ "to" LocationExpr ] String .
+FindRegex      = "find" ":" "re" [ "to" LocationExpr ] String .
 Skip           = "skip" Number Unit .
 Take           = "take" ( SignedNumber Unit
                           | "to" LocationExpr
-                          | "until" String [ "at" AtExpr ] ) .
+                          | "until" String [ "at" AtExpr ]
+                          | "until" ":" "re" String [ "at" AtExpr ] ) .
 Label          = "label" Name .
 Goto           = "goto" LocationExpr .
 Viewset        = "viewset" LocationExpr LocationExpr .

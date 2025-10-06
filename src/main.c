@@ -494,7 +494,7 @@ static void print_usage(void)
     printf("    fiskta --input file.txt find \"STATUS\" take to EOF\n");
     printf("\n");
     printf("  Take five lines around the first WARN:\n");
-    printf("    fiskta --input logs.txt findr \"^WARN\" take -2l take 3l\n");
+    printf("    fiskta --input logs.txt find:re \"^WARN\" take -2l take 3l\n");
     printf("\n");
     printf("  Take until the start of the END section:\n");
     printf("    fiskta --input config.txt take until \"END\" at line-start\n");
@@ -511,7 +511,7 @@ static void print_usage(void)
     printf("  find [to <location>] <string>\n");
     printf("                              Search within [min(cursor,L), max(cursor,L)),\n");
     printf("                              default L=EOF; picks match closest to cursor\n");
-    printf("  findr [to <location>] <regex>\n");
+    printf("  find:re [to <location>] <regex>\n");
     printf("                              Search using regular expressions within\n");
     printf("                              [min(cursor,L), max(cursor,L)); supports\n");
     printf("                              character classes, quantifiers, anchors\n");
@@ -990,7 +990,7 @@ int main(int argc, char** argv)
             Clause* clause = &prg.clauses[ci];
             for (i32 i = 0; i < clause->op_count; ++i) {
                 Op* op = &clause->ops[i];
-                if (op->kind == OP_FINDR) {
+                if (op->kind == OP_FIND_RE) {
                     ReProg* prog = &re_progs[re_prog_idx++];
                     enum Err err = re_compile_into(op->u.findr.pattern, prog,
                         re_ins + re_ins_idx, (i32)(re_ins_bytes / sizeof(ReInst)) - re_ins_idx, &re_ins_idx,
@@ -1009,6 +1009,25 @@ int main(int argc, char** argv)
                         }
                     }
                     op->u.findr.prog = prog;
+                } else if (op->kind == OP_TAKE_UNTIL_RE) {
+                    ReProg* prog = &re_progs[re_prog_idx++];
+                    enum Err err = re_compile_into(op->u.take_until_re.pattern, prog,
+                        re_ins + re_ins_idx, (i32)(re_ins_bytes / sizeof(ReInst)) - re_ins_idx, &re_ins_idx,
+                        re_cls + re_cls_idx, (i32)(re_cls_bytes / sizeof(ReClass)) - re_cls_idx, &re_cls_idx);
+                    if (err != E_OK) {
+                        // Regex compilation error
+                        if (err == E_PARSE || err == E_BAD_NEEDLE) {
+                            print_err(err, "regex compile");
+                            free(block);
+                            return 3; // Exit code 3: Regex error
+                        } else {
+                            // Resource error (E_OOM)
+                            print_err(err, "regex compile");
+                            free(block);
+                            return 4; // Exit code 4: Resource limit
+                        }
+                    }
+                    op->u.take_until_re.prog = prog;
                 }
             }
         }
@@ -1157,7 +1176,7 @@ int main(int argc, char** argv)
                 Clause* clause = &prg.clauses[ci];
                 for (i32 i = 0; i < clause->op_count; ++i) {
                     Op* op = &clause->ops[i];
-                    if (op->kind == OP_FINDR) {
+                    if (op->kind == OP_FIND_RE) {
                         ReProg* prog = &re_progs[re_prog_idx++];
                         enum Err err = re_compile_into(op->u.findr.pattern, prog,
                             re_ins + re_ins_idx, (i32)(re_ins_bytes / sizeof(ReInst)) - re_ins_idx, &re_ins_idx,
@@ -1168,6 +1187,17 @@ int main(int argc, char** argv)
                             break;
                         }
                         op->u.findr.prog = prog;
+                    } else if (op->kind == OP_TAKE_UNTIL_RE) {
+                        ReProg* prog = &re_progs[re_prog_idx++];
+                        enum Err err = re_compile_into(op->u.take_until_re.pattern, prog,
+                            re_ins + re_ins_idx, (i32)(re_ins_bytes / sizeof(ReInst)) - re_ins_idx, &re_ins_idx,
+                            re_cls + re_cls_idx, (i32)(re_cls_bytes / sizeof(ReClass)) - re_cls_idx, &re_cls_idx);
+                        if (err != E_OK) {
+                            fprintf(stderr, "fiskta: regex compile error (%s)\n", err_str(err));
+                            regex_ok = false;
+                            break;
+                        }
+                        op->u.take_until_re.prog = prog;
                     }
                 }
             }

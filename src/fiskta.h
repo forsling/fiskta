@@ -27,11 +27,12 @@ enum {
 typedef uint8_t OpKind;
 enum {
     OP_FIND,
-    OP_FINDR,
+    OP_FIND_RE,
     OP_SKIP,
     OP_TAKE_LEN,
     OP_TAKE_TO,
     OP_TAKE_UNTIL,
+    OP_TAKE_UNTIL_RE,
     OP_LABEL,
     OP_GOTO,
     OP_VIEWSET,
@@ -117,6 +118,12 @@ typedef struct {
             bool has_at;
             LocExpr at;
         } take_until;
+        struct {
+            String pattern;
+            bool has_at;
+            LocExpr at;
+            struct ReProg* prog;
+        } take_until_re;
         struct {
             i32 name_idx;
         } label;

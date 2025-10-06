@@ -81,7 +81,7 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                     plan->needle_bytes += strlen(tokens[idx]);
                     idx++;
                 }
-            } else if (strcmp(cmd, "findr") == 0) {
+            } else if (strcmp(cmd, "find:re") == 0) {
                 idx++;
                 if (idx < token_count && strcmp(tokens[idx], "to") == 0) {
                     idx++;
@@ -128,6 +128,41 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                             // Skip offset if present
                             if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
                                 idx++;
+                            }
+                        }
+                    } else if (strcmp(next, "until:re") == 0) {
+                        plan->sum_take_ops++;
+                        idx++;
+                        // Skip pattern
+                        if (idx < token_count) {
+                            const char* pat = tokens[idx];
+                            size_t L = strlen(pat);
+                            plan->sum_findr_ops++; // Use same counter as findr for regex patterns
+                            i32 est = (i32)(4 * L + 8);
+                            plan->re_ins_estimate += est;
+                            if (est > plan->re_ins_estimate_max) {
+                                plan->re_ins_estimate_max = est;
+                            }
+                            // crude class count estimate: count '[' and escape sequences that create classes
+                            for (const char* p = pat; *p; ++p) {
+                                if (*p == '[')
+                                    plan->re_classes_estimate++;
+                                if (*p == '\\' && p[1] && strchr("dDwWsS", p[1]))
+                                    plan->re_classes_estimate++;
+                            }
+                            plan->needle_count++; // account string storage (shared pool)
+                            plan->needle_bytes += L;
+                            idx++;
+                        }
+                        // Skip "at" expression if present
+                        if (idx < token_count && strcmp(tokens[idx], "at") == 0) {
+                            idx++;
+                            if (idx < token_count) {
+                                idx++;
+                                // Skip offset if present
+                                if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
+                                    idx++;
+                                }
                             }
                         }
                     } else if (strcmp(next, "until") == 0) {
@@ -418,8 +453,8 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         if (err != E_OK)
             return err;
 
-    } else if (strcmp(cmd, "findr") == 0) {
-        op->kind = OP_FINDR;
+    } else if (strcmp(cmd, "find:re") == 0) {
+        op->kind = OP_FIND_RE;
 
         if (*idx < token_count && strcmp(tokens[*idx], "to") == 0) {
             (*idx)++;
@@ -463,6 +498,35 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
             enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.take_to.to, prg);
             if (err != E_OK)
                 return err;
+        } else if (strcmp(next, "until:re") == 0) {
+            op->kind = OP_TAKE_UNTIL_RE;
+            (*idx)++;
+
+            // Parse pattern
+            if (*idx >= token_count)
+                return E_PARSE;
+            const char* pattern = tokens[*idx];
+            (*idx)++;
+
+            if (strlen(pattern) == 0)
+                return E_BAD_NEEDLE;
+
+            // Copy pattern to string pool using String
+            enum Err err = parse_string_to_bytes(pattern, &op->u.take_until_re.pattern, str_pool, str_pool_off, str_pool_cap);
+            if (err != E_OK)
+                return err;
+
+            // Parse "at" expression if present
+            if (*idx < token_count && strcmp(tokens[*idx], "at") == 0) {
+                (*idx)++;
+                op->u.take_until_re.has_at = true;
+                enum Err err2 = parse_at_expr_build(tokens, idx, token_count, &op->u.take_until_re.at);
+                if (err2 != E_OK)
+                    return err2;
+            } else {
+                op->u.take_until_re.has_at = false;
+            }
+            op->u.take_until_re.prog = NULL;
         } else if (strcmp(next, "until") == 0) {
             op->kind = OP_TAKE_UNTIL;
             (*idx)++;
