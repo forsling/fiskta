@@ -726,7 +726,7 @@ static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, L
     if (offset_start) {
         // Parse base part
         char base_token[256];
-        size_t base_len = offset_start - token;
+        size_t base_len = (size_t)(offset_start - token);
         if (base_len >= sizeof(base_token))
             return E_PARSE;
         strncpy(base_token, token, base_len);
@@ -796,7 +796,7 @@ static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, Lo
     if (offset_start) {
         // Parse base part
         char base_token[256];
-        size_t base_len = offset_start - token;
+        size_t base_len = (size_t)(offset_start - token);
         if (base_len >= sizeof(base_token))
             return E_PARSE;
         strncpy(base_token, token, base_len);
@@ -876,7 +876,7 @@ static enum Err parse_unsigned_number(const char* token, i32* sign, u64* n, Unit
 
     u64 num = 0;
     while (isdigit(*p)) {
-        u64 new_num = num * 10 + (*p - '0');
+        u64 new_num = num * 10 + (u64)(*p - '0');
         if (new_num < num)
             return E_PARSE; // Overflow
         num = new_num;
@@ -927,7 +927,7 @@ static enum Err parse_signed_number(const char* token, i64* offset, Unit* unit)
 
     u64 num = 0;
     while (isdigit(*p)) {
-        u64 new_num = num * 10 + (*p - '0');
+        u64 new_num = num * 10 + (u64)(*p - '0');
         if (new_num < num)
             return E_PARSE; // Overflow
         num = new_num;

@@ -101,8 +101,8 @@ static enum Err parse_class(ReB* b, String pat, int* i_inout, int* out_cls_idx)
                 ReClass d;
                 cls_clear(&d);
                 cls_set_digit(&d);
-                for (int b = 0; b < 32; ++b)
-                    cls.bits[b] &= (unsigned char)~d.bits[b];
+                for (int bit = 0; bit < 32; ++bit)
+                    cls.bits[bit] &= (unsigned char)~d.bits[bit];
             } break;
             case 'w':
                 cls_set_word(&cls);
@@ -113,8 +113,8 @@ static enum Err parse_class(ReB* b, String pat, int* i_inout, int* out_cls_idx)
                 ReClass w;
                 cls_clear(&w);
                 cls_set_word(&w);
-                for (int b = 0; b < 32; ++b)
-                    cls.bits[b] &= (unsigned char)~w.bits[b];
+                for (int bit = 0; bit < 32; ++bit)
+                    cls.bits[bit] &= (unsigned char)~w.bits[bit];
             } break;
             case 's':
                 cls_set_ws(&cls);
@@ -125,8 +125,8 @@ static enum Err parse_class(ReB* b, String pat, int* i_inout, int* out_cls_idx)
                 ReClass ws;
                 cls_clear(&ws);
                 cls_set_ws(&ws);
-                for (int b = 0; b < 32; ++b)
-                    cls.bits[b] &= (unsigned char)~ws.bits[b];
+                for (int bit = 0; bit < 32; ++bit)
+                    cls.bits[bit] &= (unsigned char)~ws.bits[bit];
             } break;
             default:
                 cls_set(&cls, (unsigned char)pat.bytes[i]);
@@ -161,8 +161,8 @@ static enum Err parse_class(ReB* b, String pat, int* i_inout, int* out_cls_idx)
         ReClass negated_cls;
         for (int v = 0; v < 256; ++v)
             cls_set(&negated_cls, (unsigned char)v);
-        for (int b = 0; b < 32; ++b)
-            negated_cls.bits[b] &= (unsigned char)~cls.bits[b];
+        for (int bit = 0; bit < 32; ++bit)
+            negated_cls.bits[bit] &= (unsigned char)~cls.bits[bit];
         cls = negated_cls;
     }
 
@@ -636,7 +636,6 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
     enum Err e = E_OK;
     if (!is_quantified) {
         // No quantifier - emit single atom
-        int idx_atom;
         switch (ak) {
         case A_CHAR:
             e = emit_inst(b, RI_CHAR, 0, 0, ch, -1, NULL);
@@ -738,7 +737,7 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             // For now, implement a simple approach: emit min_count atoms, then add optional ones
 
             // Emit minimum required atoms
-            for (int i = 0; i < min_count; i++) {
+            for (int j = 0; j < min_count; j++) {
                 int idx_atom;
                 switch (ak) {
                 case A_CHAR:

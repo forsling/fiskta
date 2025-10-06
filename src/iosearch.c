@@ -168,7 +168,7 @@ enum Err io_emit(File* io, i64 start, i64 end, FILE* out)
 
     i64 remaining = end - start;
     while (remaining > 0) {
-        size_t chunk_size = remaining > io->buf_cap ? io->buf_cap : (size_t)remaining;
+        size_t chunk_size = (remaining > (i64)io->buf_cap) ? io->buf_cap : (size_t)remaining;
         size_t n = fread(io->buf, 1, chunk_size, io->f);
         if (n == 0) {
             if (ferror(io->f))
@@ -180,7 +180,7 @@ enum Err io_emit(File* io, i64 start, i64 end, FILE* out)
         if (written != n)
             return E_IO;
 
-        remaining -= n;
+        remaining -= (i64)n;
     }
 
     return E_OK;
@@ -311,7 +311,7 @@ enum Err io_line_end(File* io, i64 pos, i64* out)
             return E_IO;
 
         i64 scan_start = cur_pos - sub_start;
-        for (size_t i = scan_start; i < n; ++i) {
+        for (size_t i = (size_t)scan_start; i < n; ++i) {
             if (io->buf[i] == '\n') {
                 *out = sub_start + (i64)i + 1;
                 return E_OK;
@@ -395,7 +395,7 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
         i64 pos = win_lo;
         while (pos < win_hi) {
             i64 block_lo = pos;
-            i64 block_hi = block_lo + io->buf_cap;
+            i64 block_hi = block_lo + (i64)io->buf_cap;
             if (block_hi > win_hi)
                 block_hi = win_hi;
 
@@ -432,7 +432,7 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
             overlap = OVERLAP_MAX;
 
         // Scan backwards in blocks
-        for (i64 pos = win_hi; pos > win_lo; pos -= (BK_BLK - overlap)) {
+        for (i64 pos = win_hi; pos > win_lo; pos -= (i64)(BK_BLK - overlap)) {
             i64 block_hi = pos;
             i64 block_lo = block_hi - BK_BLK;
             if (block_lo < win_lo)
@@ -446,15 +446,15 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
                 return E_IO;
             }
 
-            size_t n = fread(io->buf, 1, block_size, io->f);
+            size_t n = fread(io->buf, 1, (size_t)block_size, io->f);
             if (n == 0)
                 break;
 
             // Find all matches in this block
             i64 search_pos = 0;
-            while (search_pos < n) {
+            while (search_pos < (i64)n) {
                 i64 local_ms, local_me;
-                enum Err err = bmh_forward(io->buf + search_pos, n - search_pos,
+                enum Err err = bmh_forward(io->buf + search_pos, (size_t)((i64)n - search_pos),
                     needle, nlen, &local_ms, &local_me);
                 if (err != E_OK)
                     break;
@@ -875,7 +875,7 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
                 if (fseeko(io->f, block_hi, SEEK_SET) != 0)
                     return E_IO;
                 unsigned char t[2];
-                size_t bytes_to_read = (win_hi - block_hi) >= 2 ? 2 : (win_hi - block_hi);
+                size_t bytes_to_read = (win_hi - block_hi) >= 2 ? 2 : (size_t)(win_hi - block_hi);
                 size_t m = fread(t, 1, bytes_to_read, io->f);
                 if (m >= 1) {
                     tail1 = t[0];

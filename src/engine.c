@@ -378,7 +378,7 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         i64 ms, me;
         err = io_find_window(io, win_lo, win_hi,
             (const unsigned char*)op->u.find.needle.bytes,
-            op->u.find.needle.len, dir, &ms, &me);
+            (size_t)op->u.find.needle.len, dir, &ms, &me);
         if (err != E_OK)
             return err;
 
@@ -576,7 +576,7 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         i64 ms, me;
         enum Err err = io_find_window(io, vclamp(c_view, io, *c_cursor), veof(c_view, io),
             (const unsigned char*)op->u.take_until.needle.bytes,
-            op->u.take_until.needle.len, DIR_FWD, &ms, &me);
+            (size_t)op->u.take_until.needle.len, DIR_FWD, &ms, &me);
         if (err != E_OK)
             return err;
 
