@@ -483,28 +483,6 @@ static void print_usage(void)
     printf("  fiskta [options] <operations>\n");
     printf("  (use --input <path> to select input; defaults to stdin)\n");
     printf("\n");
-    printf("EXAMPLES:\n");
-    printf("  Take first 10 bytes of a file:\n");
-    printf("    fiskta --input file.txt take 10b\n");
-    printf("\n");
-    printf("  Take lines 2-4 from a file:\n");
-    printf("    fiskta --input file.txt skip 1l take 3l\n");
-    printf("\n");
-    printf("  Take from the first STATUS to EOF:\n");
-    printf("    fiskta --input file.txt find \"STATUS\" take to EOF\n");
-    printf("\n");
-    printf("  Take five lines around the first WARN:\n");
-    printf("    fiskta --input logs.txt find:re \"^WARN\" take -2l take 3l\n");
-    printf("\n");
-    printf("  Take until the start of the END section:\n");
-    printf("    fiskta --input config.txt take until \"END\" at line-start\n");
-    printf("\n");
-    printf("  Take from section1 up to section2:\n");
-    printf("    fiskta --input file.txt find section1 label s1 find section2 take to section1\n");
-    printf("\n");
-    printf("  Process stdin:\n");
-    printf("    echo \"Hello\" | fiskta take 5b\n");
-    printf("\n");
     printf("OPERATIONS:\n");
     printf("  take <n><unit>              Extract n units from current position\n");
     printf("  skip <n><unit>              Move cursor n units forward (no output)\n");
@@ -512,14 +490,14 @@ static void print_usage(void)
     printf("                              Search within [min(cursor,L), max(cursor,L)),\n");
     printf("                              default L=EOF; picks match closest to cursor\n");
     printf("  find:re [to <location>] <regex>\n");
-    printf("                              Search using regular expressions within\n");
-    printf("                              [min(cursor,L), max(cursor,L)); supports\n");
-    printf("                              character classes, quantifiers, anchors\n");
+    printf("                              Same as find but with regex pattern support\n");
     printf("  take to <location>          Order-normalized: emits [min(cursor,L), max(cursor,L));\n");
     printf("                              cursor moves to the high end\n");
     printf("  take until <string> [at <location>]\n");
     printf("                              Forward-only: emits [cursor, B) where B is derived\n");
     printf("                              from the match; cursor moves only if B > cursor\n");
+    printf("  take until:re <regex> [at <location>]\n");
+    printf("                              Same as take until but with regex pattern support\n");
     printf("  label <name>                Mark current position with label\n");
     printf("  goto <location>             Jump to labeled position\n");
     printf("  viewset <L1> <L2>           Limit all ops to [min(L1,L2), max(L1,L2))\n");
@@ -573,21 +551,6 @@ static void print_usage(void)
     printf("  On Failure: clause rolls back (no output or label changes).\n");
     printf("  On Success: emits staged output, commits labels, updates cursor and last-match.\n");
     printf("\n");
-    printf("  Evaluation is strictly left-to-right with these rules:\n");
-    printf("    1. THEN always executes the next clause (regardless of previous result)\n");
-    printf("    2. AND creates a chain - if any clause in an AND chain fails, skip\n");
-    printf("       remaining clauses in that chain and continue after it\n");
-    printf("    3. OR short-circuits - if a clause succeeds, skip all remaining OR\n");
-    printf("       alternatives in that chain\n");
-    printf("    4. THEN acts as a \"chain breaker\" - clauses after THEN always run,\n");
-    printf("       even if previous AND chains failed\n");
-    printf("\n");
-    printf("  Examples:\n");
-    printf("    find abc THEN take +3b               # Sequential: always do both\n");
-    printf("    take 10b AND find xyz AND take 5b    # Partial output: gets first 10b even if xyz not found\n");
-    printf("    find abc OR find xyz                 # Alternative: try abc, or try xyz\n");
-    printf("    take 100b THEN skip 1b               # Mixed: skip runs even if take fails\n");
-    printf("\n");
     printf("EXIT CODES:\n");
     printf("  0               Success (at least one clause succeeded)\n");
     printf("  1               I/O error (file not found, permission denied, etc.)\n");
@@ -607,7 +570,81 @@ static void print_usage(void)
     printf("      --idle-timeout <ms>     Stop looping after ms with no input growth\n");
     printf("      --window-policy <p>     Loop window policy: delta | rescan | cursor (default: cursor)\n");
     printf("  -h, --help                  Show this help message\n");
+    printf("      --examples              Show comprehensive usage examples\n");
     printf("  -v, --version               Show version information\n");
+    printf("\n");
+}
+
+static void print_examples(void)
+{
+    printf("fiskta (FInd SKip TAke) Text Extraction Tool v%s\n", FISKTA_VERSION);
+    printf("\n");
+    printf("COMPREHENSIVE EXAMPLES:\n");
+    printf("\n");
+    printf("BASIC EXTRACTION:\n");
+    printf("  # Take first 10 bytes\n");
+    printf("  fiskta --input file.txt take 10b\n");
+    printf("\n");
+    printf("  # Take lines 2-4\n");
+    printf("  fiskta --input file.txt skip 1l take 3l\n");
+    printf("\n");
+    printf("  # Take everything from cursor to end\n");
+    printf("  fiskta --input file.txt take to EOF\n");
+    printf("\n");
+    printf("SEARCH AND EXTRACT:\n");
+    printf("  # Find pattern and take rest of line\n");
+    printf("  fiskta --input logs.txt find \"ERROR:\" take to line-end\n");
+    printf("\n");
+    printf("  # Find with regex and take context\n");
+    printf("  fiskta --input logs.txt find:re \"^WARN\" take -2l take 3l\n");
+    printf("\n");
+    printf("  # Extract between delimiters\n");
+    printf("  fiskta --input config.txt find \"[\" skip 1b take until \"]\"\n");
+    printf("\n");
+    printf("CONDITIONAL EXTRACTION:\n");
+    printf("  # Extract only if pattern found (AND)\n");
+    printf("  fiskta --input auth.log find \"login success\" AND find \"user=\" skip 5b take until \" \"\n");
+    printf("\n");
+    printf("  # Try multiple patterns (OR)\n");
+    printf("  fiskta --input logs.txt find \"ERROR:\" OR find \"WARN:\" AND take to line-end\n");
+    printf("\n");
+    printf("  # Sequential operations (THEN)\n");
+    printf("  fiskta --input data.txt find \"header\" THEN take 5l THEN find \"footer\"\n");
+    printf("\n");
+    printf("  # Partial output with AND (gets first part even if second fails)\n");
+    printf("  fiskta --input data.txt take 10b AND find \"xyz\" AND take 5b\n");
+    printf("\n");
+    printf("  # Chain breaking with THEN (always runs after THEN)\n");
+    printf("  fiskta --input data.txt take 10b AND find \"xyz\" THEN skip 1b\n");
+    printf("\n");
+    printf("  # Complex OR with multiple alternatives\n");
+    printf("  fiskta --input logs.txt find \"ERROR:\" OR find \"WARN:\" OR find \"INFO:\" AND take to line-end\n");
+    printf("\n");
+    printf("ADVANCED PATTERNS:\n");
+    printf("  # Extract from specific section\n");
+    printf("  fiskta --input config.txt find \"[database]\" label START find \"[\" label END viewset START END find \"port\" take to line-end\n");
+    printf("\n");
+    printf("  # Extract all occurrences (loop)\n");
+    printf("  fiskta --input contacts.txt label LOOP find:re \"[A-Za-z0-9._%%+-]+@[A-Za-z0-9.-]+\" take to match-end print \"\\n\" goto LOOP\n");
+    printf("\n");
+    printf("  # Extract with regex until\n");
+    printf("  fiskta --input data.txt take until:re \"\\\\d+\" at match-end\n");
+    printf("\n");
+    printf("STREAMING AND MONITORING:\n");
+    printf("  # Monitor log file for errors (delta mode - only process new data)\n");
+    printf("  fiskta --loop 1000 --window-policy delta --input service.log find \"ERROR\" take to line-end\n");
+    printf("\n");
+    printf("  # Process data in chunks (cursor mode - maintain position across iterations)\n");
+    printf("  fiskta --loop 100 --window-policy cursor --input data.txt take 1000b\n");
+    printf("\n");
+    printf("  # Monitor changing file content (rescan mode - re-scan entire file each time)\n");
+    printf("  fiskta --loop 500 --window-policy rescan --input status.txt find \"READY\"\n");
+    printf("\n");
+    printf("  # Process stdin\n");
+    printf("  echo \"Hello world\" | fiskta find \"world\" take to match-end\n");
+    printf("\n");
+    printf("  # Command stream mode\n");
+    printf("  echo -e 'find \"ERROR\"\\nfind \"WARN\"' | fiskta --commands-stdin --input log.txt\n");
     printf("\n");
 }
 
@@ -635,6 +672,10 @@ int main(int argc, char** argv)
         }
         if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
             print_usage();
+            return 0;
+        }
+        if (strcmp(arg, "--examples") == 0) {
+            print_examples();
             return 0;
         }
         if (strcmp(arg, "-v") == 0 || strcmp(arg, "--version") == 0) {
