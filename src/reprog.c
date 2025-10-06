@@ -200,7 +200,7 @@ static enum Err compile_subpattern(ReB* b, String pat, int len)
     // Single alt: compile linearly and return
     if (nalt == 1) {
         int i = 0;
-        String tmp_bytes = {pat.bytes, len};
+        String tmp_bytes = { pat.bytes, len };
         while (i < len) {
             enum Err e = compile_piece(b, tmp_bytes, &i);
             if (e != E_OK)
@@ -262,7 +262,7 @@ static enum Err compile_subpattern(ReB* b, String pat, int len)
         alt_start_pc[i] = b->nins;
         // compile alt i
         int pi = 0;
-        String frag_bytes = {pat.bytes + lo[i], alen[i]};
+        String frag_bytes = { pat.bytes + lo[i], alen[i] };
         while (pi < alen[i]) {
             e = compile_piece(b, frag_bytes, &pi);
             if (e != E_OK) {
@@ -281,7 +281,7 @@ static enum Err compile_subpattern(ReB* b, String pat, int len)
     // Last alternative (no leading split)
     alt_start_pc[nalt - 1] = b->nins;
     int pi = 0;
-    String last_bytes = {pat.bytes + lo[nalt - 1], alen[nalt - 1]};
+    String last_bytes = { pat.bytes + lo[nalt - 1], alen[nalt - 1] };
     while (pi < alen[nalt - 1]) {
         e = compile_piece(b, last_bytes, &pi);
         if (e != E_OK) {
@@ -508,7 +508,7 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
                 return e;
 
             group_entry = b->nins;
-            String inner_bytes = {pat.bytes + inner_lo, inner_len};
+            String inner_bytes = { pat.bytes + inner_lo, inner_len };
             e = compile_subpattern(b, inner_bytes, inner_len);
             if (e != E_OK)
                 return e;
@@ -525,7 +525,7 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
                 return e;
 
             group_entry = b->nins;
-            String inner_bytes = {pat.bytes + inner_lo, inner_len};
+            String inner_bytes = { pat.bytes + inner_lo, inner_len };
             e = compile_subpattern(b, inner_bytes, inner_len);
             if (e != E_OK)
                 return e;
@@ -543,7 +543,7 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             // ( ... )+ - post-split loop: body, split(start, next)
             // Use the same pattern as single-atom +: atom, then split(atom, next)
             group_entry = b->nins;
-            String inner_bytes = {pat.bytes + inner_lo, inner_len};
+            String inner_bytes = { pat.bytes + inner_lo, inner_len };
             e = compile_subpattern(b, inner_bytes, inner_len);
             if (e != E_OK)
                 return e;
@@ -557,7 +557,7 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             i = j + 2; // past '+'
         } else {
             // No quantifier - just compile the body
-            String inner_bytes = {pat.bytes + inner_lo, inner_len};
+            String inner_bytes = { pat.bytes + inner_lo, inner_len };
             e = compile_subpattern(b, inner_bytes, inner_len);
             if (e != E_OK)
                 return e;

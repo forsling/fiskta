@@ -15,8 +15,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <sys/types.h>
+#include <time.h>
 
 #ifndef FISKTA_VERSION
 #define FISKTA_VERSION "dev"
@@ -39,56 +39,114 @@ static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
     size_t boff = 0;
     i32 ntok = 0;
 
-    enum { S_WS, S_TOKEN, S_SQ, S_DQ } st = S_WS;
+    enum { S_WS,
+        S_TOKEN,
+        S_SQ,
+        S_DQ } st
+        = S_WS;
     const char* p = s;
 
     while (*p) {
         unsigned char c = (unsigned char)*p;
         if (st == S_WS) {
-            if (c == ' ' || c == '\t') { p++; continue; }
-            if (c == '\'') { st = S_SQ; p++; if (boff+1 >= sizeof buf) return -1; out[ntok] = &buf[boff]; continue; }
-            if (c == '"')  { st = S_DQ; p++; if (boff+1 >= sizeof buf) return -1; out[ntok] = &buf[boff]; continue; }
+            if (c == ' ' || c == '\t') {
+                p++;
+                continue;
+            }
+            if (c == '\'') {
+                st = S_SQ;
+                p++;
+                if (boff + 1 >= sizeof buf)
+                    return -1;
+                out[ntok] = &buf[boff];
+                continue;
+            }
+            if (c == '"') {
+                st = S_DQ;
+                p++;
+                if (boff + 1 >= sizeof buf)
+                    return -1;
+                out[ntok] = &buf[boff];
+                continue;
+            }
             // start token
             st = S_TOKEN;
-            if (ntok >= max_tokens) return -1;
+            if (ntok >= max_tokens)
+                return -1;
             out[ntok] = &buf[boff];
             continue;
         } else if (st == S_TOKEN) {
             if (c == ' ' || c == '\t') {
-                buf[boff++] = '\0'; ntok++; st = S_WS; p++; continue;
+                buf[boff++] = '\0';
+                ntok++;
+                st = S_WS;
+                p++;
+                continue;
             }
-            if (c == '\'') { st = S_SQ; p++; continue; }
-            if (c == '"')  { st = S_DQ; p++; continue; }
+            if (c == '\'') {
+                st = S_SQ;
+                p++;
+                continue;
+            }
+            if (c == '"') {
+                st = S_DQ;
+                p++;
+                continue;
+            }
             if (c == '\\' && p[1]) {
                 unsigned char next = (unsigned char)p[1];
                 if (next == ' ' || next == '\t' || next == '\\' || next == '\'' || next == '"') {
-                    if (boff+1 >= sizeof buf) return -1;
-                    buf[boff++] = (char)next; p += 2; continue;
+                    if (boff + 1 >= sizeof buf)
+                        return -1;
+                    buf[boff++] = (char)next;
+                    p += 2;
+                    continue;
                 }
             }
-            if (boff+1 >= sizeof buf) return -1;
-            buf[boff++] = (char)c; p++; continue;
+            if (boff + 1 >= sizeof buf)
+                return -1;
+            buf[boff++] = (char)c;
+            p++;
+            continue;
         } else if (st == S_SQ) { // single quotes: no escapes
-            if (c == '\'') { st = S_TOKEN; p++; continue; }
-            if (boff+1 >= sizeof buf) return -1;
-            buf[boff++] = (char)c; p++; continue;
+            if (c == '\'') {
+                st = S_TOKEN;
+                p++;
+                continue;
+            }
+            if (boff + 1 >= sizeof buf)
+                return -1;
+            buf[boff++] = (char)c;
+            p++;
+            continue;
         } else { // S_DQ
-            if (c == '"') { st = S_TOKEN; p++; continue; }
+            if (c == '"') {
+                st = S_TOKEN;
+                p++;
+                continue;
+            }
             if (c == '\\' && p[1]) {
                 unsigned char esc = (unsigned char)p[1];
                 if (esc == '"' || esc == '\\') {
-                    if (boff+1 >= sizeof buf) return -1;
-                    buf[boff++] = (char)esc; p += 2; continue;
+                    if (boff + 1 >= sizeof buf)
+                        return -1;
+                    buf[boff++] = (char)esc;
+                    p += 2;
+                    continue;
                 }
             }
-            if (boff+1 >= sizeof buf) return -1;
-            buf[boff++] = (char)c; p++; continue;
+            if (boff + 1 >= sizeof buf)
+                return -1;
+            buf[boff++] = (char)c;
+            p++;
+            continue;
         }
     }
 
     if (st == S_TOKEN || st == S_SQ || st == S_DQ) {
         buf[boff++] = '\0';
-        if (ntok < max_tokens) ntok++;
+        if (ntok < max_tokens)
+            ntok++;
     }
     return ntok;
 }
@@ -375,7 +433,7 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
                 // This clause succeeded and links with OR
                 // Skip all remaining clauses in the OR chain
                 while (ci + 1 < prg->clause_count && prg->clauses[ci].link == LINK_OR) {
-                    ci++;  // Skip the OR alternative
+                    ci++; // Skip the OR alternative
                 }
             }
             // For LINK_AND, LINK_THEN, or LINK_NONE: just continue to next clause
@@ -409,11 +467,11 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
     // - -1: No clauses succeeded (return last failed clause index)
     // - -2 - N: AND chain failed at clause (N + 2)
     if (and_chain_failed && !clauses_succeeded_after_and_failure) {
-        return -2 - and_chain_failed_at;  // AND chain failure
+        return -2 - and_chain_failed_at; // AND chain failure
     } else if (ok == 0 && last_failed_clause >= 0) {
-        return -2 - last_failed_clause;  // All clauses failed
+        return -2 - last_failed_clause; // All clauses failed
     } else {
-        return ok;  // Success (at least one clause succeeded)
+        return ok; // Success (at least one clause succeeded)
     }
 }
 
@@ -829,7 +887,7 @@ int main(int argc, char** argv)
         e = parse_preflight(token_count, tokens, input_path, &plan, &path);
         if (e != E_OK) {
             print_err(e, "parse preflight");
-            return 2;  // Exit code 2: Parse error
+            return 2; // Exit code 2: Parse error
         }
     } else {
         path = input_path;
@@ -877,25 +935,15 @@ int main(int argc, char** argv)
     size_t labels_bytes = (plan.sum_label_ops > 0) ? align_or_die((size_t)plan.sum_label_ops * sizeof(LabelWrite), alignof(LabelWrite)) : 0;
 
     size_t total = search_buf_size;
-    if (add_ovf(total, clauses_size, &total) ||
-        add_ovf(total, ops_size, &total) ||
-        add_ovf(total, re_prog_size, &total) ||
-        add_ovf(total, re_ins_size, &total) ||
-        add_ovf(total, re_cls_size, &total) ||
-        add_ovf(total, str_pool_size, &total) ||
-        add_ovf(total, re_thrbufs_size, &total) ||
-        add_ovf(total, re_seen_size, &total) ||
-        add_ovf(total, ranges_bytes, &total) ||
-        add_ovf(total, labels_bytes, &total) ||
-        add_ovf(total, 64, &total)) { // 3 small cushion
+    if (add_ovf(total, clauses_size, &total) || add_ovf(total, ops_size, &total) || add_ovf(total, re_prog_size, &total) || add_ovf(total, re_ins_size, &total) || add_ovf(total, re_cls_size, &total) || add_ovf(total, str_pool_size, &total) || add_ovf(total, re_thrbufs_size, &total) || add_ovf(total, re_seen_size, &total) || add_ovf(total, ranges_bytes, &total) || add_ovf(total, labels_bytes, &total) || add_ovf(total, 64, &total)) { // 3 small cushion
         print_err(E_OOM, "arena size overflow");
-        return 4;  // Exit code 4: Resource limit
+        return 4; // Exit code 4: Resource limit
     }
 
     void* block = malloc(total);
     if (!block) {
         print_err(E_OOM, "arena alloc");
-        return 4;  // Exit code 4: Resource limit
+        return 4; // Exit code 4: Resource limit
     }
     Arena A;
     arena_init(&A, block, total);
@@ -922,7 +970,7 @@ int main(int argc, char** argv)
         || (plan.sum_label_ops > 0 && !clause_labels)) {
         print_err(E_OOM, "arena carve");
         free(block);
-        return 4;  // Exit code 4: Resource limit
+        return 4; // Exit code 4: Resource limit
     }
 
     // 5) Prepare program storage; parse immediately for one-shot mode
@@ -933,7 +981,7 @@ int main(int argc, char** argv)
         if (e != E_OK) {
             print_err(e, "parse build");
             free(block);
-            return 2;  // Exit code 2: Parse error
+            return 2; // Exit code 2: Parse error
         }
 
         // Compile regex programs once
@@ -952,12 +1000,12 @@ int main(int argc, char** argv)
                         if (err == E_PARSE || err == E_BAD_NEEDLE) {
                             print_err(err, "regex compile");
                             free(block);
-                            return 3;  // Exit code 3: Regex error
+                            return 3; // Exit code 3: Regex error
                         } else {
                             // Resource error (E_OOM)
                             print_err(err, "regex compile");
                             free(block);
-                            return 4;  // Exit code 4: Resource limit
+                            return 4; // Exit code 4: Resource limit
                         }
                     }
                     op->u.findr.prog = prog;
@@ -972,7 +1020,7 @@ int main(int argc, char** argv)
     if (e != E_OK) {
         free(block);
         print_err(e, "I/O open");
-        return 1;  // Exit code 1: I/O error
+        return 1; // Exit code 1: I/O error
     }
 
     io_set_regex_scratch(&io, re_curr_thr, re_next_thr, re_threads_cap,
@@ -1069,7 +1117,7 @@ int main(int argc, char** argv)
                 break; // EOF, normal exit
             if (len == -2) {
                 fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", CMD_STREAM_BUF_CAP);
-                exit_code = 4;  // Exit code 4: Resource limit
+                exit_code = 4; // Exit code 4: Resource limit
                 goto cleanup;
             }
             if (len == 0) {
@@ -1091,15 +1139,7 @@ int main(int argc, char** argv)
                 continue;
             }
 
-            if (line_plan.total_ops > CMD_STREAM_MAX_OPS ||
-                line_plan.clause_count > CMD_STREAM_MAX_CLAUSES ||
-                line_plan.needle_bytes > CMD_STREAM_MAX_NEEDLE_BYTES ||
-                line_plan.sum_take_ops > CMD_STREAM_MAX_TAKE ||
-                line_plan.sum_label_ops > CMD_STREAM_MAX_LABEL ||
-                line_plan.sum_findr_ops > CMD_STREAM_MAX_FINDR ||
-                line_plan.re_ins_estimate > CMD_STREAM_MAX_RE_INS_TOTAL ||
-                line_plan.re_ins_estimate_max > CMD_STREAM_MAX_RE_INS_SINGLE ||
-                line_plan.re_classes_estimate > CMD_STREAM_MAX_RE_CLASSES) {
+            if (line_plan.total_ops > CMD_STREAM_MAX_OPS || line_plan.clause_count > CMD_STREAM_MAX_CLAUSES || line_plan.needle_bytes > CMD_STREAM_MAX_NEEDLE_BYTES || line_plan.sum_take_ops > CMD_STREAM_MAX_TAKE || line_plan.sum_label_ops > CMD_STREAM_MAX_LABEL || line_plan.sum_findr_ops > CMD_STREAM_MAX_FINDR || line_plan.re_ins_estimate > CMD_STREAM_MAX_RE_INS_TOTAL || line_plan.re_ins_estimate_max > CMD_STREAM_MAX_RE_INS_SINGLE || line_plan.re_classes_estimate > CMD_STREAM_MAX_RE_CLASSES) {
                 fprintf(stderr, "fiskta: command stream exceeds built-in limits\n");
                 continue;
             }

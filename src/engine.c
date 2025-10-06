@@ -6,12 +6,12 @@
 #include "fiskta.h"
 #include "iosearch.h"
 #include "util.h"
-#include <limits.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 #include <sys/types.h>
+#include <time.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -48,9 +48,12 @@ static inline void apply_byte_saturation(i64* base, i64 delta, const View* v, co
 }
 
 // Helper for overflow-safe size arithmetic
-static int add_ovf(size_t a, size_t b, size_t* out) {
-    if (SIZE_MAX - a < b) return 1;
-    *out = a + b; return 0;
+static int add_ovf(size_t a, size_t b, size_t* out)
+{
+    if (SIZE_MAX - a < b)
+        return 1;
+    *out = a + b;
+    return 0;
 }
 
 static void sleep_msec(i32 msec)
@@ -90,7 +93,6 @@ void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap)
     *out_ranges_cap = rc > 0 ? rc : 1; // avoid zero-length arrays
     *out_labels_cap = lc > 0 ? lc : 1;
 }
-
 
 static enum Err execute_op(const Op* op, File* io, VM* vm,
     i64* c_cursor, Match* c_last_match,

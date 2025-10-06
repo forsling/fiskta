@@ -11,7 +11,10 @@ typedef uint64_t u64;
 typedef int32_t i32;
 typedef uint32_t u32;
 
-typedef struct { const char* bytes; i32 len; } String;
+typedef struct {
+    const char* bytes;
+    i32 len;
+} String;
 
 // Unit type: bytes, lines, chars
 typedef uint8_t Unit;
@@ -52,7 +55,7 @@ enum {
 typedef uint8_t LocRef;
 enum {
     REF_CURSOR, // resolve relative to staged cursor
-    REF_MATCH   // resolve relative to last match (used by 'at' expressions)
+    REF_MATCH // resolve relative to last match (used by 'at' expressions)
 };
 
 enum Err {
@@ -68,7 +71,7 @@ enum Err {
 
 typedef struct {
     i64 offset;
-    i32 name_idx;     // index into program->names[], -1 otherwise
+    i32 name_idx; // index into program->names[], -1 otherwise
     LocBase base;
     Unit unit;
 } LocExpr;
@@ -80,10 +83,10 @@ typedef struct {
     bool active;
 } View;
 
-typedef enum { 
+typedef enum {
     CLAMP_NONE,
     CLAMP_FILE,
-    CLAMP_VIEW 
+    CLAMP_VIEW
 } ClampPolicy;
 
 typedef struct {
@@ -137,10 +140,10 @@ typedef struct {
 
 // How clauses are linked together
 typedef enum {
-    LINK_NONE,    // No link (last clause)
-    LINK_THEN,    // Sequential
-    LINK_AND,     // Both must succeed
-    LINK_OR       // First success wins
+    LINK_NONE, // No link (last clause)
+    LINK_THEN, // Sequential
+    LINK_AND, // Both must succeed
+    LINK_OR // First success wins
 } ClauseLink;
 
 typedef struct {
@@ -170,14 +173,15 @@ typedef struct {
 } VM;
 
 // Staged capture range or literal string
-typedef enum { RANGE_FILE, RANGE_LIT } RangeKind;
+typedef enum { RANGE_FILE,
+    RANGE_LIT } RangeKind;
 typedef struct {
     RangeKind kind;
     union {
         struct {
-            i64 start, end;   // used when kind == RANGE_FILE
+            i64 start, end; // used when kind == RANGE_FILE
         } file;
-        String lit;           // used when kind == RANGE_LIT
+        String lit; // used when kind == RANGE_LIT
     };
 } Range;
 
@@ -196,12 +200,12 @@ typedef struct {
 
 // Staged execution result
 typedef struct {
-    VM staged_vm;             // Staged VM state (cursor, last_match, view)
-    Range* ranges;            // Staged output ranges
-    i32 range_count;          // Number of staged ranges
+    VM staged_vm; // Staged VM state (cursor, last_match, view)
+    Range* ranges; // Staged output ranges
+    i32 range_count; // Number of staged ranges
     LabelWrite* label_writes; // Staged label writes
-    i32 label_count;          // Number of staged labels
-    enum Err err;             // Execution result
+    i32 label_count; // Number of staged labels
+    enum Err err; // Execution result
 } StagedResult;
 
 void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap);

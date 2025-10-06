@@ -35,7 +35,6 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
     Clause* clauses_buf, Op* ops_buf,
     char* str_pool, size_t str_pool_cap);
 
-
 enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out)
 {
     memset(plan, 0, sizeof(*plan));
@@ -50,9 +49,7 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
     // Count clauses (number of separators + 1)
     plan->clause_count = 1;
     for (i32 i = 0; i < token_count; i++) {
-        if (strcmp(tokens[i], "THEN") == 0 || 
-            strcmp(tokens[i], "AND") == 0 || 
-            strcmp(tokens[i], "OR") == 0) {
+        if (strcmp(tokens[i], "THEN") == 0 || strcmp(tokens[i], "AND") == 0 || strcmp(tokens[i], "OR") == 0) {
             plan->clause_count++;
         }
     }
@@ -61,8 +58,7 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
     i32 idx = 0;
     while (idx < token_count) {
         // Count ops in this clause
-        while (idx < token_count && strcmp(tokens[idx], "THEN") != 0 && 
-               strcmp(tokens[idx], "AND") != 0 && strcmp(tokens[idx], "OR") != 0) {
+        while (idx < token_count && strcmp(tokens[idx], "THEN") != 0 && strcmp(tokens[idx], "AND") != 0 && strcmp(tokens[idx], "OR") != 0) {
             const char* cmd = tokens[idx];
             plan->total_ops++;
 
@@ -211,9 +207,7 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
         }
 
         if (idx < token_count) {
-            if (strcmp(tokens[idx], "THEN") == 0 || 
-                strcmp(tokens[idx], "AND") == 0 || 
-                strcmp(tokens[idx], "OR") == 0) {
+            if (strcmp(tokens[idx], "THEN") == 0 || strcmp(tokens[idx], "AND") == 0 || strcmp(tokens[idx], "OR") == 0) {
                 idx++;
             }
         }
@@ -256,8 +250,7 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
         // Count ops in this clause first
         i32 clause_start = idx;
         i32 clause_op_count = 0;
-        while (idx < token_count && strcmp(tokens[idx], "THEN") != 0 && 
-               strcmp(tokens[idx], "AND") != 0 && strcmp(tokens[idx], "OR") != 0) {
+        while (idx < token_count && strcmp(tokens[idx], "THEN") != 0 && strcmp(tokens[idx], "AND") != 0 && strcmp(tokens[idx], "OR") != 0) {
             const char* cmd = tokens[idx];
             clause_op_count++;
             idx++;
@@ -337,8 +330,7 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
 
         // 3 Reset idx to clause start and parse for real
         idx = clause_start;
-        while (idx < token_count && strcmp(tokens[idx], "THEN") != 0 && 
-               strcmp(tokens[idx], "AND") != 0 && strcmp(tokens[idx], "OR") != 0) {
+        while (idx < token_count && strcmp(tokens[idx], "THEN") != 0 && strcmp(tokens[idx], "AND") != 0 && strcmp(tokens[idx], "OR") != 0) {
             Op* op = &clause->ops[clause->op_count];
             enum Err err = parse_op_build(tokens, &idx, token_count, op, prg, str_pool, &str_pool_off, str_pool_cap);
             if (err != E_OK) {
@@ -702,7 +694,7 @@ static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, Lo
     } else {
         return E_PARSE;
     }
-    
+
     // AtExpr never uses named labels, so set name_idx to -1
     at->name_idx = -1;
 
@@ -915,7 +907,7 @@ static enum Err parse_string_to_bytes(const char* str, String* out_string, char*
     // Process escape sequences and calculate final length
     size_t src_len = strlen(str);
     size_t dst_len = 0;
-    
+
     // First pass: calculate the final length after processing escapes
     for (size_t i = 0; i < src_len; i++) {
         if (str[i] == '\\' && i + 1 < src_len) {
@@ -942,15 +934,15 @@ static enum Err parse_string_to_bytes(const char* str, String* out_string, char*
         }
         dst_len++;
     }
-    
+
     // Check if we have space in the string pool
     if (*str_pool_off + dst_len > str_pool_cap)
         return E_OOM;
-    
+
     // Second pass: process escapes and copy to pool
     char* dst = str_pool + *str_pool_off;
     size_t dst_pos = 0;
-    
+
     for (size_t i = 0; i < src_len; i++) {
         if (str[i] == '\\' && i + 1 < src_len) {
             char esc = str[i + 1];
@@ -996,12 +988,12 @@ static enum Err parse_string_to_bytes(const char* str, String* out_string, char*
         }
         dst[dst_pos++] = str[i];
     }
-    
+
     *str_pool_off += dst_len;
-    
+
     // Return String struct
     out_string->bytes = dst;
     out_string->len = (i32)dst_len;
-    
+
     return E_OK;
 }
