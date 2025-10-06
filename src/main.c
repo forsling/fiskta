@@ -854,8 +854,8 @@ int main(int argc, char** argv)
     const size_t re_ins_bytes = (size_t)plan.re_ins_estimate * sizeof(ReInst);
     const size_t re_cls_bytes = (size_t)plan.re_classes_estimate * sizeof(ReClass);
 
-    // Choose per-run thread capacity as ~4x max nins (like old logic), min 32.
-    int re_threads_cap = plan.re_ins_estimate_max > 0 ? 4 * plan.re_ins_estimate_max : 32;
+    // Choose per-run thread capacity as ~2x max nins, min 32.
+    int re_threads_cap = plan.re_ins_estimate_max > 0 ? 2 * plan.re_ins_estimate_max : 32;
     if (re_threads_cap < 32)
         re_threads_cap = 32;
     const size_t re_threads_bytes = (size_t)re_threads_cap * sizeof(ReThread);

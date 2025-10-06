@@ -137,7 +137,7 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
             }
         }
     }
-    int re_threads_cap = max_nins > 0 ? 4 * max_nins : 32;
+    int re_threads_cap = max_nins > 0 ? 2 * max_nins : 32;
     if (re_threads_cap < 32)
         re_threads_cap = 32;
     const size_t re_thr_bytes = (size_t)re_threads_cap * sizeof(ReThread);
@@ -315,7 +315,7 @@ enum Err execute_clause_with_scratch(const Clause* clause,
     StagedResult result;
     enum Err err = execute_clause_stage_only(clause, io_ptr, vm,
         ranges, ranges_cap, label_writes, label_cap, &result);
-    
+
     if (err == E_OK) {
         // Commit staged ranges to output
         for (i32 i = 0; i < result.range_count; i++) {
