@@ -39,114 +39,69 @@ static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
     size_t boff = 0;
     i32 ntok = 0;
 
-    enum { S_WS,
-        S_TOKEN,
-        S_SQ,
-        S_DQ } st
-        = S_WS;
+    enum { S_WS, S_TOKEN, S_SQ, S_DQ } st = S_WS;
     const char* p = s;
 
     while (*p) {
         unsigned char c = (unsigned char)*p;
         if (st == S_WS) {
-            if (c == ' ' || c == '\t') {
-                p++;
-                continue;
-            }
-            if (c == '\'') {
-                st = S_SQ;
-                p++;
-                if (boff + 1 >= sizeof buf)
-                    return -1;
+            if (c == ' ' || c == '\t') { p++; continue; }
+            if (c == '\'' || c == '"') {
+                if (ntok >= max_tokens) return -1;            // NEW
+                if (boff >= sizeof buf) return -1;            // NEW
                 out[ntok] = &buf[boff];
-                continue;
-            }
-            if (c == '"') {
-                st = S_DQ;
+                st = (c == '\'') ? S_SQ : S_DQ;
                 p++;
-                if (boff + 1 >= sizeof buf)
-                    return -1;
-                out[ntok] = &buf[boff];
                 continue;
             }
-            // start token
-            st = S_TOKEN;
-            if (ntok >= max_tokens)
-                return -1;
+            // start token, reprocess this char in S_TOKEN
+            if (ntok >= max_tokens) return -1;                // NEW
+            if (boff >= sizeof buf) return -1;                // NEW
             out[ntok] = &buf[boff];
+            st = S_TOKEN;
             continue;
         } else if (st == S_TOKEN) {
             if (c == ' ' || c == '\t') {
+                if (boff >= sizeof buf) return -1;            // NUL safety
                 buf[boff++] = '\0';
                 ntok++;
-                st = S_WS;
-                p++;
-                continue;
+                st = S_WS; p++; continue;
             }
-            if (c == '\'') {
-                st = S_SQ;
-                p++;
-                continue;
-            }
-            if (c == '"') {
-                st = S_DQ;
-                p++;
-                continue;
-            }
+            if (c == '\'') { st = S_SQ; p++; continue; }
+            if (c == '"')  { st = S_DQ; p++; continue; }
             if (c == '\\' && p[1]) {
                 unsigned char next = (unsigned char)p[1];
                 if (next == ' ' || next == '\t' || next == '\\' || next == '\'' || next == '"') {
-                    if (boff + 1 >= sizeof buf)
-                        return -1;
+                    if (boff >= sizeof buf) return -1;
                     buf[boff++] = (char)next;
-                    p += 2;
-                    continue;
+                    p += 2; continue;
                 }
             }
-            if (boff + 1 >= sizeof buf)
-                return -1;
-            buf[boff++] = (char)c;
-            p++;
-            continue;
-        } else if (st == S_SQ) { // single quotes: no escapes
-            if (c == '\'') {
-                st = S_TOKEN;
-                p++;
-                continue;
-            }
-            if (boff + 1 >= sizeof buf)
-                return -1;
-            buf[boff++] = (char)c;
-            p++;
-            continue;
+            if (boff >= sizeof buf) return -1;
+            buf[boff++] = (char)c; p++; continue;
+        } else if (st == S_SQ) {
+            if (c == '\'') { st = S_TOKEN; p++; continue; }
+            if (boff >= sizeof buf) return -1;
+            buf[boff++] = (char)c; p++; continue;
         } else { // S_DQ
-            if (c == '"') {
-                st = S_TOKEN;
-                p++;
-                continue;
-            }
+            if (c == '"') { st = S_TOKEN; p++; continue; }
             if (c == '\\' && p[1]) {
                 unsigned char esc = (unsigned char)p[1];
                 if (esc == '"' || esc == '\\') {
-                    if (boff + 1 >= sizeof buf)
-                        return -1;
-                    buf[boff++] = (char)esc;
-                    p += 2;
-                    continue;
+                    if (boff >= sizeof buf) return -1;
+                    buf[boff++] = (char)esc; p += 2; continue;
                 }
             }
-            if (boff + 1 >= sizeof buf)
-                return -1;
-            buf[boff++] = (char)c;
-            p++;
-            continue;
+            if (boff >= sizeof buf) return -1;
+            buf[boff++] = (char)c; p++; continue;
         }
     }
 
     if (st == S_TOKEN || st == S_SQ || st == S_DQ) {
+        if (boff >= sizeof buf) return -1;                    // NEW
         buf[boff++] = '\0';
-        if (ntok < max_tokens)
-            ntok++;
+        if (ntok < max_tokens) ntok++;
+        else return -1;                                       // NEW
     }
     return ntok;
 }
@@ -180,7 +135,7 @@ static const char* err_str(enum Err e)
     case E_NO_MATCH:
         return "no match in window";
     case E_LABEL_FMT:
-        return "bad label (A-Z, _ or -, <16)";
+        return "bad label (A-Z0-9_-; first A-Z; <16)";
     case E_IO:
         return "I/O error";
     case E_OOM:
@@ -261,20 +216,19 @@ static uint64_t now_millis(void)
 #endif
 }
 
+#include <sys/stat.h>
+
 static void refresh_file_size(File* io)
 {
-    if (!io || !io->f)
-        return;
-    if (fseeko(io->f, 0, SEEK_END) == 0) {
-        off_t pos = ftello(io->f);
-        if (pos >= 0)
-            io->size = (i64)pos;
-        if (fseeko(io->f, 0, SEEK_SET) != 0) {
-            clearerr(io->f);
-        }
-    } else {
-        clearerr(io->f);
+    if (!io || !io->f) return;
+
+    int fd = fileno(io->f);
+    struct stat st;
+    if (fd >= 0 && fstat(fd, &st) == 0 && S_ISREG(st.st_mode)) {
+        // regular file: we can ask for size without disturbing FILE* position
+        io->size = (i64)st.st_size;
     }
+    // else: leave io->size as-is (your iosearch layer should track growth)
 }
 
 static int parse_nonneg_option(const char* value, const char* opt_name, int* out)
@@ -1060,8 +1014,8 @@ int main(int argc, char** argv)
             exit_code = 1;
             goto cleanup;
         } else {
-            // ok is (-2 - clause_index), extract the clause index
             i32 failed_clause = (-ok) - 2;
+            fprintf(stderr, "fiskta: clause %d failed (%s)\n", failed_clause, err_str(last_err));
             exit_code = 10 + failed_clause;
             goto cleanup;
         }
