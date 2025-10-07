@@ -414,10 +414,12 @@ static void print_usage(void)
     printf("                              Same as find but with regex pattern support\n");
     printf("  take to <location>          Order-normalized: emits [min(cursor,L), max(cursor,L));\n");
     printf("                              cursor moves to the high end\n");
-    printf("  take until <string> [at <location>]\n");
+    printf("  take until <string> [at match-start|match-end|line-start|line-end]\n");
     printf("                              Forward-only: emits [cursor, B) where B is derived\n");
     printf("                              from the match; cursor moves only if B > cursor\n");
-    printf("  take until:re <regex> [at <location>]\n");
+    printf("                              Default: at match-start (exclude pattern)\n");
+    printf("                              line-start/line-end are relative to the match\n");
+    printf("  take until:re <regex> [at match-start|match-end|line-start|line-end]\n");
     printf("                              Same as take until but with regex pattern support\n");
     printf("  box <right_offset> <down_offset>\n");
     printf("                              Extract rectangular section from cursor position\n");

@@ -2,15 +2,9 @@
 
 **fiskta** (FInd SKip TAke) is a cursor-oriented data extraction tool. Unlike traditional text tools that match patterns on lines, fiskta lets you navigate through files with explicit position and movement commands—find a pattern, skip ahead, take some bytes. You think in terms of "where am I?" and "what do I do from here?" rather than "what pattern matches this line?"
 
-This makes it easier to extract text between delimiters, navigate multi-line structures, and build complex conditional extractions step by step. No cryptic syntax, just straightforward imperative operations.
+It may be a good fit when grep is insufficient but you don't want to deal with something like awk: Extract text between delimiters, navigate multi-line structures, and build complex conditional extractions step by step. No cryptic syntax, just relatively straightforward imperative operations.
 
-fiskta sits between grep (pattern matching) and awk (field processing). Use it when grep is too simple but you don't need awk's transformation capabilities—you just need to navigate and extract.
-
-## Features
-
-* **Zero dependencies** - except for libc
-* **Lightweight** - Stripped binary < 100 KiB
-* **Streaming support** - Monitor files and process new data as it arrives
+fiskta has no external dependencies. Linux binaries are < 100KB when dynamically linked or when statically linked with musl. Memory use does not depend on input, only on fiskta operations (regex requires more memory), but should not be more than a few megabytes at worst.
 
 ## What does it do?
 
@@ -31,18 +25,6 @@ Find a pattern and take the rest of the line:
 $ echo 'ERROR: connection failed' | fiskta find "ERROR:" take to line-end
 ERROR: connection failed
 ```
-
-Extract multiple fields, getting partial results even if later steps fail:
-```bash
-$ echo 'user:alice age:unknown' | fiskta find "user:" skip 5b take until " " AND find "age:" skip 4b take until " "
-alice
-# Gets alice even though age parsing fails
-# Without AND: find "user:" skip 5b take until " " find "age:" skip 4b take until " "
-# Would output nothing (atomic rollback)
-# With THEN: find "user:" skip 5b take until " " THEN find "age:" skip 4b take until " "
-# Would output "alice unknown" (both clauses run)
-```
-
 Try multiple patterns—first match wins:
 ```bash
 $ echo 'WARNING: disk full' | fiskta find "ERROR:" OR find "WARNING:" AND take to line-end
@@ -62,8 +44,8 @@ content here
 - `take <n><unit>` - Extract n units from current position
 - `skip <n><unit>` - Move cursor n units forward (no output)
 - `take to <location>` - Order-normalized: emits `[min(cursor,L), max(cursor,L))`; cursor moves to the high end
-- `take until <string> [at <location>]` - Forward-only: emits `[cursor, B)` where B is derived from the match; cursor moves only if B > cursor
-- `take until:re <regex> [at <location>]` - Same as `take until` but with regex pattern support
+- `take until <string> [at match-start|match-end|line-start|line-end]` - Forward-only: emits `[cursor, B)` where B is derived from the match; cursor moves only if B > cursor. Default: `at match-start` (exclude pattern). `line-start`/`line-end` are relative to the match.
+- `take until:re <regex> [at match-start|match-end|line-start|line-end]` - Same as `take until` but with regex pattern support
 
 **Searching:**
 - `find [to <location>] <string>` - Search within `[min(cursor,L), max(cursor,L))`, default L=EOF; picks match closest to cursor
@@ -208,13 +190,6 @@ make debug        # Build with debug symbols
 make test         # Run test suite (requires Python 3)
 ```
 
-**Requirements:**
-- C11 compiler
-- libc
-- Python 3 (for running tests)
-
-**Platforms:** Tested on Linux, compatibility with other platforms unknown.
-
 ## Command Reference
 
 ### Finding
@@ -279,15 +254,17 @@ take to MYLABEL          # from cursor to labeled position
 take to cursor+100b      # 100 bytes from cursor
 ```
 
-#### `take until <pattern> [at <location>]`
+#### `take until <pattern> [at match-start|match-end|line-start|line-end]`
 
 Forward-only search. Extracts from cursor until pattern is found. Cursor moves only if match is past current position.
 
 The `at` clause controls where extraction ends relative to the match:
 - Default: `at match-start` (exclude the pattern)
 - `at match-end` (include the pattern)
-- `at line-start` (up to start of line containing match)
-- `at line-end` (up to end of line containing match)
+- `at line-start` (extract until start of line containing match)
+- `at line-end` (extract until end of line containing match)
+
+**Note**: `line-start` and `line-end` are relative to the match, not the cursor.
 
 ```bash
 take until ";"                    # extract until semicolon (excluded)
@@ -296,7 +273,7 @@ take until "\n\n"                 # extract until blank line
 take until "---" at line-start    # extract until line with ---
 ```
 
-#### `take until:re <regex> [at <location>]`
+#### `take until:re <regex> [at match-start|match-end|line-start|line-end]`
 
 Forward-only search using regular expressions. Extracts from cursor until regex pattern is found. Same behavior and `at` clause options as `take until`.
 
@@ -313,8 +290,8 @@ Extract a rectangular section from the cursor position. Creates a box of specifi
 
 - `right_offset`: bytes to the right (negative = left)
 - `down_offset`: lines down (negative = up)
-- Clamps to file bounds without failing
-- Always adds newlines after each line segment
+- Does not fail when going out of bounds.
+- Always adds newlines (lf) after each line segment
 
 ```bash
 box 0 0                    # extract single byte at cursor + newline
@@ -444,7 +421,6 @@ Control what data is processed on each iteration with `--window-policy`:
 **`rescan`** - Re-scan entire file each iteration:
 - Useful when file content changes (not just grows)
 - Processes entire file every time
-- Higher CPU usage
 
 ### Idle Timeout
 
