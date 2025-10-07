@@ -1727,6 +1727,10 @@ def tests():
              tokens=["box","10","0"], input_file="-", stdin=b"hello",
              expect=dict(stdout="hello\n", exit=0)),
 
+        dict(id="box-010b-beyond-line-bounds-with-newlines",
+             tokens=["box","10","2"], input_file="-", stdin=b"abc\ndef\nghi\n",
+             expect=dict(stdout="abc\ndef\nghi\n", exit=0)),
+
         dict(id="box-011-beyond-file-bounds",
              tokens=["box","2","5"], input_file="-", stdin=b"hello\nworld",
              expect=dict(stdout="hel\nwor\n", exit=0)),

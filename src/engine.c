@@ -791,13 +791,37 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
                 last_output_pos = line_right;
             }
 
-            // Add newline after each line segment
-            if (*range_count >= *range_cap)
-                return E_OOM;
-            Range* nl = &(*ranges)[(*range_count)++];
-            nl->kind = RANGE_LIT;
-            nl->lit.bytes = "\n";
-            nl->lit.len = 1;
+            // Add newline only if we didn't already capture the line's natural newline
+            // line_end points to position after the newline (or EOF if no newline)
+            // To know if we captured a newline: check if our range reached line_end AND
+            // line_end was determined by finding a \n (not just hitting EOF)
+            // We can distinguish: if line_end < io_size, definitely found \n
+            // If line_end == io_size, need to check if there's content and if it ends with \n
+            bool captured_newline = false;
+            if (line_right == line_end && line_right > line_left) {
+                // We captured up to line_end with non-empty content
+                if (line_end < io_size(io)) {
+                    // line_end is before EOF, so io_line_end found a \n
+                    captured_newline = true;
+                } else if (line_end == io_size(io) && line_end > current_line) {
+                    // At EOF - need to check if last char is \n
+                    // Read the byte at line_end - 1
+                    if (fseeko(io->f, line_end - 1, SEEK_SET) == 0) {
+                        int c = fgetc(io->f);
+                        if (c == '\n') {
+                            captured_newline = true;
+                        }
+                    }
+                }
+            }
+            if (!captured_newline) {
+                if (*range_count >= *range_cap)
+                    return E_OOM;
+                Range* nl = &(*ranges)[(*range_count)++];
+                nl->kind = RANGE_LIT;
+                nl->lit.bytes = "\n";
+                nl->lit.len = 1;
+            }
 
             // Move to next line
             if (line_idx < lines_to_process - 1) {

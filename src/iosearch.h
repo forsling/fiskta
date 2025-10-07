@@ -75,6 +75,11 @@ static inline void io_set_regex_scratch(File* io,
 
 static inline i64 io_size(const File* io) { return io->size; }
 
+// Line navigation functions
+// IMPORTANT: Both functions return positions AFTER newlines:
+// - io_line_start: returns position after the previous '\n' (or 0 if no previous '\n')
+// - io_line_end: returns position after the next '\n' (or EOF if no next '\n')
+// This means: line content with newline = [line_start, line_end)
 enum Err io_line_start(File* io, i64 pos, i64* out);
 enum Err io_line_end(File* io, i64 pos, i64* out);
 enum Err io_step_lines_from(File* io, i64 start_line_start, i32 delta, i64* out_line_start);
