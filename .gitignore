@@ -47,4 +47,5 @@ gmon.out
 
 ignore/
 tests/fixtures/
+tests/__pycache__/
 bench/
