@@ -1017,13 +1017,31 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
         }
 
         if (match_found) {
-            if (dir == DIR_FWD) {
-                *ms = min_start;
-                *me = pos + 1;
-                return E_OK;
-            } else {
+            // For greedy matching, record the match but continue as long as there are active threads from min_start
+            // Only update best match if it's from the current min_start
+            if (!have_min || min_start <= best_ms || best_ms < 0) {
                 best_ms = min_start;
                 best_me = pos + 1;
+            }
+            if (dir == DIR_FWD) {
+                // Remove MATCH threads and threads not from min_start
+                int write_idx = 0;
+                for (int i = 0; i < next.n; i++) {
+                    int pc = next.v[i].pc;
+                    i64 st = next.v[i].start;
+                    // Keep only non-MATCH threads from min_start
+                    if (st == min_start && (pc < 0 || pc >= re->nins || re->ins[pc].op != RI_MATCH)) {
+                        next.v[write_idx++] = next.v[i];
+                    }
+                }
+                next.n = write_idx;
+                // If no more threads from min_start, return the best match
+                if (next.n == 0) {
+                    *ms = best_ms;
+                    *me = best_me;
+                    return E_OK;
+                }
+            } else {
                 curr.n = 0;
                 have_min = 0; // reset for later leftmost starts
             }
@@ -1042,7 +1060,7 @@ enum Err io_findr_window(File* io, i64 win_lo, i64 win_hi,
         pos++;
     }
 
-    if (dir == DIR_BWD && best_ms >= 0) {
+    if (best_ms >= 0) {
         *ms = best_ms;
         *me = best_me;
         return E_OK;
