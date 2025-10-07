@@ -411,11 +411,11 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             ReClass c;
             for (int v = 0; v < 256; ++v)
                 cls_set(&c, (unsigned char)v);
-            ReClass w;
-            cls_clear(&w);
-            cls_set_ws(&w);
+            ReClass ws;
+            cls_clear(&ws);
+            cls_set_ws(&ws);
             for (int b2 = 0; b2 < 32; ++b2)
-                c.bits[b2] &= (unsigned char)~w.bits[b2];
+                c.bits[b2] &= (unsigned char)~ws.bits[b2];
             enum Err e = new_class(b, &c, &cls_idx);
             if (e != E_OK)
                 return e;
