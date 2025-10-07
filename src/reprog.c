@@ -3,6 +3,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+/****************************
+ * CHARACTER CLASS UTILITIES
+ ****************************/
+
 static inline void cls_clear(ReClass* c) { memset(c->bits, 0, sizeof c->bits); }
 static inline void cls_set(ReClass* c, unsigned char ch) { c->bits[ch >> 3] |= (unsigned char)(1u << (ch & 7)); }
 static inline void cls_set_range(ReClass* c, unsigned char a, unsigned char b)
@@ -36,6 +40,10 @@ static inline void cls_set_word(ReClass* c)
     cls_set(c, '_');
 }
 
+/**********************
+ * INSTRUCTION BUILDER
+ **********************/
+
 typedef struct {
     ReProg* out;
     ReInst* ins;
@@ -67,6 +75,10 @@ static enum Err new_class(ReB* b, const ReClass* src, int* idx_out)
     *idx_out = b->ncls++;
     return E_OK;
 }
+
+/*************************
+ * CHARACTER CLASS PARSER
+ *************************/
 
 // Parse a character class: pattern points at first char AFTER '['; returns index AFTER ']'
 static enum Err parse_class(ReB* b, String pat, int* i_inout, int* out_cls_idx)
@@ -174,6 +186,10 @@ static enum Err parse_class(ReB* b, String pat, int* i_inout, int* out_cls_idx)
     *out_cls_idx = cls_idx;
     return E_OK;
 }
+
+/**********************
+ * PATTERN COMPILATION
+ **********************/
 
 static enum Err compile_piece(ReB* b, String pat, int* i_inout);
 
@@ -814,6 +830,10 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
     *i_inout = i;
     return E_OK;
 }
+
+/*************
+ * PUBLIC API
+ *************/
 
 enum Err re_compile_into(String pattern,
     ReProg* out,

@@ -565,6 +565,9 @@ int main(int argc, char** argv)
     _setmode(_fileno(stdout), _O_BINARY);
 #endif
 
+    /***********************
+     * CLI ARGUMENT PARSING
+     ***********************/
     const char* input_path = "-";
     const char* command_arg = NULL;
     const char* command_file = NULL;
@@ -707,6 +710,9 @@ int main(int argc, char** argv)
         break;
     }
 
+    /**************************
+     * OPERATION TOKEN PARSING
+     **************************/
     int ops_index = argi;
     char** tokens = NULL;
     i32 token_count = 0;
@@ -794,7 +800,10 @@ int main(int argc, char** argv)
         }
     }
 
-    // 1) Preflight parse to size allocations (works for both --commands and positional ops)
+    /************************************************************
+     * PHASE 1: PREFLIGHT PARSE
+     * Analyze operations to determine memory requirements
+     ************************************************************/
     ParsePlan plan = (ParsePlan){0};
     const char* path = NULL;
     enum Err e = parse_preflight(token_count, tokens, input_path, &plan, &path);
@@ -803,7 +812,10 @@ int main(int argc, char** argv)
         return 2; // Exit code 2: Parse error
     }
 
-    // 2) Compute sizes
+    /************************************************************
+     * PHASE 2: COMPUTE ARENA SIZES
+     * Calculate total memory needed for all data structures
+     ************************************************************/
     const size_t search_buf_cap = (FW_WIN > (BK_BLK + OVERLAP_MAX)) ? (size_t)FW_WIN : (size_t)(BK_BLK + OVERLAP_MAX);
     const size_t ops_bytes = (size_t)plan.total_ops * sizeof(Op);
     const size_t clauses_bytes = (size_t)plan.clause_count * sizeof(Clause);
@@ -819,7 +831,10 @@ int main(int argc, char** argv)
         re_threads_cap = 32;
     const size_t re_threads_bytes = (size_t)re_threads_cap * sizeof(ReThread);
 
-    // 3) Allocation
+    /************************************************************
+     * PHASE 3: ARENA ALLOCATION
+     * Allocate single memory block and compute aligned offsets
+     ************************************************************/
     size_t search_buf_size = align_or_die(search_buf_cap, alignof(unsigned char));
     size_t clauses_size = align_or_die(clauses_bytes, alignof(Clause));
     size_t ops_size = align_or_die(ops_bytes, alignof(Op));
@@ -853,7 +868,10 @@ int main(int argc, char** argv)
     Arena A;
     arena_init(&A, block, total);
 
-    // 4) Carve slices
+    /************************************************************
+     * PHASE 4: CARVE ARENA SLICES
+     * Partition the memory block into specific buffers
+     ************************************************************/
     unsigned char* search_buf = arena_alloc(&A, search_buf_cap, alignof(unsigned char));
     Clause* clauses_buf = arena_alloc(&A, clauses_bytes, alignof(Clause));
     Op* ops_buf = arena_alloc(&A, ops_bytes, alignof(Op));
@@ -878,7 +896,10 @@ int main(int argc, char** argv)
         return 4; // Exit code 4: Resource limit
     }
 
-    // 5) Build the program (both code paths)
+    /************************************************************
+     * PHASE 5: BUILD PROGRAM
+     * Parse operations into executable program structure
+     ************************************************************/
     Program prg = (Program){0};
     e = parse_build(token_count, tokens, input_path, &prg, &path,
                     clauses_buf, ops_buf, str_pool, str_pool_bytes);
@@ -893,7 +914,7 @@ int main(int argc, char** argv)
         return 2;
     }
 
-    // Compile regex programs once for both find:re and take until:re
+    // Compile all regex patterns upfront
     i32 re_prog_idx = 0, re_ins_idx = 0, re_cls_idx = 0;
     for (i32 ci = 0; ci < prg.clause_count; ++ci) {
         Clause* clause = &prg.clauses[ci];
@@ -925,7 +946,10 @@ int main(int argc, char** argv)
         }
     }
 
-    // 6) Open I/O with arena-backed buffers
+    /********************************************
+     * PHASE 6: OPEN FILE I/O
+     * Initialize file handle and search buffers
+     ********************************************/
     File io = { 0 };
     e = io_open(&io, path, search_buf, search_buf_cap);
     if (e != E_OK) {
@@ -937,7 +961,10 @@ int main(int argc, char** argv)
     io_set_regex_scratch(&io, re_curr_thr, re_next_thr, re_threads_cap,
         seen_curr, seen_next, (size_t)re_seen_bytes_each);
 
-    // 7) Execute programs using precomputed scratch buffers
+    /*****************************************************
+     * PHASE 7: EXECUTE PROGRAM
+     * Run operations with optional looping for streaming
+     *****************************************************/
     int exit_code = 0;
 
     // Single execution mode (no looping)

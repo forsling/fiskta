@@ -36,6 +36,10 @@ static inline i32 utf8_len_from_lead(unsigned char b)
     return 0; // invalid lead
 }
 
+/**********************
+ * FILE I/O OPERATIONS
+ **********************/
+
 enum Err io_open(File* io, const char* path,
     unsigned char* search_buf, size_t search_buf_cap)
 {
@@ -185,6 +189,10 @@ enum Err io_emit(File* io, i64 start, i64 end, FILE* out)
 
     return E_OK;
 }
+
+/******************
+ * LINE NAVIGATION
+ ******************/
 
 enum Err io_line_start(File* io, i64 pos, i64* out)
 {
@@ -368,6 +376,10 @@ enum Err io_step_lines_from(File* io, i64 start_line_start, i32 delta, i64* out_
     return E_OK;
 }
 
+/****************
+ * STRING SEARCH
+ ****************/
+
 enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
     const unsigned char* needle, size_t nlen,
     enum Dir dir, i64* ms, i64* me)
@@ -485,7 +497,9 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
     }
 }
 
-// UTF-8 character boundary and stepping functions
+/*****************************
+ * UTF-8 CHARACTER NAVIGATION
+ *****************************/
 
 enum Err io_char_start(File* io, i64 pos, i64* out)
 {
@@ -600,7 +614,9 @@ enum Err io_step_chars_from(File* io, i64 start, i32 delta, i64* out)
     }
 }
 
-// Line indexing implementation
+/****************
+ * LINE INDEXING
+ ****************/
 
 static enum Err get_line_block(File* io, i64 pos, LineBlockIdx** out)
 {
@@ -679,7 +695,10 @@ static enum Err get_line_block(File* io, i64 pos, LineBlockIdx** out)
     return E_OK;
 }
 
-// Boyer-Moore-Horspool algorithm implementation
+/******************************
+ * BOYER-MOORE-HORSPOOL SEARCH 
+ ******************************/
+
 static enum Err bmh_forward(const unsigned char* text, size_t text_len,
     const unsigned char* needle, size_t nlen, i64* ms, i64* me)
 {
@@ -705,9 +724,10 @@ static enum Err bmh_forward(const unsigned char* text, size_t text_len,
     return E_NO_MATCH;
 }
 
-// --------------------------
-// Regex streaming NFA engine
-// --------------------------
+/*******************
+ * REGEX NFA ENGINE
+ *******************/
+
 typedef struct {
     ReThread* v;
     int n, cap;

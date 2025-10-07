@@ -332,6 +332,9 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
     const View* c_view)
 {
     switch (op->kind) {
+    /********************
+     * SEARCH OPERATIONS
+     ********************/
     case OP_FIND: {
         i64 win_lo, win_hi;
 
@@ -394,6 +397,9 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         break;
     }
 
+    /**********************
+     * MOVEMENT OPERATIONS
+     **********************/
     case OP_SKIP: {
         if (op->u.skip.unit == UNIT_BYTES) {
             i64 cur = vclamp(c_view, io, *c_cursor);
@@ -436,6 +442,9 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         break;
     }
 
+    /************************
+     * EXTRACTION OPERATIONS
+     ************************/
     case OP_TAKE_LEN: {
         i64 start, end;
 
@@ -627,6 +636,9 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         break;
     }
 
+    /*********************
+     * CONTROL OPERATIONS
+     *********************/
     case OP_LABEL: {
         // Stage label write
         if (*label_count >= *label_cap)
@@ -686,6 +698,9 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         break;
     }
 
+    /********************
+     * OUTPUT OPERATIONS
+     ********************/
     case OP_PRINT: {
         // Stage literal range
         if (*range_count >= *range_cap)
@@ -696,11 +711,17 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         break;
     }
 
+    /*********************
+     * UTILITY OPERATIONS
+     *********************/
     case OP_SLEEP: {
         sleep_msec(op->u.sleep.msec);
         break;
     }
 
+    /*****************************************
+     * BOX EXTRACTION (Rectangular selection)
+     *****************************************/
     case OP_BOX: {
         i32 right_offset = op->u.box.right_offset;
         i32 down_offset = op->u.box.down_offset;
@@ -825,6 +846,9 @@ static enum Err resolve_loc_expr_cp(
 {
     i64 base = 0;
 
+    /************************
+     * RESOLVE BASE LOCATION
+     ************************/
     switch (loc->base) {
     case LOC_CURSOR:
         base = staged_cursor;
@@ -889,6 +913,9 @@ static enum Err resolve_loc_expr_cp(
         return E_PARSE;
     }
 
+    /************************
+     * APPLY OFFSET (if any)
+     ************************/
     if (loc->offset != 0) {
         if (loc->unit == UNIT_BYTES) {
             apply_byte_saturation(&base, loc->offset, c_view, io, clamp == CLAMP_FILE ? CLAMP_FILE : clamp);
@@ -914,6 +941,9 @@ static enum Err resolve_loc_expr_cp(
         }
     }
 
+    /******************
+     * CLAMP TO BOUNDS
+     ******************/
     if (clamp == CLAMP_VIEW)
         *out = vclamp(c_view, io, base);
     else if (clamp == CLAMP_FILE)
