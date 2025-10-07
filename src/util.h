@@ -3,6 +3,13 @@
 #include <stdalign.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <errno.h>
+
+#ifdef _WIN32
+#include <windows.h>
+#else
+#include <time.h>
+#endif
 
 // Arena allocator
 typedef struct {
@@ -57,4 +64,31 @@ static inline size_t safe_align(size_t x, size_t align)
     if (SIZE_MAX - x < add)
         return SIZE_MAX;
     return x + add;
+}
+
+// Overflow-safe size addition
+// Returns 1 on overflow, 0 on success
+static inline int add_overflow(size_t a, size_t b, size_t* out)
+{
+    if (SIZE_MAX - a < b)
+        return 1;
+    *out = a + b;
+    return 0;
+}
+
+// Cross-platform sleep in milliseconds
+static inline void sleep_msec(int msec)
+{
+    if (msec <= 0)
+        return;
+
+#ifdef _WIN32
+    Sleep((DWORD)msec);
+#else
+    struct timespec req;
+    req.tv_sec = msec / 1000;
+    req.tv_nsec = (long)(msec % 1000) * 1000000L;
+    while (nanosleep(&req, &req) == -1 && errno == EINTR) {
+    }
+#endif
 }

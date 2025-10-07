@@ -21,15 +21,6 @@
 #define FISKTA_VERSION "dev"
 #endif
 
-// Helper for overflow-safe size arithmetic
-static int add_ovf(size_t a, size_t b, size_t* out)
-{
-    if (SIZE_MAX - a < b)
-        return 1;
-    *out = a + b;
-    return 0;
-}
-
 // Quote-aware ops-string splitter for CLI usage
 // Note: one-shot scratch; tokens invalidated after next call
 static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
@@ -188,21 +179,6 @@ enum {
     MAX_RE_INS_SINGLE = (MAX_NEEDLE_BYTES * 4) + 8,
     MAX_RE_CLASSES = MAX_NEEDLE_BYTES
 };
-
-static void sleep_msec(int msec)
-{
-    if (msec <= 0)
-        return;
-#ifdef _WIN32
-    Sleep((DWORD)msec);
-#else
-    struct timespec req;
-    req.tv_sec = msec / 1000;
-    req.tv_nsec = (long)(msec % 1000) * 1000000L;
-    while (nanosleep(&req, &req) == -1 && errno == EINTR) {
-    }
-#endif
-}
 
 static uint64_t now_millis(void)
 {
@@ -854,7 +830,7 @@ int main(int argc, char** argv)
     // Two thread buffers + two seen arrays sized to max estimated nins
     size_t re_seen_bytes_each = (size_t)(plan.re_ins_estimate_max > 0 ? plan.re_ins_estimate_max : 32);
     size_t re_seen_size;
-    if (add_ovf(re_seen_bytes_each, re_seen_bytes_each, &re_seen_size)) {
+    if (add_overflow(re_seen_bytes_each, re_seen_bytes_each, &re_seen_size)) {
         print_err(E_OOM, "regex 'seen' size overflow");
         return 4;
     }
@@ -864,7 +840,7 @@ int main(int argc, char** argv)
     size_t labels_bytes = (plan.sum_label_ops > 0) ? align_or_die((size_t)plan.sum_label_ops * sizeof(LabelWrite), alignof(LabelWrite)) : 0;
 
     size_t total = search_buf_size;
-    if (add_ovf(total, clauses_size, &total) || add_ovf(total, ops_size, &total) || add_ovf(total, re_prog_size, &total) || add_ovf(total, re_ins_size, &total) || add_ovf(total, re_cls_size, &total) || add_ovf(total, str_pool_size, &total) || add_ovf(total, re_thrbufs_size, &total) || add_ovf(total, re_seen_size, &total) || add_ovf(total, ranges_bytes, &total) || add_ovf(total, labels_bytes, &total) || add_ovf(total, 64, &total)) { // 3 small cushion
+    if (add_overflow(total, clauses_size, &total) || add_overflow(total, ops_size, &total) || add_overflow(total, re_prog_size, &total) || add_overflow(total, re_ins_size, &total) || add_overflow(total, re_cls_size, &total) || add_overflow(total, str_pool_size, &total) || add_overflow(total, re_thrbufs_size, &total) || add_overflow(total, re_seen_size, &total) || add_overflow(total, ranges_bytes, &total) || add_overflow(total, labels_bytes, &total) || add_overflow(total, 64, &total)) { // 3 small cushion
         print_err(E_OOM, "arena size overflow");
         return 4; // Exit code 4: Resource limit
     }

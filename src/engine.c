@@ -46,31 +46,6 @@ static inline void apply_byte_saturation(i64* base, i64 delta, const View* v, co
     *base += delta;
 }
 
-// Helper for overflow-safe size arithmetic
-static int add_ovf(size_t a, size_t b, size_t* out)
-{
-    if (SIZE_MAX - a < b)
-        return 1;
-    *out = a + b;
-    return 0;
-}
-
-static void sleep_msec(i32 msec)
-{
-    if (msec <= 0)
-        return;
-
-#ifdef _WIN32
-    Sleep((DWORD)msec);
-#else
-    struct timespec req;
-    req.tv_sec = msec / 1000;
-    req.tv_nsec = (long)(msec % 1000) * 1000000L;
-    while (nanosleep(&req, &req) == -1 && errno == EINTR) {
-    }
-#endif
-}
-
 void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap)
 {
     i32 rc = 0, lc = 0;
@@ -163,7 +138,7 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
         err = E_OOM;
         goto cleanup;
     }
-    if (add_ovf(total, re_thr_size, &total)) {
+    if (add_overflow(total, re_thr_size, &total)) {
         err = E_OOM;
         goto cleanup;
     }
@@ -173,24 +148,24 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
         err = E_OOM;
         goto cleanup;
     }
-    if (add_ovf(total, re_seen_size, &total)) {
+    if (add_overflow(total, re_seen_size, &total)) {
         err = E_OOM;
         goto cleanup;
     }
 
     size_t ranges_bytes = (max_r_cap > 0) ? safe_align((size_t)max_r_cap * sizeof(Range), alignof(Range)) : 0;
-    if (ranges_bytes == SIZE_MAX || add_ovf(total, ranges_bytes, &total)) {
+    if (ranges_bytes == SIZE_MAX || add_overflow(total, ranges_bytes, &total)) {
         err = E_OOM;
         goto cleanup;
     }
 
     size_t labels_bytes = (max_l_cap > 0) ? safe_align((size_t)max_l_cap * sizeof(LabelWrite), alignof(LabelWrite)) : 0;
-    if (labels_bytes == SIZE_MAX || add_ovf(total, labels_bytes, &total)) {
+    if (labels_bytes == SIZE_MAX || add_overflow(total, labels_bytes, &total)) {
         err = E_OOM;
         goto cleanup;
     }
 
-    if (add_ovf(total, 64, &total)) { // small cushion like main.c
+    if (add_overflow(total, 64, &total)) { // small cushion like main.c
         err = E_OOM;
         goto cleanup;
     }
