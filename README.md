@@ -184,10 +184,21 @@ fiskta --loop 1000 --idle-timeout 0 --input service.log find "ERROR" take to lin
 
 ## Installation
 
+### Using Make
+
 ```bash
 make              # Build optimized binary (./fiskta)
 make debug        # Build with debug symbols
 make test         # Run test suite (requires Python 3)
+```
+
+### Using Zig (easy cross-compilation)
+
+```bash
+zig build                    # Build for host platform (zig-out/bin/fiskta)
+zig build test               # Build and run test suite
+zig build all                # Build for all platforms (Linux, macOS, Windows)
+zig build -Doptimize=ReleaseSmall  # Optimize for size
 ```
 
 ## Command Reference

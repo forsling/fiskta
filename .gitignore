@@ -49,3 +49,5 @@ ignore/
 tests/fixtures/
 tests/__pycache__/
 bench/
+.zig-cache
+zig-out/

@@ -487,9 +487,6 @@ static void print_usage(void)
     printf("  4               Resource limit (program too large, out of memory)\n");
     printf("  10+             Clause N failed (exit code = 10 + clause index)\n");
     printf("\n");
-    printf("  Example: exit code 11 means clause 1 (second clause) failed\n");
-    printf("  Scripts can extract the failing clause: clause_index=$((exit_code - 10))\n");
-    printf("\n");
     printf("OPTIONS:\n");
     printf("  -i, --input <path>          Read input from path (default: stdin)\n");
     printf("  -c, --commands <string|file>  Provide operations as a single string or file path\n");
