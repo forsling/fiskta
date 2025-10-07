@@ -86,23 +86,23 @@ pub fn build(b: *std.Build) !void {
     const all_step = b.step("all", "Build fiskta for multiple platforms");
 
     // Linux x86_64 dynamic
-    const linux_dynamic = createBuildStep(b, "x86_64-linux-gnu", .dynamic, "linux-x86_64-dynamic", version);
+    const linux_dynamic = createBuildStep(b, "x86_64-linux-gnu", .dynamic, "linux-x86_64", version, "");
     all_step.dependOn(&linux_dynamic.step);
 
-    // Linux x86_64 static
-    const linux_static = createBuildStep(b, "x86_64-linux-musl", .static, "linux-x86_64-static", version);
+    // Linux x86_64 static (musl)
+    const linux_static = createBuildStep(b, "x86_64-linux-musl", .static, "linux-x86_64-musl", version, "");
     all_step.dependOn(&linux_static.step);
 
     // macOS ARM64
-    const macos_arm = createBuildStep(b, "aarch64-macos", .dynamic, "macos-arm64", version);
+    const macos_arm = createBuildStep(b, "aarch64-macos", .dynamic, "macos-arm64", version, "");
     all_step.dependOn(&macos_arm.step);
 
     // Windows x86_64
-    const windows_x64 = createBuildStep(b, "x86_64-windows", .dynamic, "windows-x86_64", version);
+    const windows_x64 = createBuildStep(b, "x86_64-windows", .dynamic, "windows-x86_64", version, ".exe");
     all_step.dependOn(&windows_x64.step);
 }
 
-fn createBuildStep(b: *std.Build, target_str: []const u8, linkage: std.builtin.LinkMode, output_name: []const u8, version: []const u8) *std.Build.Step.Run {
+fn createBuildStep(b: *std.Build, target_str: []const u8, linkage: std.builtin.LinkMode, output_name: []const u8, version: []const u8, ext: []const u8) *std.Build.Step.Run {
     // Create output directory
     const mkdir_cmd = b.addSystemCommand(&.{ "mkdir", "-p", "zig-out/bin" });
 
@@ -119,7 +119,7 @@ fn createBuildStep(b: *std.Build, target_str: []const u8, linkage: std.builtin.L
         "src/engine.c",
         "src/iosearch.c",
         "src/reprog.c",
-        "-o", b.fmt("zig-out/bin/fiskta-{s}", .{output_name}),
+        "-o", b.fmt("zig-out/bin/fiskta-{s}{s}", .{output_name, ext}),
     });
 
     // Add version define
