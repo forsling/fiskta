@@ -615,7 +615,7 @@ static enum Err take_to_op(
     return E_OK;
 }
 
-static enum Err take_until_op(
+static enum Err take_until_common(
     File* io,
     const Op* op,
     VM* vm,
@@ -626,13 +626,20 @@ static enum Err take_until_op(
     i32 range_cap,
     LabelWrite* label_writes,
     i32 label_count,
-    const View* c_view)
+    const View* c_view,
+    bool use_regex)
 {
     // Search forward from cursor to view end
     i64 ms, me;
-    enum Err err = io_find_window(io, vclamp(c_view, io, *c_cursor), veof(c_view, io),
-        (const unsigned char*)op->u.take_until.needle.bytes,
-        (size_t)op->u.take_until.needle.len, DIR_FWD, &ms, &me);
+    enum Err err;
+    if (use_regex) {
+        err = io_findr_window(io, vclamp(c_view, io, *c_cursor), veof(c_view, io),
+            op->u.take_until_re.prog, DIR_FWD, &ms, &me);
+    } else {
+        err = io_find_window(io, vclamp(c_view, io, *c_cursor), veof(c_view, io),
+            (const unsigned char*)op->u.take_until.needle.bytes,
+            (size_t)op->u.take_until.needle.len, DIR_FWD, &ms, &me);
+    }
     if (err != E_OK)
         return err;
 
@@ -642,8 +649,10 @@ static enum Err take_until_op(
     c_last_match->valid = true;
 
     i64 target;
-    if (op->u.take_until.has_at) {
-        err = resolve_loc_expr_cp(&op->u.take_until.at, io, vm, c_last_match, ms,
+    bool has_at = use_regex ? op->u.take_until_re.has_at : op->u.take_until.has_at;
+    if (has_at) {
+        const LocExpr* at = use_regex ? &op->u.take_until_re.at : &op->u.take_until.at;
+        err = resolve_loc_expr_cp(at, io, vm, c_last_match, ms,
             label_writes, label_count, c_view, CLAMP_VIEW, &target);
         if (err != E_OK)
             return err;
@@ -668,6 +677,23 @@ static enum Err take_until_op(
     return E_OK;
 }
 
+static enum Err take_until_op(
+    File* io,
+    const Op* op,
+    VM* vm,
+    i64* c_cursor,
+    Match* c_last_match,
+    Range* ranges,
+    i32* range_count,
+    i32 range_cap,
+    LabelWrite* label_writes,
+    i32 label_count,
+    const View* c_view)
+{
+    return take_until_common(io, op, vm, c_cursor, c_last_match,
+        ranges, range_count, range_cap, label_writes, label_count, c_view, false);
+}
+
 static enum Err take_until_re_op(
     File* io,
     const Op* op,
@@ -681,43 +707,8 @@ static enum Err take_until_re_op(
     i32 label_count,
     const View* c_view)
 {
-    // Search forward from cursor to view end using regex
-    i64 ms, me;
-    enum Err err = io_findr_window(io, vclamp(c_view, io, *c_cursor), veof(c_view, io),
-        op->u.take_until_re.prog, DIR_FWD, &ms, &me);
-    if (err != E_OK)
-        return err;
-
-    // Update staged match
-    c_last_match->start = ms;
-    c_last_match->end = me;
-    c_last_match->valid = true;
-
-    i64 target;
-    if (op->u.take_until_re.has_at) {
-        err = resolve_loc_expr_cp(&op->u.take_until_re.at, io, vm, c_last_match, ms,
-            label_writes, label_count, c_view, CLAMP_VIEW, &target);
-        if (err != E_OK)
-            return err;
-    } else {
-        target = ms;
-    }
-
-    i64 dst = vclamp(c_view, io, target);
-
-    // Stage [cursor, dst) ONLY (no order-normalization)
-    if (*range_count >= range_cap)
-        return E_OOM;
-    ranges[*range_count].kind = RANGE_FILE;
-    ranges[*range_count].file.start = vclamp(c_view, io, *c_cursor);
-    ranges[*range_count].file.end = dst;
-    (*range_count)++;
-
-    // Move cursor only if non-empty
-    if (dst > *c_cursor) {
-        *c_cursor = dst;
-    }
-    return E_OK;
+    return take_until_common(io, op, vm, c_cursor, c_last_match,
+        ranges, range_count, range_cap, label_writes, label_count, c_view, true);
 }
 
 static enum Err box_op(
