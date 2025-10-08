@@ -429,7 +429,7 @@ Stop looping after N milliseconds of no file growth:
 fiskta --loop 1000 --idle-timeout 5000 --input log.txt find "ERROR"
 ```
 
-This will loop every second, but stop after 5 seconds of no new data. Use `--idle-timeout 0` to wait forever.
+This will loop every second, but stop after 5 seconds of no input growth (file size unchanged). Use `--idle-timeout 0` to wait forever.
 
 ## Exit Codes
 

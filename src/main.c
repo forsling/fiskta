@@ -499,7 +499,7 @@ static void print_usage(void)
     printf("    OR      First success wins (short-circuits on success)\n");
     printf("\n");
     printf("  Within a clause: all ops must succeed or the clause fails atomically.\n");
-    printf("  On Failure: clause rolls back (no output or label changes).\n");
+    printf("  On Failure: clause rolls back (no output or state changes).\n");
     printf("  On Success: emits staged output, commits labels, updates cursor and last-match.\n");
     printf("\n");
     printf("EXIT CODES:\n");
@@ -516,7 +516,7 @@ static void print_usage(void)
     printf("      --                      Treat subsequent arguments as operations\n");
     printf("      --loop <ms>             Re-run the program every ms (0 disables looping)\n");
     printf("      --idle-timeout <ms>     Stop looping after ms with no input growth\n");
-    printf("      --window-policy <p>     Loop window policy: delta | rescan | cursor (default: cursor)\n");
+    printf("      --window-policy <p>     Loop window policy: cursor (default) | delta | rescan\n");
     printf("  -h, --help                  Show this help message\n");
     printf("      --examples              Show comprehensive usage examples\n");
     printf("  -v, --version               Show version information\n");
