@@ -455,7 +455,7 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
 
 static void print_usage(void)
 {
-    printf("fiskta (FInd SKip TAke) Text Extraction Tool v%s\n", FISKTA_VERSION);
+    printf("fiskta - (fi)nd (sk)ip (ta)ke v%s\n", FISKTA_VERSION);
     printf("\n");
     printf("USAGE:\n");
     printf("  fiskta [options] <operations>\n");
@@ -558,7 +558,7 @@ static void print_usage(void)
 
 static void print_examples(void)
 {
-    printf("fiskta (FInd SKip TAke) Text Extraction Tool v%s\n", FISKTA_VERSION);
+    printf("fiskta - (fi)nd (sk)ip (ta)ke v%s\n", FISKTA_VERSION);
     printf("\n");
     printf("COMPREHENSIVE EXAMPLES:\n");
     printf("\n");
@@ -671,7 +671,7 @@ int main(int argc, char** argv)
             return 0;
         }
         if (strcmp(arg, "-v") == 0 || strcmp(arg, "--version") == 0) {
-            printf("fiskta (FInd SKip TAke) v%s\n", FISKTA_VERSION);
+            printf("fiskta - (fi)nd (sk)ip (ta)ke v%s\n", FISKTA_VERSION);
             return 0;
         }
         if (strcmp(arg, "-i") == 0 || strcmp(arg, "--input") == 0) {

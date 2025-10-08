@@ -17,7 +17,7 @@ def repo_version() -> str:
 
 
 VERSION = repo_version()
-VERSION_LINE = f"fiskta (FInd SKip TAke) v{VERSION}\n"
+VERSION_LINE = f"fiskta - (fi)nd (sk)ip (ta)ke v{VERSION}\n"
 
 def write(path: Path, data: bytes):
     path.parent.mkdir(parents=True, exist_ok=True)
