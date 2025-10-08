@@ -26,7 +26,6 @@ static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, Lo
 static enum Err parse_string_to_bytes(const char* str, String* out_string, char* str_pool, size_t* str_pool_off, size_t str_pool_cap);
 static enum Err parse_unsigned_number(const char* token, i32* sign, u64* n, Unit* unit);
 static enum Err parse_signed_number(const char* token, i64* offset, Unit* unit);
-static enum Err parse_milliseconds(const char* token, i32* out_ms);
 static i32 find_or_add_name_build(Program* prg, const char* name);
 static bool is_valid_label_name(const char* name);
 static int hex_value(char c);
@@ -243,10 +242,6 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                     plan->sum_take_ops++;
                     idx++; // skip string token
                 }
-            } else if (strcmp(cmd, "sleep") == 0) {
-                idx++; // skip command token
-                if (idx < token_count)
-                    idx++; // skip duration token
             } else {
                 idx++; // skip unknown token
             }
@@ -369,9 +364,6 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
                 idx++; // skip command token
                 if (idx < token_count)
                     idx++; // skip string
-            } else if (strcmp(cmd, "sleep") == 0) {
-                if (idx < token_count)
-                    idx++; // skip duration token
             }
         }
 
@@ -725,18 +717,6 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         if (err != E_OK)
             return err;
 
-    } else if (strcmp(cmd, "sleep") == 0) {
-        op->kind = OP_SLEEP;
-
-        if (*idx >= token_count)
-            return E_PARSE;
-        i32 msec = 0;
-        enum Err err = parse_milliseconds(tokens[*idx], &msec);
-        if (err != E_OK)
-            return err;
-        (*idx)++;
-        op->u.sleep.msec = msec;
-
     } else {
         return E_PARSE;
     }
@@ -988,50 +968,6 @@ static enum Err parse_signed_number(const char* token, i64* offset, Unit* unit)
     if (num > (u64)INT64_MAX)
         return E_PARSE; // Overflow
     *offset = sign * (i64)num;
-    return E_OK;
-}
-
-static enum Err parse_milliseconds(const char* token, i32* out_ms)
-{
-    if (!token)
-        return E_PARSE;
-
-    size_t len = strlen(token);
-    if (len < 2)
-        return E_PARSE;
-
-    int multiplier = 1; // default for milliseconds suffix
-    size_t suffix_len = 0;
-
-    if (len >= 2 && token[len - 2] == 'm' && token[len - 1] == 's') {
-        suffix_len = 2;
-        multiplier = 1;
-    } else if (token[len - 1] == 's') {
-        suffix_len = 1;
-        multiplier = 1000;
-    } else {
-        return E_PARSE;
-    }
-
-    if (len <= suffix_len)
-        return E_PARSE;
-
-    size_t num_len = len - suffix_len;
-    u64 value = 0;
-    for (size_t i = 0; i < num_len; ++i) {
-        char c = token[i];
-        if (!isdigit((unsigned char)c))
-            return E_PARSE;
-        value = value * 10 + (u64)(c - '0');
-        if (value > (u64)INT32_MAX)
-            return E_PARSE;
-    }
-
-    u64 total = value * (u64)multiplier;
-    if (total > (u64)INT32_MAX)
-        return E_PARSE;
-
-    *out_ms = (i32)total;
     return E_OK;
 }
 

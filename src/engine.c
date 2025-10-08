@@ -711,14 +711,6 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         break;
     }
 
-    /*********************
-     * UTILITY OPERATIONS
-     *********************/
-    case OP_SLEEP: {
-        sleep_msec(op->u.sleep.msec);
-        break;
-    }
-
     /*****************************************
      * BOX EXTRACTION (Rectangular selection)
      *****************************************/

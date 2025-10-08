@@ -240,16 +240,6 @@ def tests():
              tokens=["label","Bad"], input_file="small.txt",
              expect=dict(stdout="", exit=2)),
 
-        dict(id="gram-005-sleep-basic",
-             tokens=["sleep","5ms","THEN","take","+2b"], input_file="overlap.txt",
-             expect=dict(stdout="ab", exit=0)),
-
-        dict(id="gram-006-sleep-invalid",
-             tokens=["sleep","5"], input_file="overlap.txt",
-             expect=dict(stdout="", exit=2)),
-
-#        dict(id="gram-007-sleep-seconds",
-#             tokens=["sleep","1s","THEN","take","+2b"], input_file="overlap.txt",
 #             expect=dict(stdout="ab", exit=0)),
 
         dict(id="gram-008-print-hex",

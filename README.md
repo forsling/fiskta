@@ -58,7 +58,6 @@ content here
 - `clear view` - Clear view; return to full file
 
 **Utilities:**
-- `sleep <duration>` - Pause execution; duration suffix ms or s (e.g., 500ms, 1s)
 - `print <string>` - Emit literal bytes (alias: echo). Supports escape sequences: `\n \t \r \0 \\ \xHH`. Participates in clause atomicity
 
 ### Units
@@ -390,16 +389,6 @@ print "\x1b[31m"        # print ANSI color code
 echo "Hello world"      # alias for print
 ```
 
-#### `sleep <duration>`
-
-Pause execution. Duration is specified with `ms` (milliseconds) or `s` (seconds) suffix.
-
-```bash
-sleep 100ms      # sleep 100 milliseconds
-sleep 1s         # sleep 1 second
-sleep 500ms      # sleep half a second
-```
-
 ## Streaming and Looping
 
 fiskta can monitor a file and repeatedly execute your program as new data arrives, useful for tailing log files or processing streams.
@@ -590,7 +579,7 @@ fiskta --input config.ini \
 Program        = Clause { ( "THEN" | "AND" | "OR" ) Clause } .
 Clause         = { Op } .
 Op             = Find | FindRegex | Skip | Take | Label | Goto
-               | Viewset | Viewclear | Sleep | Print .
+               | View | ClearView | Print .
 Find           = "find" [ "to" LocationExpr ] String .
 FindRegex      = "find" ":" "re" [ "to" LocationExpr ] String .
 Skip           = "skip" Number Unit .
@@ -602,7 +591,6 @@ Label          = "label" Name .
 Goto           = "goto" LocationExpr .
 View           = "view" LocationExpr LocationExpr .
 ClearView      = "clear" "view" .
-Sleep          = "sleep" Duration .
 Print          = ( "print" | "echo" ) String .
 LocationExpr   = Location [ Offset ] .
 Location       = "cursor" | "BOF" | "EOF" | Name
@@ -613,7 +601,6 @@ AtExpr         = ( "match-start" | "match-end"
 Offset         = ( "+" | "-" ) Number Unit .
 SignedNumber   = [ "+" | "-" ] Number .
 Unit           = "b" | "l" | "c" .
-Duration       = Number ( "ms" | "s" ) .
 Number         = Digit { Digit } .
 Name           = UpperLetter { UpperLetter | Digit | "_" | "-" } .
 String         = ShellString .
