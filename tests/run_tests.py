@@ -2182,12 +2182,12 @@ def tests():
 
         dict(id="loop-001-basic",
              tokens=["take","+2b"], input_file="overlap.txt",
-             extra_args=["--loop","1","--idle-timeout","0"],
+             extra_args=["--loop","1","--loop-timeout","0"],
              expect=dict(stdout="ab", exit=0)),
 
         dict(id="loop-002-rescan",
              tokens=["take","+1b"], input_file="overlap.txt",
-             extra_args=["--loop","1","--idle-timeout","2","--window-policy","rescan"],
+             extra_args=["--loop","1","--loop-timeout","2","--loop-view","rescan"],
              expect=dict(stdout_startswith="aa", exit=0)),
 
         # ---------- Stage-only execution tests ----------

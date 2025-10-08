@@ -209,10 +209,10 @@ static size_t align_or_die(size_t x, size_t align)
 #endif
 
 typedef enum {
-    WINDOW_POLICY_DELTA,
-    WINDOW_POLICY_RESCAN,
-    WINDOW_POLICY_CURSOR
-} WindowPolicy;
+    LOOP_VIEW_DELTA,
+    LOOP_VIEW_RESCAN,
+    LOOP_VIEW_CURSOR
+} LoopViewPolicy;
 
 enum {
     MAX_TOKENS = 1024,
@@ -269,27 +269,27 @@ static int parse_nonneg_option(const char* value, const char* opt_name, int* out
     return 0;
 }
 
-static int parse_window_policy_option(const char* value, WindowPolicy* out)
+static int parse_loop_view_option(const char* value, LoopViewPolicy* out)
 {
     if (!value || !out)
         return 1;
     if (strcmp(value, "delta") == 0) {
-        *out = WINDOW_POLICY_DELTA;
+        *out = LOOP_VIEW_DELTA;
         return 0;
     }
     if (strcmp(value, "rescan") == 0) {
-        *out = WINDOW_POLICY_RESCAN;
+        *out = LOOP_VIEW_RESCAN;
         return 0;
     }
     if (strcmp(value, "cursor") == 0) {
-        *out = WINDOW_POLICY_CURSOR;
+        *out = LOOP_VIEW_CURSOR;
         return 0;
     }
-    fprintf(stderr, "fiskta: --window-policy expects one of: delta, rescan, cursor\n");
+    fprintf(stderr, "fiskta: --loop-view expects one of: delta, rescan, cursor\n");
     return 1;
 }
 
-static int parse_idle_timeout_option(const char* value, int* out)
+static int parse_loop_timeout_option(const char* value, int* out)
 {
     if (!value || !out)
         return 1;
@@ -297,7 +297,7 @@ static int parse_idle_timeout_option(const char* value, int* out)
         *out = -1;
         return 0;
     }
-    return parse_nonneg_option(value, "--idle-timeout", out);
+    return parse_nonneg_option(value, "--loop-timeout", out);
 }
 
 static int run_program_once(const Program* prg, File* io, VM* vm,
@@ -514,9 +514,9 @@ static void print_usage(void)
     printf("  -i, --input <path>          Read input from path (default: stdin)\n");
     printf("  -c, --commands <string|file>  Provide operations as a single string or file path\n");
     printf("      --                      Treat subsequent arguments as operations\n");
-    printf("      --loop <ms>             Re-run the program every ms (0 disables looping)\n");
-    printf("      --idle-timeout <ms>     Stop looping after ms with no input growth\n");
-    printf("      --window-policy <p>     Loop window policy: cursor (default) | delta | rescan\n");
+    printf("  -l, --loop <ms>             Re-run the program every ms (0 disables looping)\n");
+    printf("  -t, --loop-timeout <ms>     Stop looping after ms with no input growth\n");
+    printf("      --loop-view <policy>    How the view is set each iteration: cursor (default) | delta | rescan\n");
     printf("  -h, --help                  Show this help message\n");
     printf("      --examples              Show comprehensive usage examples\n");
     printf("  -v, --version               Show version information\n");
@@ -593,13 +593,13 @@ static void print_examples(void)
     printf("\n");
     printf("STREAMING AND MONITORING:\n");
     printf("  # Monitor log file for errors (delta mode - only process new data)\n");
-    printf("  fiskta --loop 1000 --window-policy delta --input service.log find \"ERROR\" take to line-end\n");
+    printf("  fiskta --loop 1000 --loop-view delta --input service.log find \"ERROR\" take to line-end\n");
     printf("\n");
     printf("  # Process data in chunks (cursor mode - maintain position across iterations)\n");
-    printf("  fiskta --loop 100 --window-policy cursor --input data.txt take 1000b\n");
+    printf("  fiskta --loop 100 --loop-view cursor --input data.txt take 1000b\n");
     printf("\n");
     printf("  # Monitor changing file content (rescan mode - re-scan entire file each time)\n");
-    printf("  fiskta --loop 500 --window-policy rescan --input status.txt find \"READY\"\n");
+    printf("  fiskta --loop 500 --loop-view rescan --input status.txt find \"READY\"\n");
     printf("\n");
     printf("  # Process stdin\n");
     printf("  echo \"Hello world\" | fiskta find \"world\" take to match-end\n");
@@ -620,7 +620,7 @@ int main(int argc, char** argv)
     const char* command_file = NULL;
     int loop_ms = 0;
     int idle_timeout_ms = -1;
-    WindowPolicy window_policy = WINDOW_POLICY_CURSOR;
+    LoopViewPolicy loop_view_policy = LOOP_VIEW_CURSOR;
 
     int argi = 1;
     while (argi < argc) {
@@ -659,7 +659,7 @@ int main(int argc, char** argv)
             argi++;
             continue;
         }
-        if (strcmp(arg, "--loop") == 0) {
+        if (strcmp(arg, "-l") == 0 || strcmp(arg, "--loop") == 0) {
             if (argi + 1 >= argc) {
                 fprintf(stderr, "fiskta: --loop requires a value\n");
                 return 2;
@@ -675,34 +675,34 @@ int main(int argc, char** argv)
             argi++;
             continue;
         }
-        if (strcmp(arg, "--idle-timeout") == 0) {
+        if (strcmp(arg, "-t") == 0 || strcmp(arg, "--loop-timeout") == 0) {
             if (argi + 1 >= argc) {
-                fprintf(stderr, "fiskta: --idle-timeout requires a value\n");
+                fprintf(stderr, "fiskta: --loop-timeout requires a value\n");
                 return 2;
             }
-            if (parse_idle_timeout_option(argv[argi + 1], &idle_timeout_ms) != 0)
+            if (parse_loop_timeout_option(argv[argi + 1], &idle_timeout_ms) != 0)
                 return 2;
             argi += 2;
             continue;
         }
-        if (strncmp(arg, "--idle-timeout=", 15) == 0) {
-            if (parse_idle_timeout_option(arg + 15, &idle_timeout_ms) != 0)
+        if (strncmp(arg, "--loop-timeout=", 15) == 0) {
+            if (parse_loop_timeout_option(arg + 15, &idle_timeout_ms) != 0)
                 return 2;
             argi++;
             continue;
         }
-        if (strcmp(arg, "--window-policy") == 0) {
+        if (strcmp(arg, "--loop-view") == 0) {
             if (argi + 1 >= argc) {
-                fprintf(stderr, "fiskta: --window-policy requires a value\n");
+                fprintf(stderr, "fiskta: --loop-view requires a value\n");
                 return 2;
             }
-            if (parse_window_policy_option(argv[argi + 1], &window_policy) != 0)
+            if (parse_loop_view_option(argv[argi + 1], &loop_view_policy) != 0)
                 return 2;
             argi += 2;
             continue;
         }
-        if (strncmp(arg, "--window-policy=", 16) == 0) {
-            if (parse_window_policy_option(arg + 16, &window_policy) != 0)
+        if (strncmp(arg, "--loop-view=", 12) == 0) {
+            if (parse_loop_view_option(arg + 12, &loop_view_policy) != 0)
                 return 2;
             argi++;
             continue;
@@ -1040,12 +1040,12 @@ int main(int argc, char** argv)
             window_start = window_end;
 
         i64 effective_start = window_start;
-        if (window_policy == WINDOW_POLICY_RESCAN)
+        if (loop_view_policy == LOOP_VIEW_RESCAN)
             effective_start = 0;
-        else if (window_policy == WINDOW_POLICY_CURSOR && have_saved_vm)
+        else if (loop_view_policy == LOOP_VIEW_CURSOR && have_saved_vm)
             effective_start = clamp64(saved_vm.cursor, 0, window_end);
 
-        if (loop_enabled && window_policy == WINDOW_POLICY_DELTA && effective_start >= window_end) {
+        if (loop_enabled && loop_view_policy == LOOP_VIEW_DELTA && effective_start >= window_end) {
             if (idle_timeout_ms >= 0 && (now_ms - last_change_ms) >= (uint64_t)idle_timeout_ms)
                 break;
             sleep_msec(loop_ms);
@@ -1054,7 +1054,7 @@ int main(int argc, char** argv)
 
         enum Err last_err = E_OK;
         i64 prev_cursor = have_saved_vm ? saved_vm.cursor : effective_start;
-        VM* vm_ptr = (window_policy == WINDOW_POLICY_CURSOR) ? &saved_vm : NULL;
+        VM* vm_ptr = (loop_view_policy == LOOP_VIEW_CURSOR) ? &saved_vm : NULL;
         int ok = run_program_once(&prg, &io, vm_ptr, clause_ranges, clause_labels, &last_err,
             effective_start, window_end);
         // Handle exit codes
@@ -1077,12 +1077,12 @@ int main(int argc, char** argv)
         if (!loop_enabled)
             break;
 
-        if (window_policy == WINDOW_POLICY_CURSOR) {
+        if (loop_view_policy == LOOP_VIEW_CURSOR) {
             have_saved_vm = true;
             window_start = clamp64(saved_vm.cursor, 0, window_end);
             if (saved_vm.cursor != prev_cursor)
                 last_change_ms = now_ms;
-        } else if (window_policy == WINDOW_POLICY_DELTA) {
+        } else if (loop_view_policy == LOOP_VIEW_DELTA) {
             window_start = window_end;
         } else {
             window_start = 0;
