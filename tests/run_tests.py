@@ -1887,54 +1887,76 @@ def tests():
         # ---------- Box Feature Tests ----------
         # Basic box operations
         dict(id="box-001-single-byte",
-             tokens=["box","0","0"], input_file="-", stdin=b"hello",
+             tokens=["box","0b","0l"], input_file="-", stdin=b"hello",
              expect=dict(stdout="h\n", exit=0)),
 
         dict(id="box-002-single-line-multiple-bytes",
-             tokens=["box","2","0"], input_file="-", stdin=b"hello",
+             tokens=["box","2b","0l"], input_file="-", stdin=b"hello",
              expect=dict(stdout="hel\n", exit=0)),
 
         dict(id="box-003-multiple-lines-single-byte",
-             tokens=["box","0","1"], input_file="-", stdin=b"hello\nworld",
+             tokens=["box","0b","1l"], input_file="-", stdin=b"hello\nworld",
              expect=dict(stdout="h\nw\n", exit=0)),
 
         dict(id="box-004-multiple-lines-multiple-bytes",
-             tokens=["box","2","1"], input_file="-", stdin=b"hello\nworld",
+             tokens=["box","2b","1l"], input_file="-", stdin=b"hello\nworld",
              expect=dict(stdout="hel\nwor\n", exit=0)),
 
         dict(id="box-005-large-box",
-             tokens=["box","3","2"], input_file="-", stdin=b"hello\nworld\ntest",
+             tokens=["box","3b","2l"], input_file="-", stdin=b"hello\nworld\ntest",
              expect=dict(stdout="hell\nworl\ntest\n", exit=0)),
 
         # Negative offsets
         dict(id="box-006-negative-right-offset",
-             tokens=["skip","2b","box","-1","0"], input_file="-", stdin=b"hello",
+             tokens=["skip","2b","box","-1b","0l"], input_file="-", stdin=b"hello",
              expect=dict(stdout="l\n", exit=0)),
 
         dict(id="box-007-negative-down-offset",
-             tokens=["skip","1l","box","0","-1"], input_file="-", stdin=b"hello\nworld",
+             tokens=["skip","1l","box","0b","-1l"], input_file="-", stdin=b"hello\nworld",
              expect=dict(stdout="h\nw\n", exit=0)),
 
         dict(id="box-008-both-negative-offsets",
-             tokens=["skip","1l","skip","2b","box","-1","-1"], input_file="-", stdin=b"hello\nworld",
+             tokens=["skip","1l","skip","2b","box","-1b","-1l"], input_file="-", stdin=b"hello\nworld",
              expect=dict(stdout="l\nr\n", exit=0)),
 
         # Edge cases
         dict(id="box-009-zero-offsets",
-             tokens=["box","0","0"], input_file="-", stdin=b"hello",
+             tokens=["box","0b","0l"], input_file="-", stdin=b"hello",
              expect=dict(stdout="h\n", exit=0)),
 
         dict(id="box-010-beyond-line-bounds",
-             tokens=["box","10","0"], input_file="-", stdin=b"hello",
+             tokens=["box","10b","0l"], input_file="-", stdin=b"hello",
              expect=dict(stdout="hello\n", exit=0)),
 
         dict(id="box-010b-beyond-line-bounds-with-newlines",
-             tokens=["box","10","2"], input_file="-", stdin=b"abc\ndef\nghi\n",
+             tokens=["box","10b","2l"], input_file="-", stdin=b"abc\ndef\nghi\n",
              expect=dict(stdout="abc\ndef\nghi\n", exit=0)),
 
         dict(id="box-011-beyond-file-bounds",
-             tokens=["box","2","5"], input_file="-", stdin=b"hello\nworld",
+             tokens=["box","2b","5l"], input_file="-", stdin=b"hello\nworld",
              expect=dict(stdout="hel\nwor\n", exit=0)),
+
+        # Character unit tests
+        dict(id="box-012-char-unit-ascii",
+             tokens=["box","3c","1l"], input_file="-", stdin=b"hello\nworld",
+             expect=dict(stdout="hell\nworl\n", exit=0)),
+
+        dict(id="box-013-char-unit-utf8",
+             tokens=["box","3c","0l"], input_file="-", stdin=b"h\xc3\xa9llo",  # héllo
+             expect=dict(stdout="héll\n", exit=0)),
+
+        # CRLF handling tests
+        dict(id="box-014-crlf-auto-detect",
+             tokens=["box","5b","2l"], input_file="-", stdin=b"short\r\nmedium\r\nlonger\r\n",
+             expect=dict(stdout="short\r\nmedium\r\nlonger\r\n", exit=0)),
+
+        dict(id="box-015-lf-only",
+             tokens=["box","5b","2l"], input_file="-", stdin=b"short\nmedium\nlonger\n",
+             expect=dict(stdout="short\nmedium\nlonger\n", exit=0)),
+
+        dict(id="box-016-crlf-strip-trailing-r",
+             tokens=["box","4b","1l"], input_file="-", stdin=b"hello\r\nworld\r\n",
+             expect=dict(stdout="hello\r\nworld\r\n", exit=0)),
 
         # ---------- Views Feature Tests ----------
         # Basic view operations

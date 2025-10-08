@@ -131,7 +131,7 @@ typedef struct {
         struct {
             i32 right_offset;
             i32 down_offset;
-            Unit unit; // Always UNIT_BYTES for box operations
+            Unit unit; // UNIT_BYTES or UNIT_CHARS for horizontal offset
         } box;
         struct {
             i32 name_idx;

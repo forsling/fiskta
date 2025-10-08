@@ -478,11 +478,12 @@ static void print_usage(void)
     printf("                              line-start/line-end are relative to the match\n");
     printf("  take until:re <regex> [at match-start|match-end|line-start|line-end]\n");
     printf("                              Same as take until but with regex pattern support\n");
-    printf("  box <right_offset> <down_offset>\n");
+    printf("  box <right><b|c> <down>l\n");
     printf("                              Extract rectangular section from cursor position\n");
-    printf("                              right_offset: bytes to the right (negative = left)\n");
-    printf("                              down_offset: lines down (negative = up)\n");
-    printf("                              Adds newlines after each line segment\n");
+    printf("                              right: horizontal offset (b=bytes, c=chars; negative = left)\n");
+    printf("                              down: vertical offset in lines (negative = up)\n");
+    printf("                              Auto-detects line endings from first line (CRLF or LF)\n");
+    printf("                              Strips trailing \\r and adds consistent line endings\n");
     printf("  label <name>                Mark current position with label\n");
     printf("  goto <location>             Jump to labeled position\n");
     printf("  view <L1> <L2>              Limit all ops to [min(L1,L2), max(L1,L2))\n");
@@ -493,8 +494,8 @@ static void print_usage(void)
     printf("\n");
     printf("UNITS:\n");
     printf("  b                           Bytes\n");
-    printf("  l                           Lines (LF only, CR treated as bytes)\n");
-    printf("  c                           UTF-8 code points (never splits sequences)\n");
+    printf("  l                           Lines\n");
+    printf("  c                           UTF-8 code points\n");
     printf("\n");
     printf("LABELS:\n");
     printf("  NAME                        UPPERCASE, <16 chars, [A-Z0-9_-] (first must be A-Z)\n");

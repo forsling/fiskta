@@ -579,13 +579,12 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
     } else if (strcmp(cmd, "box") == 0) {
         op->kind = OP_BOX;
 
-        // Parse right_offset (simple number without unit)
+        // Parse right_offset with unit (e.g., "5b" or "10c")
         if (*idx >= token_count)
             return E_PARSE;
         const char* right_token = tokens[*idx];
         (*idx)++;
 
-        // Simple number parsing for box offsets
         i32 right_offset = 0;
         i32 sign = 1;
         const char* p = right_token;
@@ -602,11 +601,25 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
             right_offset = right_offset * 10 + (*p - '0');
             p++;
         }
+
+        // Parse horizontal unit (must be 'b' or 'c')
+        Unit h_unit;
+        if (*p == 'b') {
+            h_unit = UNIT_BYTES;
+            p++;
+        } else if (*p == 'c') {
+            h_unit = UNIT_CHARS;
+            p++;
+        } else {
+            return E_PARSE; // Missing or invalid unit
+        }
         if (*p != '\0')
             return E_PARSE; // Extra characters
-        op->u.box.right_offset = sign * right_offset;
 
-        // Parse down_offset (simple number without unit)
+        op->u.box.right_offset = sign * right_offset;
+        op->u.box.unit = h_unit;
+
+        // Parse down_offset with unit (must end with 'l')
         if (*idx >= token_count)
             return E_PARSE;
         const char* down_token = tokens[*idx];
@@ -628,12 +641,15 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
             down_offset = down_offset * 10 + (*p - '0');
             p++;
         }
+
+        // Vertical unit must be 'l' (lines)
+        if (*p != 'l')
+            return E_PARSE;
+        p++;
         if (*p != '\0')
             return E_PARSE; // Extra characters
-        op->u.box.down_offset = sign * down_offset;
 
-        // Set unit to bytes (box operations are always in bytes)
-        op->u.box.unit = UNIT_BYTES;
+        op->u.box.down_offset = sign * down_offset;
 
         /************************************************************
          * CONTROL OPERATIONS

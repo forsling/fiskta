@@ -63,8 +63,8 @@ content here
 ### Units
 
 - `b` - Bytes
-- `l` - Lines (LF only, CR treated as bytes)
-- `c` - UTF-8 code points (never splits sequences)
+- `l` - Lines
+- `c` - UTF-8 code points
 
 ### Labels
 
@@ -293,20 +293,22 @@ take until:re "\\s+" at line-start       # extract until whitespace, up to line 
 take until:re "\\n\\n"                   # extract until blank line
 ```
 
-#### `box <right_offset> <down_offset>`
+#### `box <right><b|c> <down>l`
 
 Extract a rectangular section from the cursor position. Creates a box of specified width and height, adding newlines after each line segment.
 
-- `right_offset`: bytes to the right (negative = left)
-- `down_offset`: lines down (negative = up)
-- Does not fail when going out of bounds.
-- Always adds newlines (lf) after each line segment
+- `right`: horizontal offset in bytes (`b`) or characters (`c`); negative = left
+- `down`: vertical offset in lines (`l`); negative = up
+- Auto-detects line endings from first line (CRLF or LF)
+- Strips trailing `\r` and adds consistent line endings
+- Does not fail when going out of bounds
 
 ```bash
-box 0 0                    # extract single byte at cursor + newline
-box 2 1                    # extract 3x2 box (3 bytes wide, 2 lines tall)
-box -1 -1                  # extract box going left and up
-box 10 5                   # extract large rectangular section
+box 0b 0l                  # extract single byte at cursor + newline
+box 2b 1l                  # extract 3x2 box (3 bytes wide, 2 lines tall)
+box 5c 2l                  # extract 6 characters wide, 3 lines tall (respects UTF-8)
+box -1b -1l                # extract box going left and up
+box 10b 5l                 # extract large rectangular section
 ```
 
 ### Movement
