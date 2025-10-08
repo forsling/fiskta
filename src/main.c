@@ -2,11 +2,11 @@
 #define _GNU_SOURCE
 #endif
 
-#include "util.h"
 #include "fiskta.h"
 #include "iosearch.h"
 #include "parse_plan.h"
 #include "reprog.h"
+#include "util.h"
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
@@ -29,69 +29,116 @@ static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
     size_t boff = 0;
     i32 ntok = 0;
 
-    enum { S_WS, S_TOKEN, S_SQ, S_DQ } st = S_WS;
+    enum { S_WS,
+        S_TOKEN,
+        S_SQ,
+        S_DQ } st
+        = S_WS;
     const char* p = s;
 
     while (*p) {
         unsigned char c = (unsigned char)*p;
         if (st == S_WS) {
-            if (c == ' ' || c == '\t') { p++; continue; }
+            if (c == ' ' || c == '\t') {
+                p++;
+                continue;
+            }
             if (c == '\'' || c == '"') {
-                if (ntok >= max_tokens) return -1;            // NEW
-                if (boff >= sizeof buf) return -1;            // NEW
+                if (ntok >= max_tokens)
+                    return -1; // NEW
+                if (boff >= sizeof buf)
+                    return -1; // NEW
                 out[ntok] = &buf[boff];
                 st = (c == '\'') ? S_SQ : S_DQ;
                 p++;
                 continue;
             }
             // start token, reprocess this char in S_TOKEN
-            if (ntok >= max_tokens) return -1;                // NEW
-            if (boff >= sizeof buf) return -1;                // NEW
+            if (ntok >= max_tokens)
+                return -1; // NEW
+            if (boff >= sizeof buf)
+                return -1; // NEW
             out[ntok] = &buf[boff];
             st = S_TOKEN;
             continue;
         } else if (st == S_TOKEN) {
             if (c == ' ' || c == '\t') {
-                if (boff >= sizeof buf) return -1;            // NUL safety
+                if (boff >= sizeof buf)
+                    return -1; // NUL safety
                 buf[boff++] = '\0';
                 ntok++;
-                st = S_WS; p++; continue;
+                st = S_WS;
+                p++;
+                continue;
             }
-            if (c == '\'') { st = S_SQ; p++; continue; }
-            if (c == '"')  { st = S_DQ; p++; continue; }
+            if (c == '\'') {
+                st = S_SQ;
+                p++;
+                continue;
+            }
+            if (c == '"') {
+                st = S_DQ;
+                p++;
+                continue;
+            }
             if (c == '\\' && p[1]) {
                 unsigned char next = (unsigned char)p[1];
                 if (next == ' ' || next == '\t' || next == '\\' || next == '\'' || next == '"') {
-                    if (boff >= sizeof buf) return -1;
+                    if (boff >= sizeof buf)
+                        return -1;
                     buf[boff++] = (char)next;
-                    p += 2; continue;
+                    p += 2;
+                    continue;
                 }
             }
-            if (boff >= sizeof buf) return -1;
-            buf[boff++] = (char)c; p++; continue;
+            if (boff >= sizeof buf)
+                return -1;
+            buf[boff++] = (char)c;
+            p++;
+            continue;
         } else if (st == S_SQ) {
-            if (c == '\'') { st = S_TOKEN; p++; continue; }
-            if (boff >= sizeof buf) return -1;
-            buf[boff++] = (char)c; p++; continue;
+            if (c == '\'') {
+                st = S_TOKEN;
+                p++;
+                continue;
+            }
+            if (boff >= sizeof buf)
+                return -1;
+            buf[boff++] = (char)c;
+            p++;
+            continue;
         } else { // S_DQ
-            if (c == '"') { st = S_TOKEN; p++; continue; }
+            if (c == '"') {
+                st = S_TOKEN;
+                p++;
+                continue;
+            }
             if (c == '\\' && p[1]) {
                 unsigned char esc = (unsigned char)p[1];
                 if (esc == '"' || esc == '\\') {
-                    if (boff >= sizeof buf) return -1;
-                    buf[boff++] = (char)esc; p += 2; continue;
+                    if (boff >= sizeof buf)
+                        return -1;
+                    buf[boff++] = (char)esc;
+                    p += 2;
+                    continue;
                 }
             }
-            if (boff >= sizeof buf) return -1;
-            buf[boff++] = (char)c; p++; continue;
+            if (boff >= sizeof buf)
+                return -1;
+            buf[boff++] = (char)c;
+            p++;
+            continue;
         }
     }
 
     if (st == S_TOKEN || st == S_SQ || st == S_DQ) {
-        if (boff >= sizeof buf) return -1;                    // NEW
+        if (boff >= sizeof buf)
+            return -1; // NEW
         buf[boff++] = '\0';
-        if (ntok < max_tokens) ntok++;
-        else return -1;                                       // NEW
+        if (ntok < max_tokens)
+            ntok++;
+        else
+            return -1; // NEW
     }
     return ntok;
 }
@@ -195,7 +242,8 @@ static uint64_t now_millis(void)
 
 static void refresh_file_size(File* io)
 {
-    if (!io || !io->f) return;
+    if (!io || !io->f)
+        return;
 
     int fd = fileno(io->f);
     struct stat st;
@@ -804,7 +852,7 @@ int main(int argc, char** argv)
      * PHASE 1: PREFLIGHT PARSE
      * Analyze operations to determine memory requirements
      ************************************************************/
-    ParsePlan plan = (ParsePlan){0};
+    ParsePlan plan = (ParsePlan) { 0 };
     const char* path = NULL;
     enum Err e = parse_preflight(token_count, tokens, input_path, &plan, &path);
     if (e != E_OK) {
@@ -900,9 +948,9 @@ int main(int argc, char** argv)
      * PHASE 5: BUILD PROGRAM
      * Parse operations into executable program structure
      ************************************************************/
-    Program prg = (Program){0};
+    Program prg = (Program) { 0 };
     e = parse_build(token_count, tokens, input_path, &prg, &path,
-                    clauses_buf, ops_buf, str_pool, str_pool_bytes);
+        clauses_buf, ops_buf, str_pool, str_pool_bytes);
     if (e != E_OK) {
         print_err(e, "parse build");
         free(block);
@@ -1053,4 +1101,3 @@ cleanup:
     free(block);
     return exit_code;
 }
-

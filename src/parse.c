@@ -489,9 +489,9 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
             return err;
         op->u.findr.prog = NULL;
 
-    /************************************************************
-     * MOVEMENT OPERATIONS
-     ************************************************************/
+        /************************************************************
+         * MOVEMENT OPERATIONS
+         ************************************************************/
     } else if (strcmp(cmd, "skip") == 0) {
         op->kind = OP_SKIP;
 
@@ -502,9 +502,9 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
             return err;
         (*idx)++;
 
-    /************************************************************
-     * EXTRACTION OPERATIONS
-     ************************************************************/
+        /************************************************************
+         * EXTRACTION OPERATIONS
+         ************************************************************/
     } else if (strcmp(cmd, "take") == 0) {
         if (*idx >= token_count)
             return E_PARSE;
@@ -640,9 +640,9 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         // Set unit to bytes (box operations are always in bytes)
         op->u.box.unit = UNIT_BYTES;
 
-    /************************************************************
-     * CONTROL OPERATIONS
-     ************************************************************/
+        /************************************************************
+         * CONTROL OPERATIONS
+         ************************************************************/
     } else if (strcmp(cmd, "label") == 0) {
         op->kind = OP_LABEL;
 
@@ -668,9 +668,9 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         if (err != E_OK)
             return err;
 
-    /************************************************************
-     * VIEW OPERATIONS
-     ************************************************************/
+        /************************************************************
+         * VIEW OPERATIONS
+         ************************************************************/
     } else if (strcmp(cmd, "viewset") == 0) {
         op->kind = OP_VIEWSET;
 
@@ -690,9 +690,9 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         op->kind = OP_VIEWCLEAR;
         // No additional parsing needed
 
-    /************************************************************
-     * OUTPUT/UTILITY OPERATIONS
-     ************************************************************/
+        /************************************************************
+         * OUTPUT/UTILITY OPERATIONS
+         ************************************************************/
     } else if (strcmp(cmd, "print") == 0 || strcmp(cmd, "echo") == 0) {
         op->kind = OP_PRINT;
 

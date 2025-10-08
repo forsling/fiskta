@@ -696,7 +696,7 @@ static enum Err get_line_block(File* io, i64 pos, LineBlockIdx** out)
 }
 
 /******************************
- * BOYER-MOORE-HORSPOOL SEARCH 
+ * BOYER-MOORE-HORSPOOL SEARCH
  ******************************/
 
 static enum Err bmh_forward(const unsigned char* text, size_t text_len,

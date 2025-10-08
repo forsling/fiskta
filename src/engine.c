@@ -2,9 +2,9 @@
 #define _GNU_SOURCE
 #endif
 
-#include "util.h"
 #include "fiskta.h"
 #include "iosearch.h"
+#include "util.h"
 #include <errno.h>
 #include <limits.h>
 #include <stdlib.h>
@@ -732,7 +732,8 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         // Find current line start
         i64 current_line_start;
         enum Err err = io_line_start(io, start_pos, &current_line_start);
-        if (err != E_OK) return err;
+        if (err != E_OK)
+            return err;
 
         // Calculate the offset of start_pos within its line
         i64 col_offset = start_pos - current_line_start;
@@ -742,7 +743,8 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         if (down_offset < 0) {
             // Go up by |down_offset| lines
             err = io_step_lines_from(io, current_line_start, (i32)down_offset, &box_start_line);
-            if (err != E_OK) return err;
+            if (err != E_OK)
+                return err;
         }
 
         // Output each line in the box
@@ -752,12 +754,14 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
 
         for (i64 line_idx = 0; line_idx < lines_to_process; line_idx++) {
             // Check if we've reached the end of the file
-            if (current_line >= io_size(io)) break;
+            if (current_line >= io_size(io))
+                break;
 
             // Find line end
             i64 line_end;
             err = io_line_end(io, current_line, &line_end);
-            if (err != E_OK) return err;
+            if (err != E_OK)
+                return err;
 
             // Calculate line bounds for this row based on the column offset
             i64 line_left = current_line + col_offset;
@@ -769,10 +773,14 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
             }
 
             // Clamp to actual line bounds
-            if (line_left < current_line) line_left = current_line;
-            if (line_left > line_end) line_left = line_end;
-            if (line_right > line_end) line_right = line_end;
-            if (line_right < line_left) line_right = line_left;
+            if (line_left < current_line)
+                line_left = current_line;
+            if (line_left > line_end)
+                line_left = line_end;
+            if (line_right > line_end)
+                line_right = line_end;
+            if (line_right < line_left)
+                line_right = line_left;
 
             // Stage this line segment
             if (*range_count >= *range_cap)
@@ -822,7 +830,8 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
             // Move to next line
             if (line_idx < lines_to_process - 1) {
                 err = io_step_lines_from(io, current_line, 1, &current_line);
-                if (err != E_OK) return err;
+                if (err != E_OK)
+                    return err;
             }
         }
 

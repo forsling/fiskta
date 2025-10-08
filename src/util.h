@@ -1,9 +1,9 @@
 #pragma once
 
+#include <errno.h>
 #include <stdalign.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <errno.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -44,7 +44,7 @@ static inline void* arena_alloc(Arena* a, size_t n, size_t align)
 
     if (p > a->cap)
         return NULL;
-    if (n > a->cap - p)        // capacity check without wrap
+    if (n > a->cap - p) // capacity check without wrap
         return NULL;
 
     void* ptr = a->base + p;

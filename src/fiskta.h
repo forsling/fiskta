@@ -12,7 +12,8 @@ typedef int32_t i32;
 typedef uint32_t u32;
 
 // Constants
-enum { MAX_LABELS = 128, MAX_LABEL_LEN = 15 };
+enum { MAX_LABELS = 128,
+    MAX_LABEL_LEN = 15 };
 
 typedef struct {
     const char* bytes;
