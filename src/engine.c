@@ -254,6 +254,553 @@ cleanup:
     return err;
 }
 
+static enum Err print_op(
+    File* io,
+    const Op* op,
+    VM* vm,
+    i64* c_cursor,
+    Match* c_last_match,
+    Range* ranges,
+    i32* range_count,
+    i32 range_cap,
+    LabelWrite* label_writes,
+    i32* label_count,
+    i32 label_cap,
+    const View* c_view)
+{
+    (void)io; (void)vm; (void)c_cursor; (void)c_last_match;
+    (void)label_writes; (void)label_count; (void)label_cap; (void)c_view;
+
+    // Stage literal range
+    if (*range_count >= range_cap)
+        return E_OOM;
+    Range* r = &ranges[(*range_count)++];
+    r->kind = RANGE_LIT;
+    r->lit = op->u.print.string;
+    return E_OK;
+}
+
+static enum Err label_op(
+    File* io,
+    const Op* op,
+    VM* vm,
+    i64* c_cursor,
+    Match* c_last_match,
+    Range* ranges,
+    i32* range_count,
+    i32 range_cap,
+    LabelWrite* label_writes,
+    i32* label_count,
+    i32 label_cap,
+    const View* c_view)
+{
+    (void)io; (void)vm; (void)c_last_match;
+    (void)ranges; (void)range_count; (void)range_cap; (void)c_view;
+
+    // Stage label write
+    if (*label_count >= label_cap)
+        return E_OOM;
+    label_writes[*label_count].name_idx = op->u.label.name_idx;
+    label_writes[*label_count].pos = *c_cursor;
+    (*label_count)++;
+    return E_OK;
+}
+
+static enum Err viewclear_op(
+    File* io,
+    const Op* op,
+    VM* vm,
+    i64* c_cursor,
+    Match* c_last_match,
+    Range* ranges,
+    i32* range_count,
+    i32 range_cap,
+    LabelWrite* label_writes,
+    i32* label_count,
+    i32 label_cap,
+    const View* c_view)
+{
+    (void)op; (void)vm; (void)c_cursor; (void)c_last_match;
+    (void)ranges; (void)range_count; (void)range_cap;
+    (void)label_writes; (void)label_count; (void)label_cap;
+
+    // Stage view deactivation
+    ((View*)c_view)->active = false;
+    ((View*)c_view)->lo = 0;
+    ((View*)c_view)->hi = io_size(io);
+    return E_OK;
+}
+
+static enum Err find_op(
+    File* io,
+    const Op* op,
+    VM* vm,
+    i64* c_cursor,
+    Match* c_last_match,
+    Range* ranges,
+    i32* range_count,
+    i32 range_cap,
+    LabelWrite* label_writes,
+    i32* label_count,
+    i32 label_cap,
+    const View* c_view)
+{
+    (void)ranges; (void)range_count; (void)range_cap;
+    (void)label_writes; (void)label_count; (void)label_cap;
+
+    i64 win_lo, win_hi;
+
+    enum Err err = resolve_loc_expr_cp(&op->u.find.to, io, vm, c_last_match, *c_cursor, label_writes, *label_count, c_view, CLAMP_VIEW, &win_hi);
+    if (err != E_OK)
+        return err;
+
+    win_lo = vclamp(c_view, io, *c_cursor);
+
+    // Determine direction and adjust window
+    enum Dir dir = DIR_FWD;
+    if (win_hi < win_lo) {
+        dir = DIR_BWD;
+        i64 temp = win_lo;
+        win_lo = win_hi;
+        win_hi = temp;
+    }
+
+    i64 ms, me;
+    err = io_find_window(io, win_lo, win_hi,
+        (const unsigned char*)op->u.find.needle.bytes,
+        (size_t)op->u.find.needle.len, dir, &ms, &me);
+    if (err != E_OK)
+        return err;
+
+    c_last_match->start = ms;
+    c_last_match->end = me;
+    c_last_match->valid = true;
+    *c_cursor = ms;
+    return E_OK;
+}
+
+static enum Err findr_op(
+    File* io,
+    const Op* op,
+    VM* vm,
+    i64* c_cursor,
+    Match* c_last_match,
+    Range* ranges,
+    i32* range_count,
+    i32 range_cap,
+    LabelWrite* label_writes,
+    i32* label_count,
+    i32 label_cap,
+    const View* c_view)
+{
+    (void)ranges; (void)range_count; (void)range_cap;
+    (void)label_writes; (void)label_count; (void)label_cap;
+
+    i64 win_lo, win_hi;
+
+    enum Err err = resolve_loc_expr_cp(&op->u.findr.to, io, vm, c_last_match, *c_cursor, label_writes, *label_count, c_view, CLAMP_VIEW, &win_hi);
+    if (err != E_OK)
+        return err;
+
+    win_lo = vclamp(c_view, io, *c_cursor);
+
+    // Determine direction and adjust window
+    enum Dir dir = DIR_FWD;
+    if (win_hi < win_lo) {
+        dir = DIR_BWD;
+        i64 temp = win_lo;
+        win_lo = win_hi;
+        win_hi = temp;
+    }
+
+    i64 ms, me;
+    err = io_findr_window(io, win_lo, win_hi, op->u.findr.prog, dir, &ms, &me);
+    if (err != E_OK)
+        return err;
+
+    c_last_match->start = ms;
+    c_last_match->end = me;
+    c_last_match->valid = true;
+    *c_cursor = ms;
+    return E_OK;
+}
+
+static enum Err skip_op(
+    File* io,
+    const Op* op,
+    VM* vm,
+    i64* c_cursor,
+    Match* c_last_match,
+    Range* ranges,
+    i32* range_count,
+    i32 range_cap,
+    LabelWrite* label_writes,
+    i32* label_count,
+    i32 label_cap,
+    const View* c_view)
+{
+    (void)vm; (void)c_last_match;
+    (void)ranges; (void)range_count; (void)range_cap;
+    (void)label_writes; (void)label_count; (void)label_cap;
+
+    if (op->u.skip.unit == UNIT_BYTES) {
+        i64 cur = vclamp(c_view, io, *c_cursor);
+        if (op->u.skip.n > (u64)INT64_MAX) {
+            cur = veof(c_view, io);
+        } else {
+            apply_byte_saturation(&cur, (i64)op->u.skip.n, c_view, io, CLAMP_VIEW);
+        }
+        *c_cursor = cur;
+    } else if (op->u.skip.unit == UNIT_LINES) {
+        // Skip by lines
+        i64 current_line_start;
+        enum Err err = io_line_start(io, *c_cursor, &current_line_start);
+        if (err != E_OK)
+            return err;
+
+        // Pin to view bounds
+        if (current_line_start < vbof(c_view))
+            current_line_start = vbof(c_view);
+
+        if (op->u.skip.n > (u64)INT_MAX)
+            return E_PARSE;
+        err = io_step_lines_from(io, current_line_start,
+            (i32)op->u.skip.n, c_cursor);
+        if (err != E_OK)
+            return err;
+        *c_cursor = vclamp(c_view, io, *c_cursor);
+    } else { // UNIT_CHARS
+        if (op->u.skip.n > INT_MAX)
+            return E_PARSE;
+        i64 char_start;
+        enum Err err = io_char_start(io, *c_cursor, &char_start);
+        if (err != E_OK)
+            return err;
+        err = io_step_chars_from(io, char_start, (i32)op->u.skip.n, c_cursor);
+        if (err != E_OK)
+            return err;
+        *c_cursor = vclamp(c_view, io, *c_cursor);
+    }
+    return E_OK;
+}
+
+static enum Err goto_op(
+    File* io,
+    const Op* op,
+    VM* vm,
+    i64* c_cursor,
+    Match* c_last_match,
+    Range* ranges,
+    i32* range_count,
+    i32 range_cap,
+    LabelWrite* label_writes,
+    i32* label_count,
+    i32 label_cap,
+    const View* c_view)
+{
+    (void)ranges; (void)range_count; (void)range_cap;
+
+    enum Err err = resolve_loc_expr_cp(&op->u.go.to, io, vm, c_last_match, *c_cursor, label_writes, *label_count, c_view, CLAMP_NONE, c_cursor);
+    if (err != E_OK)
+        return err;
+
+    // Check if target is outside view bounds
+    if (c_view->active && (*c_cursor < c_view->lo || *c_cursor > c_view->hi)) {
+        return E_LOC_RESOLVE;
+    }
+
+    *c_cursor = clamp64(*c_cursor, 0, io_size(io));
+    return E_OK;
+}
+
+static enum Err viewset_op(
+    File* io,
+    const Op* op,
+    VM* vm,
+    i64* c_cursor,
+    Match* c_last_match,
+    Range* ranges,
+    i32* range_count,
+    i32 range_cap,
+    LabelWrite* label_writes,
+    i32* label_count,
+    i32 label_cap,
+    const View* c_view)
+{
+    (void)ranges; (void)range_count; (void)range_cap;
+
+    i64 a, b;
+    enum Err err = resolve_loc_expr_cp(&op->u.viewset.a, io, vm, c_last_match, *c_cursor, label_writes, *label_count, c_view, CLAMP_VIEW, &a);
+    if (err != E_OK)
+        return err;
+    err = resolve_loc_expr_cp(&op->u.viewset.b, io, vm, c_last_match, *c_cursor, label_writes, *label_count, c_view, CLAMP_VIEW, &b);
+    if (err != E_OK)
+        return err;
+
+    i64 lo = a < b ? a : b;
+    i64 hi = a < b ? b : a;
+
+    // Stage view activation
+    ((View*)c_view)->active = true;
+    ((View*)c_view)->lo = lo;
+    ((View*)c_view)->hi = hi;
+
+    // Clamp cursor into new view
+    *c_cursor = vclamp(c_view, io, *c_cursor);
+
+    // Invalidate staged match if it straddles the view
+    if (c_last_match->valid && (c_last_match->start < lo || c_last_match->end > hi)) {
+        c_last_match->valid = false;
+    }
+    return E_OK;
+}
+
+static enum Err take_len_op(
+    File* io,
+    const Op* op,
+    VM* vm,
+    i64* c_cursor,
+    Match* c_last_match,
+    Range* ranges,
+    i32* range_count,
+    i32 range_cap,
+    LabelWrite* label_writes,
+    i32* label_count,
+    i32 label_cap,
+    const View* c_view)
+{
+    (void)vm; (void)c_last_match;
+    (void)label_writes; (void)label_count; (void)label_cap;
+
+    i64 start, end;
+
+    if (op->u.take_len.unit == UNIT_BYTES) {
+        if (op->u.take_len.offset > 0) {
+            start = vclamp(c_view, io, *c_cursor);
+            end = start;
+            apply_byte_saturation(&end, op->u.take_len.offset, c_view, io, CLAMP_VIEW);
+        } else {
+            end = vclamp(c_view, io, *c_cursor);
+            start = end;
+            apply_byte_saturation(&start, op->u.take_len.offset, c_view, io, CLAMP_VIEW);
+            start = clamp64(start, vbof(c_view), end);
+        }
+    } else if (op->u.take_len.unit == UNIT_LINES) {
+        // Take by lines
+        i64 line_start;
+        enum Err err = io_line_start(io, *c_cursor, &line_start);
+        if (err != E_OK)
+            return err;
+
+        // Pin to view bounds
+        if (line_start < vbof(c_view))
+            line_start = vbof(c_view);
+
+        if (op->u.take_len.offset > 0) {
+            start = line_start;
+            if (op->u.take_len.offset > INT_MAX)
+                return E_PARSE;
+            err = io_step_lines_from(io, line_start,
+                (i32)op->u.take_len.offset, &end);
+            if (err != E_OK)
+                return err;
+            end = vclamp(c_view, io, end);
+        } else {
+            end = line_start;
+            if (op->u.take_len.offset < -INT_MAX)
+                return E_PARSE;
+            err = io_step_lines_from(io, line_start,
+                (i32)op->u.take_len.offset, &start);
+            if (err != E_OK)
+                return err;
+            start = clamp64(start, vbof(c_view), end);
+        }
+    } else { // UNIT_CHARS
+        if (op->u.take_len.offset > INT_MAX || op->u.take_len.offset < -INT_MAX)
+            return E_PARSE;
+        i64 cstart;
+        enum Err err = io_char_start(io, *c_cursor, &cstart);
+        if (err != E_OK)
+            return err;
+        if (op->u.take_len.offset > 0) {
+            start = cstart;
+            err = io_step_chars_from(io, cstart, (i32)op->u.take_len.offset, &end);
+            if (err != E_OK)
+                return err;
+            end = vclamp(c_view, io, end);
+        } else {
+            end = cstart;
+            i64 s;
+            err = io_step_chars_from(io, cstart, (i32)op->u.take_len.offset, &s);
+            if (err != E_OK)
+                return err;
+            start = clamp64(s, vbof(c_view), end);
+        }
+    }
+
+    // Stage the range
+    if (*range_count >= range_cap)
+        return E_OOM;
+    ranges[*range_count].kind = RANGE_FILE;
+    ranges[*range_count].file.start = start;
+    ranges[*range_count].file.end = end;
+    (*range_count)++;
+    if (start != end) {
+        *c_cursor = start > end ? start : end;
+    }
+    return E_OK;
+}
+
+static enum Err take_to_op(
+    File* io,
+    const Op* op,
+    VM* vm,
+    i64* c_cursor,
+    Match* c_last_match,
+    Range* ranges,
+    i32* range_count,
+    i32 range_cap,
+    LabelWrite* label_writes,
+    i32* label_count,
+    i32 label_cap,
+    const View* c_view)
+{
+    i64 target;
+    enum Err err = resolve_loc_expr_cp(&op->u.take_to.to, io, vm, c_last_match, *c_cursor, label_writes, *label_count, c_view, CLAMP_VIEW, &target);
+    if (err != E_OK)
+        return err;
+
+    i64 start = vclamp(c_view, io, *c_cursor);
+    i64 end = vclamp(c_view, io, target);
+
+    // Order-normalized emit
+    if (start > end) {
+        i64 temp = start;
+        start = end;
+        end = temp;
+    }
+
+    // Stage the range
+    if (*range_count >= range_cap)
+        return E_OOM;
+    ranges[*range_count].kind = RANGE_FILE;
+    ranges[*range_count].file.start = start;
+    ranges[*range_count].file.end = end;
+    (*range_count)++;
+
+    if (start != end) {
+        *c_cursor = vclamp(c_view, io, end);
+    }
+    return E_OK;
+}
+
+static enum Err take_until_op(
+    File* io,
+    const Op* op,
+    VM* vm,
+    i64* c_cursor,
+    Match* c_last_match,
+    Range* ranges,
+    i32* range_count,
+    i32 range_cap,
+    LabelWrite* label_writes,
+    i32* label_count,
+    i32 label_cap,
+    const View* c_view)
+{
+    // Search forward from cursor to view end
+    i64 ms, me;
+    enum Err err = io_find_window(io, vclamp(c_view, io, *c_cursor), veof(c_view, io),
+        (const unsigned char*)op->u.take_until.needle.bytes,
+        (size_t)op->u.take_until.needle.len, DIR_FWD, &ms, &me);
+    if (err != E_OK)
+        return err;
+
+    // Update staged match
+    c_last_match->start = ms;
+    c_last_match->end = me;
+    c_last_match->valid = true;
+
+    i64 target;
+    if (op->u.take_until.has_at) {
+        err = resolve_loc_expr_cp(&op->u.take_until.at, io, vm, c_last_match, ms,
+            label_writes, *label_count, c_view, CLAMP_VIEW, &target);
+        if (err != E_OK)
+            return err;
+    } else {
+        target = ms;
+    }
+
+    i64 dst = vclamp(c_view, io, target);
+
+    // Stage [cursor, dst) ONLY (no order-normalization)
+    if (*range_count >= range_cap)
+        return E_OOM;
+    ranges[*range_count].kind = RANGE_FILE;
+    ranges[*range_count].file.start = vclamp(c_view, io, *c_cursor);
+    ranges[*range_count].file.end = dst;
+    (*range_count)++;
+
+    // Move cursor only if non-empty
+    if (dst > *c_cursor) {
+        *c_cursor = dst;
+    }
+    return E_OK;
+}
+
+static enum Err take_until_re_op(
+    File* io,
+    const Op* op,
+    VM* vm,
+    i64* c_cursor,
+    Match* c_last_match,
+    Range* ranges,
+    i32* range_count,
+    i32 range_cap,
+    LabelWrite* label_writes,
+    i32* label_count,
+    i32 label_cap,
+    const View* c_view)
+{
+    // Search forward from cursor to view end using regex
+    i64 ms, me;
+    enum Err err = io_findr_window(io, vclamp(c_view, io, *c_cursor), veof(c_view, io),
+        op->u.take_until_re.prog, DIR_FWD, &ms, &me);
+    if (err != E_OK)
+        return err;
+
+    // Update staged match
+    c_last_match->start = ms;
+    c_last_match->end = me;
+    c_last_match->valid = true;
+
+    i64 target;
+    if (op->u.take_until_re.has_at) {
+        err = resolve_loc_expr_cp(&op->u.take_until_re.at, io, vm, c_last_match, ms,
+            label_writes, *label_count, c_view, CLAMP_VIEW, &target);
+        if (err != E_OK)
+            return err;
+    } else {
+        target = ms;
+    }
+
+    i64 dst = vclamp(c_view, io, target);
+
+    // Stage [cursor, dst) ONLY (no order-normalization)
+    if (*range_count >= range_cap)
+        return E_OOM;
+    ranges[*range_count].kind = RANGE_FILE;
+    ranges[*range_count].file.start = vclamp(c_view, io, *c_cursor);
+    ranges[*range_count].file.end = dst;
+    (*range_count)++;
+
+    // Move cursor only if non-empty
+    if (dst > *c_cursor) {
+        *c_cursor = dst;
+    }
+    return E_OK;
+}
+
 static enum Err box_op(
     File* io,
     const Op* op,
@@ -505,401 +1052,35 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
     const View* c_view)
 {
     switch (op->kind) {
-    /********************
-     * SEARCH OPERATIONS
-     ********************/
-    case OP_FIND: {
-        i64 win_lo, win_hi;
-
-        enum Err err = resolve_loc_expr_cp(&op->u.find.to, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_VIEW, &win_hi);
-        if (err != E_OK)
-            return err;
-
-        win_lo = vclamp(c_view, io, *c_cursor);
-
-        // Determine direction and adjust window
-        enum Dir dir = DIR_FWD;
-        if (win_hi < win_lo) {
-            dir = DIR_BWD;
-            i64 temp = win_lo;
-            win_lo = win_hi;
-            win_hi = temp;
-        }
-
-        i64 ms, me;
-        err = io_find_window(io, win_lo, win_hi,
-            (const unsigned char*)op->u.find.needle.bytes,
-            (size_t)op->u.find.needle.len, dir, &ms, &me);
-        if (err != E_OK)
-            return err;
-
-        c_last_match->start = ms;
-        c_last_match->end = me;
-        c_last_match->valid = true;
-        *c_cursor = ms;
-        break;
-    }
-
-    case OP_FIND_RE: {
-        i64 win_lo, win_hi;
-
-        enum Err err = resolve_loc_expr_cp(&op->u.findr.to, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_VIEW, &win_hi);
-        if (err != E_OK)
-            return err;
-
-        win_lo = vclamp(c_view, io, *c_cursor);
-
-        // Determine direction and adjust window
-        enum Dir dir = DIR_FWD;
-        if (win_hi < win_lo) {
-            dir = DIR_BWD;
-            i64 temp = win_lo;
-            win_lo = win_hi;
-            win_hi = temp;
-        }
-
-        i64 ms, me;
-        err = io_findr_window(io, win_lo, win_hi, op->u.findr.prog, dir, &ms, &me);
-        if (err != E_OK)
-            return err;
-
-        c_last_match->start = ms;
-        c_last_match->end = me;
-        c_last_match->valid = true;
-        *c_cursor = ms;
-        break;
-    }
-
-    /**********************
-     * MOVEMENT OPERATIONS
-     **********************/
-    case OP_SKIP: {
-        if (op->u.skip.unit == UNIT_BYTES) {
-            i64 cur = vclamp(c_view, io, *c_cursor);
-            if (op->u.skip.n > (u64)INT64_MAX) {
-                cur = veof(c_view, io);
-            } else {
-                apply_byte_saturation(&cur, (i64)op->u.skip.n, c_view, io, CLAMP_VIEW);
-            }
-            *c_cursor = cur;
-        } else if (op->u.skip.unit == UNIT_LINES) {
-            // Skip by lines
-            i64 current_line_start;
-            enum Err err = io_line_start(io, *c_cursor, &current_line_start);
-            if (err != E_OK)
-                return err;
-
-            // Pin to view bounds
-            if (current_line_start < vbof(c_view))
-                current_line_start = vbof(c_view);
-
-            if (op->u.skip.n > (u64)INT_MAX)
-                return E_PARSE;
-            err = io_step_lines_from(io, current_line_start,
-                (i32)op->u.skip.n, c_cursor);
-            if (err != E_OK)
-                return err;
-            *c_cursor = vclamp(c_view, io, *c_cursor);
-        } else { // UNIT_CHARS
-            if (op->u.skip.n > INT_MAX)
-                return E_PARSE;
-            i64 char_start;
-            enum Err err = io_char_start(io, *c_cursor, &char_start);
-            if (err != E_OK)
-                return err;
-            err = io_step_chars_from(io, char_start, (i32)op->u.skip.n, c_cursor);
-            if (err != E_OK)
-                return err;
-            *c_cursor = vclamp(c_view, io, *c_cursor);
-        }
-        break;
-    }
-
-    /************************
-     * EXTRACTION OPERATIONS
-     ************************/
-    case OP_TAKE_LEN: {
-        i64 start, end;
-
-        if (op->u.take_len.unit == UNIT_BYTES) {
-            if (op->u.take_len.offset > 0) {
-                start = vclamp(c_view, io, *c_cursor);
-                end = start;
-                apply_byte_saturation(&end, op->u.take_len.offset, c_view, io, CLAMP_VIEW);
-            } else {
-                end = vclamp(c_view, io, *c_cursor);
-                start = end;
-                apply_byte_saturation(&start, op->u.take_len.offset, c_view, io, CLAMP_VIEW);
-                start = clamp64(start, vbof(c_view), end);
-            }
-        } else if (op->u.take_len.unit == UNIT_LINES) {
-            // Take by lines
-            i64 line_start;
-            enum Err err = io_line_start(io, *c_cursor, &line_start);
-            if (err != E_OK)
-                return err;
-
-            // Pin to view bounds
-            if (line_start < vbof(c_view))
-                line_start = vbof(c_view);
-
-            if (op->u.take_len.offset > 0) {
-                start = line_start;
-                if (op->u.take_len.offset > INT_MAX)
-                    return E_PARSE;
-                err = io_step_lines_from(io, line_start,
-                    (i32)op->u.take_len.offset, &end);
-                if (err != E_OK)
-                    return err;
-                end = vclamp(c_view, io, end);
-            } else {
-                end = line_start;
-                if (op->u.take_len.offset < -INT_MAX)
-                    return E_PARSE;
-                err = io_step_lines_from(io, line_start,
-                    (i32)op->u.take_len.offset, &start);
-                if (err != E_OK)
-                    return err;
-                start = clamp64(start, vbof(c_view), end);
-            }
-        } else { // UNIT_CHARS
-            if (op->u.take_len.offset > INT_MAX || op->u.take_len.offset < -INT_MAX)
-                return E_PARSE;
-            i64 cstart;
-            enum Err err = io_char_start(io, *c_cursor, &cstart);
-            if (err != E_OK)
-                return err;
-            if (op->u.take_len.offset > 0) {
-                start = cstart;
-                err = io_step_chars_from(io, cstart, (i32)op->u.take_len.offset, &end);
-                if (err != E_OK)
-                    return err;
-                end = vclamp(c_view, io, end);
-            } else {
-                end = cstart;
-                i64 s;
-                err = io_step_chars_from(io, cstart, (i32)op->u.take_len.offset, &s);
-                if (err != E_OK)
-                    return err;
-                start = clamp64(s, vbof(c_view), end);
-            }
-        }
-
-        // Stage the range
-        if (*range_count >= *range_cap)
-            return E_OOM;
-        (*ranges)[*range_count].kind = RANGE_FILE;
-        (*ranges)[*range_count].file.start = start;
-        (*ranges)[*range_count].file.end = end;
-        (*range_count)++;
-        if (start != end) {
-            *c_cursor = start > end ? start : end;
-        }
-        break;
-    }
-
-    case OP_TAKE_TO: {
-        i64 target;
-        enum Err err = resolve_loc_expr_cp(&op->u.take_to.to, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_VIEW, &target);
-        if (err != E_OK)
-            return err;
-
-        i64 start = vclamp(c_view, io, *c_cursor);
-        i64 end = vclamp(c_view, io, target);
-
-        // Order-normalized emit
-        if (start > end) {
-            i64 temp = start;
-            start = end;
-            end = temp;
-        }
-
-        // Stage the range
-        if (*range_count >= *range_cap)
-            return E_OOM;
-        (*ranges)[*range_count].kind = RANGE_FILE;
-        (*ranges)[*range_count].file.start = start;
-        (*ranges)[*range_count].file.end = end;
-        (*range_count)++;
-
-        if (start != end) {
-            *c_cursor = vclamp(c_view, io, end);
-        }
-        break;
-    }
-
-    case OP_TAKE_UNTIL: {
-        // Search forward from cursor to view end
-        i64 ms, me;
-        enum Err err = io_find_window(io, vclamp(c_view, io, *c_cursor), veof(c_view, io),
-            (const unsigned char*)op->u.take_until.needle.bytes,
-            (size_t)op->u.take_until.needle.len, DIR_FWD, &ms, &me);
-        if (err != E_OK)
-            return err;
-
-        // Update staged match
-        c_last_match->start = ms;
-        c_last_match->end = me;
-        c_last_match->valid = true;
-
-        i64 target;
-        if (op->u.take_until.has_at) {
-            err = resolve_loc_expr_cp(&op->u.take_until.at, io, vm, c_last_match, ms,
-                *label_writes, *label_count, c_view, CLAMP_VIEW, &target);
-            if (err != E_OK)
-                return err;
-        } else {
-            target = ms;
-        }
-
-        i64 dst = vclamp(c_view, io, target);
-
-        // Stage [cursor, dst) ONLY (no order-normalization)
-        if (*range_count >= *range_cap)
-            return E_OOM;
-        (*ranges)[*range_count].kind = RANGE_FILE;
-        (*ranges)[*range_count].file.start = vclamp(c_view, io, *c_cursor);
-        (*ranges)[*range_count].file.end = dst;
-        (*range_count)++;
-
-        // Move cursor only if non-empty
-        if (dst > *c_cursor) {
-            *c_cursor = dst;
-        }
-        break;
-    }
-
-    case OP_TAKE_UNTIL_RE: {
-        // Search forward from cursor to view end using regex
-        i64 ms, me;
-        enum Err err = io_findr_window(io, vclamp(c_view, io, *c_cursor), veof(c_view, io),
-            op->u.take_until_re.prog, DIR_FWD, &ms, &me);
-        if (err != E_OK)
-            return err;
-
-        // Update staged match
-        c_last_match->start = ms;
-        c_last_match->end = me;
-        c_last_match->valid = true;
-
-        i64 target;
-        if (op->u.take_until_re.has_at) {
-            err = resolve_loc_expr_cp(&op->u.take_until_re.at, io, vm, c_last_match, ms,
-                *label_writes, *label_count, c_view, CLAMP_VIEW, &target);
-            if (err != E_OK)
-                return err;
-        } else {
-            target = ms;
-        }
-
-        i64 dst = vclamp(c_view, io, target);
-
-        // Stage [cursor, dst) ONLY (no order-normalization)
-        if (*range_count >= *range_cap)
-            return E_OOM;
-        (*ranges)[*range_count].kind = RANGE_FILE;
-        (*ranges)[*range_count].file.start = vclamp(c_view, io, *c_cursor);
-        (*ranges)[*range_count].file.end = dst;
-        (*range_count)++;
-
-        // Move cursor only if non-empty
-        if (dst > *c_cursor) {
-            *c_cursor = dst;
-        }
-        break;
-    }
-
-    /*********************
-     * CONTROL OPERATIONS
-     *********************/
-    case OP_LABEL: {
-        // Stage label write
-        if (*label_count >= *label_cap)
-            return E_OOM;
-        (*label_writes)[*label_count].name_idx = op->u.label.name_idx;
-        (*label_writes)[*label_count].pos = *c_cursor;
-        (*label_count)++;
-        break;
-    }
-
-    case OP_GOTO: {
-        enum Err err = resolve_loc_expr_cp(&op->u.go.to, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_NONE, c_cursor);
-        if (err != E_OK)
-            return err;
-
-        // Check if target is outside view bounds
-        if (c_view->active && (*c_cursor < c_view->lo || *c_cursor > c_view->hi)) {
-            return E_LOC_RESOLVE;
-        }
-
-        *c_cursor = clamp64(*c_cursor, 0, io_size(io));
-        break;
-    }
-
-    case OP_VIEWSET: {
-        i64 a, b;
-        enum Err err = resolve_loc_expr_cp(&op->u.viewset.a, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_VIEW, &a);
-        if (err != E_OK)
-            return err;
-        err = resolve_loc_expr_cp(&op->u.viewset.b, io, vm, c_last_match, *c_cursor, *label_writes, *label_count, c_view, CLAMP_VIEW, &b);
-        if (err != E_OK)
-            return err;
-
-        i64 lo = a < b ? a : b;
-        i64 hi = a < b ? b : a;
-
-        // Stage view activation
-        ((View*)c_view)->active = true;
-        ((View*)c_view)->lo = lo;
-        ((View*)c_view)->hi = hi;
-
-        // Clamp cursor into new view
-        *c_cursor = vclamp(c_view, io, *c_cursor);
-
-        // Invalidate staged match if it straddles the view
-        if (c_last_match->valid && (c_last_match->start < lo || c_last_match->end > hi)) {
-            c_last_match->valid = false;
-        }
-        break;
-    }
-
-    case OP_VIEWCLEAR: {
-        // Stage view deactivation
-        ((View*)c_view)->active = false;
-        ((View*)c_view)->lo = 0;
-        ((View*)c_view)->hi = io_size(io);
-        break;
-    }
-
-    /********************
-     * OUTPUT OPERATIONS
-     ********************/
-    case OP_PRINT: {
-        // Stage literal range
-        if (*range_count >= *range_cap)
-            return E_OOM;
-        Range* r = &(*ranges)[(*range_count)++];
-        r->kind = RANGE_LIT;
-        r->lit = op->u.print.string;
-        break;
-    }
-
-    /*****************************************
-     * BOX EXTRACTION (Rectangular selection)
-     *****************************************/
-    case OP_BOX: {
-        enum Err err = box_op(io, op, *c_cursor, c_view, c_cursor,
-            *ranges, range_count, *range_cap);
-        if (err != E_OK)
-            return err;
-        break;
-    }
-
+    case OP_FIND:
+        return find_op(io, op, vm, c_cursor, c_last_match, *ranges, range_count, *range_cap, *label_writes, label_count, *label_cap, c_view);
+    case OP_FIND_RE:
+        return findr_op(io, op, vm, c_cursor, c_last_match, *ranges, range_count, *range_cap, *label_writes, label_count, *label_cap, c_view);
+    case OP_SKIP:
+        return skip_op(io, op, vm, c_cursor, c_last_match, *ranges, range_count, *range_cap, *label_writes, label_count, *label_cap, c_view);
+    case OP_GOTO:
+        return goto_op(io, op, vm, c_cursor, c_last_match, *ranges, range_count, *range_cap, *label_writes, label_count, *label_cap, c_view);
+    case OP_TAKE_LEN:
+        return take_len_op(io, op, vm, c_cursor, c_last_match, *ranges, range_count, *range_cap, *label_writes, label_count, *label_cap, c_view);
+    case OP_TAKE_TO:
+        return take_to_op(io, op, vm, c_cursor, c_last_match, *ranges, range_count, *range_cap, *label_writes, label_count, *label_cap, c_view);
+    case OP_TAKE_UNTIL:
+        return take_until_op(io, op, vm, c_cursor, c_last_match, *ranges, range_count, *range_cap, *label_writes, label_count, *label_cap, c_view);
+    case OP_TAKE_UNTIL_RE:
+        return take_until_re_op(io, op, vm, c_cursor, c_last_match, *ranges, range_count, *range_cap, *label_writes, label_count, *label_cap, c_view);
+    case OP_LABEL:
+        return label_op(io, op, vm, c_cursor, c_last_match, *ranges, range_count, *range_cap, *label_writes, label_count, *label_cap, c_view);
+    case OP_VIEWSET:
+        return viewset_op(io, op, vm, c_cursor, c_last_match, *ranges, range_count, *range_cap, *label_writes, label_count, *label_cap, c_view);
+    case OP_VIEWCLEAR:
+        return viewclear_op(io, op, vm, c_cursor, c_last_match, *ranges, range_count, *range_cap, *label_writes, label_count, *label_cap, c_view);
+    case OP_PRINT:
+        return print_op(io, op, vm, c_cursor, c_last_match, *ranges, range_count, *range_cap, *label_writes, label_count, *label_cap, c_view);
+    case OP_BOX:
+        return box_op(io, op, *c_cursor, c_view, c_cursor, *ranges, range_count, *range_cap);
     default:
         return E_PARSE;
     }
-
-    return E_OK;
 }
 
 static enum Err resolve_loc_expr_cp(
