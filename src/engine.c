@@ -215,7 +215,7 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
         LabelWrite* lw_tmp = (lc > 0) ? labels_buf : NULL;
 
         StagedResult result;
-        err = execute_clause_stage_only(&prg->clauses[i], &io, &vm,
+        err = stage_clause(&prg->clauses[i], &io, &vm,
             r_tmp, rc, lw_tmp, lc, &result);
         if (err == E_OK) {
             // Commit staged ranges to output
@@ -890,7 +890,7 @@ static enum Err box_op(
     return E_OK;
 }
 
-enum Err execute_clause_stage_only(const Clause* clause,
+enum Err stage_clause(const Clause* clause,
     void* io_ptr, VM* vm,
     Range* ranges, i32 ranges_cap,
     LabelWrite* label_writes, i32 label_cap,
@@ -927,39 +927,6 @@ enum Err execute_clause_stage_only(const Clause* clause,
     return err;
 }
 
-enum Err execute_clause_with_scratch(const Clause* clause,
-    void* io_ptr, VM* vm, FILE* out,
-    Range* ranges, i32 ranges_cap,
-    LabelWrite* label_writes, i32 label_cap)
-{
-    StagedResult result;
-    enum Err err = execute_clause_stage_only(clause, io_ptr, vm,
-        ranges, ranges_cap, label_writes, label_cap, &result);
-
-    if (err == E_OK) {
-        // Commit staged ranges to output
-        for (i32 i = 0; i < result.range_count; i++) {
-            if (result.ranges[i].kind == RANGE_FILE) {
-                err = io_emit((File*)io_ptr, result.ranges[i].file.start, result.ranges[i].file.end, out);
-            } else {
-                // RANGE_LIT: write literal bytes
-                if ((size_t)fwrite(result.ranges[i].lit.bytes, 1, (size_t)result.ranges[i].lit.len, out) != (size_t)result.ranges[i].lit.len)
-                    err = E_IO;
-            }
-            if (err != E_OK)
-                break;
-        }
-        if (err == E_OK) {
-            // Commit staged VM state
-            commit_labels(vm, result.label_writes, result.label_count);
-            vm->cursor = result.staged_vm.cursor;
-            vm->last_match = result.staged_vm.last_match;
-            vm->view = result.staged_vm.view; // commit view only on clause success
-        }
-    }
-
-    return err;
-}
 
 static enum Err execute_op(const Op* op, File* io, VM* vm,
     i64* c_cursor, Match* c_last_match,

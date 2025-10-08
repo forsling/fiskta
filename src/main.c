@@ -376,7 +376,7 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
         Range* r_tmp = (rc > 0) ? clause_ranges : NULL;
         LabelWrite* lw_tmp = (lc > 0) ? clause_labels : NULL;
 
-        enum Err e = execute_clause_stage_only(&prg->clauses[ci], io, vm_exec,
+        enum Err e = stage_clause(&prg->clauses[ci], io, vm_exec,
             r_tmp, rc, lw_tmp, lc, &result);
         if (e == E_OK) {
             // Commit staged ranges to output
