@@ -54,7 +54,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 4. **VM state**: The `VM` struct maintains cursor position, last match location, view boundaries, and label positions. Clauses operate on staged copies.
 
-5. **View restrictions**: `viewset` operations limit all subsequent operations to a file region, providing scoped extraction boundaries.
+5. **View restrictions**: `view` operations limit all subsequent operations to a file region, providing scoped extraction boundaries.
 
 6. **Streaming search**: `iosearch.c` handles pattern matching with windowed buffering (8MB forward windows, 4MB backward blocks) and overlap regions to handle patterns spanning buffer boundaries.
 

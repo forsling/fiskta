@@ -54,8 +54,8 @@ content here
 **Navigation:**
 - `label <name>` - Mark current position with label
 - `goto <location>` - Jump to labeled position
-- `viewset <L1> <L2>` - Limit all ops to `[min(L1,L2), max(L1,L2))`
-- `viewclear` - Clear view; return to full file
+- `view <L1> <L2>` - Limit all ops to `[min(L1,L2), max(L1,L2))`
+- `clear view` - Clear view; return to full file
 
 **Utilities:**
 - `sleep <duration>` - Pause execution; duration suffix ms or s (e.g., 500ms, 1s)
@@ -198,7 +198,6 @@ make test         # Run test suite (requires Python 3)
 zig build                    # Build for host platform (zig-out/bin/fiskta)
 zig build test               # Build and run test suite
 zig build all                # Build for all platforms (Linux, macOS, Windows)
-zig build -Doptimize=ReleaseSmall  # Optimize for size
 ```
 
 ## Command Reference
@@ -357,24 +356,24 @@ label END-OF-HEADER
 
 ### Views
 
-#### `viewset <location1> <location2>`
+#### `view <location1> <location2>`
 
 Restrict all subsequent operations to the range `[min(loc1, loc2), max(loc1, loc2))`. View boundaries are order-normalized.
 
 Operations will fail if they try to move outside the view. View changes are staged and committed atomically with the clause.
 
 ```bash
-viewset BOF+100b EOF-100b        # exclude first/last 100 bytes
-viewset cursor cursor+1000b      # limit to next 1000 bytes
-viewset SECTION_START SECTION_END # limit to labeled section
+view BOF+100b EOF-100b        # exclude first/last 100 bytes
+view cursor cursor+1000b      # limit to next 1000 bytes
+view SECTION_START SECTION_END # limit to labeled section
 ```
 
-#### `viewclear`
+#### `clear view`
 
 Remove view restrictions, returning to full file access.
 
 ```bash
-viewclear
+clear view
 ```
 
 ### Utilities
@@ -452,13 +451,13 @@ Views let you restrict operations to a specific region of the file. This is usef
 
 ```bash
 # Limit operations to bytes 100-200
-fiskta --input data.txt viewset BOF+100b BOF+200b take to EOF
+fiskta --input data.txt view BOF+100b BOF+200b take to EOF
 
 # Extract only from the [server] section
 fiskta --input config.ini \
     find "[server]" skip to line-end label START \
     find "[" label END \
-    viewset START END \
+    view START END \
     find "port" take to line-end
 ```
 
@@ -468,7 +467,7 @@ Views are part of clause atomicity. If a clause fails, view changes are rolled b
 
 ```bash
 # View is only set if find succeeds
-find "[section]" AND viewset cursor cursor+1000b
+find "[section]" AND view cursor cursor+1000b
 ```
 
 ### View Scope
@@ -477,16 +476,16 @@ Once a view is set:
 - `find` and `find:re` only search within the view
 - `take` and `skip` can't move outside the view
 - `goto` fails if the target is outside the view
-- The view remains active until `viewclear` or program ends
+- The view remains active until `clear view` or program ends
 
 ### Nested Views
 
 You can't nest views, but you can replace them:
 
 ```bash
-viewset BOF EOF-1000b    # exclude last 1000 bytes
+view BOF EOF-1000b    # exclude last 1000 bytes
 # ... do stuff ...
-viewset BOF EOF          # back to full file
+view BOF EOF          # back to full file
 ```
 
 ## Common Patterns
@@ -495,7 +494,7 @@ viewset BOF EOF          # back to full file
 ```bash
 find "[database]" skip to line-end label S \
 find "[" label E \
-viewset S E \
+view S E \
 label LOOP \
 find "=" take to line-end \
 goto LOOP
@@ -504,7 +503,7 @@ goto LOOP
 **Limit search scope:**
 ```bash
 # Only look in next 1000 bytes for pattern
-viewset cursor cursor+1000b find "marker"
+view cursor cursor+1000b find "marker"
 ```
 
 ## Examples
@@ -577,7 +576,7 @@ Problem: Extract all config values from the `[database]` section only
 ```bash
 fiskta --input config.ini \
     find "[database]" skip to line-end \
-    viewset cursor cursor+1000b \
+    view cursor cursor+1000b \
     label LOOP \
     find "=" skip -1l take to line-end \
     goto LOOP
@@ -601,8 +600,8 @@ Take           = "take" ( SignedNumber Unit
                           | "until" ":" "re" String [ "at" AtExpr ] ) .
 Label          = "label" Name .
 Goto           = "goto" LocationExpr .
-Viewset        = "viewset" LocationExpr LocationExpr .
-Viewclear      = "viewclear" .
+View           = "view" LocationExpr LocationExpr .
+ClearView      = "clear" "view" .
 Sleep          = "sleep" Duration .
 Print          = ( "print" | "echo" ) String .
 LocationExpr   = Location [ Offset ] .

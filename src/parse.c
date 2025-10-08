@@ -214,7 +214,7 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                         idx++;
                     }
                 }
-            } else if (strcmp(cmd, "viewset") == 0) {
+            } else if (strcmp(cmd, "view") == 0) {
                 idx++;
                 // Skip two location expressions
                 if (idx < token_count) {
@@ -231,8 +231,10 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                         idx++;
                     }
                 }
-            } else if (strcmp(cmd, "viewclear") == 0) {
-                idx++; // no additional tokens
+            } else if (strcmp(cmd, "clear") == 0) {
+                idx++; // skip "clear"
+                if (idx < token_count)
+                    idx++; // skip "view" or label name
             } else if (strcmp(cmd, "print") == 0 || strcmp(cmd, "echo") == 0) {
                 idx++; // skip command token
                 if (idx < token_count) {
@@ -349,7 +351,7 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
                 if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
                     idx++; // skip offset
                 }
-            } else if (strcmp(cmd, "viewset") == 0) {
+            } else if (strcmp(cmd, "view") == 0) {
                 if (idx < token_count)
                     idx++; // skip first location
                 if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
@@ -360,8 +362,9 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
                 if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
                     idx++; // skip offset
                 }
-            } else if (strcmp(cmd, "viewclear") == 0) {
-                // 2 no additional tokens
+            } else if (strcmp(cmd, "clear") == 0) {
+                if (idx < token_count)
+                    idx++; // skip "view" or label name
             } else if (strcmp(cmd, "print") == 0 || strcmp(cmd, "echo") == 0) {
                 idx++; // skip command token
                 if (idx < token_count)
@@ -671,7 +674,7 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         /************************************************************
          * VIEW OPERATIONS
          ************************************************************/
-    } else if (strcmp(cmd, "viewset") == 0) {
+    } else if (strcmp(cmd, "view") == 0) {
         op->kind = OP_VIEWSET;
 
         if (*idx >= token_count)
@@ -686,9 +689,21 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         if (err != E_OK)
             return err;
 
-    } else if (strcmp(cmd, "viewclear") == 0) {
-        op->kind = OP_VIEWCLEAR;
-        // No additional parsing needed
+    } else if (strcmp(cmd, "clear") == 0) {
+        // Parse second token to determine what to clear
+        if (*idx >= token_count)
+            return E_PARSE;
+
+        const char* target = tokens[*idx];
+        (*idx)++;
+
+        if (strcmp(target, "view") == 0) {
+            op->kind = OP_VIEWCLEAR;
+            // No additional parsing needed
+        } else {
+            // Future: clear <LABEL> - for now, error
+            return E_PARSE;
+        }
 
         /************************************************************
          * OUTPUT/UTILITY OPERATIONS

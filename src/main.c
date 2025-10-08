@@ -452,8 +452,8 @@ static void print_usage(void)
     printf("                              Adds newlines after each line segment\n");
     printf("  label <name>                Mark current position with label\n");
     printf("  goto <location>             Jump to labeled position\n");
-    printf("  viewset <L1> <L2>           Limit all ops to [min(L1,L2), max(L1,L2))\n");
-    printf("  viewclear                   Clear view; return to full file\n");
+    printf("  view <L1> <L2>              Limit all ops to [min(L1,L2), max(L1,L2))\n");
+    printf("  clear view                  Clear view; return to full file\n");
     printf("  sleep <duration>            Pause execution; duration suffix ms or s (e.g., 500ms, 1s)\n");
     printf("  print <string>              Emit literal bytes (alias: echo)\n");
     printf("                              Supports escape sequences: \\n \\t \\r \\0 \\\\ \\xHH\n");
@@ -571,7 +571,7 @@ static void print_examples(void)
     printf("\n");
     printf("ADVANCED PATTERNS:\n");
     printf("  # Extract from specific section\n");
-    printf("  fiskta --input config.txt find \"[database]\" label START find \"[\" label END viewset START END find \"port\" take to line-end\n");
+    printf("  fiskta --input config.txt find \"[database]\" label START find \"[\" label END view START END find \"port\" take to line-end\n");
     printf("\n");
     printf("  # Extract all occurrences (loop)\n");
     printf("  fiskta --input contacts.txt label LOOP find:re \"[A-Za-z0-9._%%+-]+@[A-Za-z0-9.-]+\" take to match-end print \"\\n\" goto LOOP\n");
