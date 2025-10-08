@@ -162,8 +162,8 @@ Evaluation is strictly left-to-right (no operator precedence).
 - `--` - Treat remaining args as operations
 
 **Looping & Streaming:**
-- `-l, --loop <ms>` - Re-run program every N milliseconds
-- `--loop-timeout <ms>` - Stop after N ms with no input growth
+- `-l, --loop <time>` - Re-run program every time (requires suffix: `ms`, `s`, `m`, `h`; or `0` to disable)
+- `-t, --loop-timeout <time>` - Stop after time with no input growth (requires suffix: `ms`, `s`, `m`, `h`)
 - `--loop-view <policy>` - Which view of the file to process on each loop:
   - `cursor` - continue from last cursor position (default)
   - `delta` - only new data since last run
@@ -178,7 +178,7 @@ fiskta find "ERROR" take to line-end < log.txt
 fiskta -c 'find "ERROR" take to line-end' --input log.txt
 
 # Tail-like behavior
-fiskta --loop 1000 --loop-timeout 0 --input service.log find "ERROR" take to line-end
+fiskta --loop 1s --loop-timeout 0 --input service.log find "ERROR" take to line-end
 ```
 
 ## Installation
@@ -395,10 +395,10 @@ fiskta can monitor a file and repeatedly execute your program as new data arrive
 
 ### Loop Mode
 
-Enable with `--loop <ms>` to re-run your program every N milliseconds:
+Enable with `--loop <time>` to re-run your program at regular intervals. Time values require a suffix: `ms` (milliseconds), `s` (seconds), `m` (minutes), `h` (hours). The special value `0` (without suffix) disables looping:
 
 ```bash
-fiskta --loop 1000 --input service.log find "ERROR" take to line-end
+fiskta --loop 1s --input service.log find "ERROR" take to line-end
 ```
 
 This will check the file every second and output new ERROR lines.
@@ -423,10 +423,10 @@ Control which view of the file is processed on each iteration with `--loop-view`
 
 ### Loop Timeout
 
-Stop looping after N milliseconds of no file growth:
+Stop looping after a period of no file growth:
 
 ```bash
-fiskta --loop 1000 --loop-timeout 5000 --input log.txt find "ERROR"
+fiskta --loop 1s --loop-timeout 5s --input log.txt find "ERROR"
 ```
 
 This will loop every second, but stop after 5 seconds of no input growth (file size unchanged). Use `--loop-timeout 0` to wait forever.

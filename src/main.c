@@ -254,21 +254,6 @@ static void refresh_file_size(File* io)
     // else: leave io->size as-is (your iosearch layer should track growth)
 }
 
-static int parse_nonneg_option(const char* value, const char* opt_name, int* out)
-{
-    if (!value || !opt_name || !out)
-        return 1;
-
-    char* end = NULL;
-    long v = strtol(value, &end, 10);
-    if (value[0] == '\0' || (end && *end != '\0') || v < 0 || v > INT_MAX) {
-        fprintf(stderr, "fiskta: %s expects a non-negative integer (milliseconds)\n", opt_name);
-        return 1;
-    }
-    *out = (int)v;
-    return 0;
-}
-
 static int parse_loop_view_option(const char* value, LoopViewPolicy* out)
 {
     if (!value || !out)
@@ -289,6 +274,54 @@ static int parse_loop_view_option(const char* value, LoopViewPolicy* out)
     return 1;
 }
 
+static int parse_time_option(const char* value, const char* opt_name, int* out)
+{
+    if (!value || !opt_name || !out)
+        return 1;
+
+    // Parse with required suffix (except for 0): 100ms, 5s, 2m, 1h
+    char* end = NULL;
+    long v = strtol(value, &end, 10);
+    if (value[0] == '\0' || v < 0 || v > INT_MAX) {
+        fprintf(stderr, "fiskta: %s expects a non-negative integer with suffix (ms|s|m|h), or 0\n", opt_name);
+        return 1;
+    }
+
+    // Special case: allow bare "0"
+    if (v == 0 && (!end || *end == '\0')) {
+        *out = 0;
+        return 0;
+    }
+
+    // For non-zero values, require suffix
+    if (!end || *end == '\0') {
+        fprintf(stderr, "fiskta: %s requires a suffix (ms|s|m|h) for non-zero values\n", opt_name);
+        return 1;
+    }
+
+    int multiplier = 1;
+    if (strcmp(end, "ms") == 0) {
+        multiplier = 1;
+    } else if (strcmp(end, "s") == 0) {
+        multiplier = 1000;
+    } else if (strcmp(end, "m") == 0) {
+        multiplier = 60000;
+    } else if (strcmp(end, "h") == 0) {
+        multiplier = 3600000;
+    } else {
+        fprintf(stderr, "fiskta: %s invalid suffix '%s' (valid: ms, s, m, h)\n", opt_name, end);
+        return 1;
+    }
+
+    if (v > INT_MAX / multiplier) {
+        fprintf(stderr, "fiskta: %s value too large\n", opt_name);
+        return 1;
+    }
+
+    *out = (int)(v * multiplier);
+    return 0;
+}
+
 static int parse_loop_timeout_option(const char* value, int* out)
 {
     if (!value || !out)
@@ -297,7 +330,7 @@ static int parse_loop_timeout_option(const char* value, int* out)
         *out = -1;
         return 0;
     }
-    return parse_nonneg_option(value, "--loop-timeout", out);
+    return parse_time_option(value, "--loop-timeout", out);
 }
 
 static int run_program_once(const Program* prg, File* io, VM* vm,
@@ -514,8 +547,8 @@ static void print_usage(void)
     printf("  -i, --input <path>          Read input from path (default: stdin)\n");
     printf("  -c, --commands <string|file>  Provide operations as a single string or file path\n");
     printf("      --                      Treat subsequent arguments as operations\n");
-    printf("  -l, --loop <ms>             Re-run the program every ms (0 disables looping)\n");
-    printf("  -t, --loop-timeout <ms>     Stop looping after ms with no input growth\n");
+    printf("  -l, --loop <time>           Re-run the program every time (0 disables; requires suffix: ms, s, m, h)\n");
+    printf("  -t, --loop-timeout <time>   Stop looping after time with no input growth (requires suffix: ms, s, m, h)\n");
     printf("      --loop-view <policy>    How the view is set each iteration: cursor (default) | delta | rescan\n");
     printf("  -h, --help                  Show this help message\n");
     printf("      --examples              Show comprehensive usage examples\n");
@@ -664,13 +697,13 @@ int main(int argc, char** argv)
                 fprintf(stderr, "fiskta: --loop requires a value\n");
                 return 2;
             }
-            if (parse_nonneg_option(argv[argi + 1], "--loop", &loop_ms) != 0)
+            if (parse_time_option(argv[argi + 1], "--loop", &loop_ms) != 0)
                 return 2;
             argi += 2;
             continue;
         }
         if (strncmp(arg, "--loop=", 7) == 0) {
-            if (parse_nonneg_option(arg + 7, "--loop", &loop_ms) != 0)
+            if (parse_time_option(arg + 7, "--loop", &loop_ms) != 0)
                 return 2;
             argi++;
             continue;
