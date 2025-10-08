@@ -254,19 +254,34 @@ cleanup:
     return err;
 }
 
+static enum Err stage_file_range(Range* ranges, i32* range_count, i32 range_cap, i64 start, i64 end)
+{
+    if (*range_count >= range_cap)
+        return E_OOM;
+    ranges[*range_count].kind = RANGE_FILE;
+    ranges[*range_count].file.start = start;
+    ranges[*range_count].file.end = end;
+    (*range_count)++;
+    return E_OK;
+}
+
+static enum Err stage_lit_range(Range* ranges, i32* range_count, i32 range_cap, String lit)
+{
+    if (*range_count >= range_cap)
+        return E_OOM;
+    ranges[*range_count].kind = RANGE_LIT;
+    ranges[*range_count].lit = lit;
+    (*range_count)++;
+    return E_OK;
+}
+
 static enum Err print_op(
     const Op* op,
     Range* ranges,
     i32* range_count,
     i32 range_cap)
 {
-    // Stage literal range
-    if (*range_count >= range_cap)
-        return E_OOM;
-    Range* r = &ranges[(*range_count)++];
-    r->kind = RANGE_LIT;
-    r->lit = op->u.print.string;
-    return E_OK;
+    return stage_lit_range(ranges, range_count, range_cap, op->u.print.string);
 }
 
 static enum Err label_op(
@@ -561,12 +576,9 @@ static enum Err take_len_op(
     }
 
     // Stage the range
-    if (*range_count >= range_cap)
-        return E_OOM;
-    ranges[*range_count].kind = RANGE_FILE;
-    ranges[*range_count].file.start = start;
-    ranges[*range_count].file.end = end;
-    (*range_count)++;
+    enum Err err_stage = stage_file_range(ranges, range_count, range_cap, start, end);
+    if (err_stage != E_OK)
+        return err_stage;
     if (start != end) {
         *c_cursor = start > end ? start : end;
     }
@@ -602,12 +614,9 @@ static enum Err take_to_op(
     }
 
     // Stage the range
-    if (*range_count >= range_cap)
-        return E_OOM;
-    ranges[*range_count].kind = RANGE_FILE;
-    ranges[*range_count].file.start = start;
-    ranges[*range_count].file.end = end;
-    (*range_count)++;
+    err = stage_file_range(ranges, range_count, range_cap, start, end);
+    if (err != E_OK)
+        return err;
 
     if (start != end) {
         *c_cursor = vclamp(c_view, io, end);
@@ -663,12 +672,10 @@ static enum Err take_until_common(
     i64 dst = vclamp(c_view, io, target);
 
     // Stage [cursor, dst) ONLY (no order-normalization)
-    if (*range_count >= range_cap)
-        return E_OOM;
-    ranges[*range_count].kind = RANGE_FILE;
-    ranges[*range_count].file.start = vclamp(c_view, io, *c_cursor);
-    ranges[*range_count].file.end = dst;
-    (*range_count)++;
+    i64 range_start = vclamp(c_view, io, *c_cursor);
+    err = stage_file_range(ranges, range_count, range_cap, range_start, dst);
+    if (err != E_OK)
+        return err;
 
     // Move cursor only if non-empty
     if (dst > *c_cursor) {
