@@ -557,7 +557,7 @@ static void print_usage(void)
 
 static void print_examples(void)
 {
-    printf("fiskta - (fi)nd (sk)ip (ta)ke v%s\n", FISKTA_VERSION);
+    printf("(fi)nd (sk)ip (ta)ke v%s\n", FISKTA_VERSION);
     printf("\n");
     printf("COMPREHENSIVE EXAMPLES:\n");
     printf("\n");
