@@ -431,6 +431,25 @@ fiskta --loop 1000 --idle-timeout 5000 --input log.txt find "ERROR"
 
 This will loop every second, but stop after 5 seconds of no new data. Use `--idle-timeout 0` to wait forever.
 
+## Exit Codes
+
+fiskta uses exit codes to indicate success, failure, and the type of error encountered.
+
+- **0**: Success (at least one clause succeeded)
+  - Even if some clauses fail, if any clause succeeds, the exit code is 0
+- **1**: I/O error
+  - File not found, permission denied, read/write errors
+- **2**: Parse error
+  - Invalid syntax, unknown operation, missing arguments
+  - Caught during program parsing, before execution
+- **3**: Regex error
+  - Invalid regex pattern
+- **4**: Resource limit
+  - Program too large, out of memory during startup
+- **10+**: All clauses failed (exit code = 10 + index of last failed clause)
+  - Only returned when no clauses succeeded
+  - The number indicates which clause failed last
+  - Program execution continues through failures (with THEN/OR logic)
 
 ## Views and Scoping
 

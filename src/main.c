@@ -508,7 +508,7 @@ static void print_usage(void)
     printf("  2               Parse error (invalid syntax, unknown operation)\n");
     printf("  3               Regex error (invalid regex pattern)\n");
     printf("  4               Resource limit (program too large, out of memory)\n");
-    printf("  10+             Clause N failed (exit code = 10 + clause index)\n");
+    printf("  10+             All clauses failed (exit code = 10 + index of last failed clause)\n");
     printf("\n");
     printf("OPTIONS:\n");
     printf("  -i, --input <path>          Read input from path (default: stdin)\n");
