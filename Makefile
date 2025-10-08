@@ -1,5 +1,5 @@
 # Makefile for fiskta
-VERSION ?= 2.3
+VERSION ?= $(shell cat VERSION 2>/dev/null || echo "dev")
 
 CC = cc
 CFLAGS = -std=c11 -O3 -Wall -Wextra -Wconversion -Wshadow

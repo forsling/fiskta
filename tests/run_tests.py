@@ -8,12 +8,9 @@ FIX = ROOT / "tests" / "fixtures"
 
 
 def repo_version() -> str:
-    makefile = ROOT / "Makefile"
+    version_file = ROOT / "VERSION"
     try:
-        for line in makefile.read_text().splitlines():
-            if line.startswith("VERSION"):
-                _, value = line.split("=", 1)
-                return value.strip()
+        return version_file.read_text().strip()
     except OSError:
         pass
     return "dev"

@@ -6,7 +6,10 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
 
     // Our options
-    const version = b.option([]const u8, "version", "FISKTA version string") orelse "2.3";
+    const version = b.option([]const u8, "version", "FISKTA version string") orelse blk: {
+        const version_file = std.fs.cwd().readFileAlloc(b.allocator, "VERSION", 100) catch break :blk "dev";
+        break :blk std.mem.trim(u8, version_file, &std.ascii.whitespace);
+    };
     const linkage = b.option(std.builtin.LinkMode, "linkage", "static or dynamic") orelse .dynamic;
 
     // Use zig cc directly via system command
