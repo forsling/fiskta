@@ -284,6 +284,16 @@ static enum Err print_op(
     return stage_lit_range(ranges, range_count, range_cap, op->u.print.string);
 }
 
+static enum Err fail_op(const Op* op)
+{
+    // Write message to stderr immediately (not staged)
+    if (op->u.fail.message.len > 0) {
+        fwrite(op->u.fail.message.bytes, 1, (size_t)op->u.fail.message.len, stderr);
+    }
+    // Always fail the clause
+    return E_FAIL_OP;
+}
+
 static enum Err label_op(
     const Op* op,
     i64* c_cursor,
@@ -959,6 +969,8 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         return viewclear_op(io, c_view);
     case OP_PRINT:
         return print_op(op, *ranges, range_count, *range_cap);
+    case OP_FAIL:
+        return fail_op(op);
     case OP_BOX:
         return box_op(io, op, *c_cursor, c_cursor, *ranges, range_count, *range_cap);
     default:

@@ -42,7 +42,8 @@ enum {
     OP_GOTO,
     OP_VIEWSET,
     OP_VIEWCLEAR,
-    OP_PRINT
+    OP_PRINT,
+    OP_FAIL
 };
 
 typedef uint8_t LocBase;
@@ -69,6 +70,7 @@ enum Err {
     E_BAD_NEEDLE,
     E_LOC_RESOLVE,
     E_NO_MATCH,
+    E_FAIL_OP,
     E_LABEL_FMT,
     E_IO,
     E_OOM
@@ -148,6 +150,9 @@ typedef struct {
         struct {
             String string;
         } print;
+        struct {
+            String message;
+        } fail;
     } u;
 } Op;
 

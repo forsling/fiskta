@@ -59,6 +59,7 @@ content here
 
 **Utilities:**
 - `print <string>` - Emit literal bytes (alias: echo). Supports escape sequences: `\n \t \r \0 \\ \xHH`. Participates in clause atomicity
+- `fail <message>` - Write message to stderr and fail clause. Message written immediately (not staged). Useful with OR for error messages
 
 ### Units
 
@@ -370,6 +371,19 @@ print "\x1b[31m"        # print ANSI color code
 echo "Hello world"      # alias for print
 ```
 
+#### `fail <message>`
+
+Write message to stderr and always fail the clause. Unlike other operations, the message is written immediately (not staged), so it appears even though the clause fails.
+
+Most useful with OR to provide helpful error messages:
+
+```bash
+find "config" OR fail "Config section not found\n"
+find "user=" skip 5b take until " " OR fail "Could not extract username\n"
+```
+
+Supports the same escape sequences as `print`.
+
 ## Streaming and Looping
 
 fiskta can monitor a file and repeatedly execute your program as new data arrives, useful for tailing log files or processing streams.
@@ -576,10 +590,10 @@ fiskta --input config.ini \
 ## Grammar
 
 ```
-Program        = Clause { ( "THEN" | "AND" | "OR" ) Clause } .
+Program        = Clause { ( "THEN" | "OR" ) Clause } .
 Clause         = { Op } .
 Op             = Find | FindRegex | Skip | Take | Label | Goto
-               | View | ClearView | Print .
+               | View | ClearView | Print | Fail .
 Find           = "find" [ "to" LocationExpr ] String .
 FindRegex      = "find" ":" "re" [ "to" LocationExpr ] String .
 Skip           = "skip" Number Unit .
@@ -592,6 +606,7 @@ Goto           = "goto" LocationExpr .
 View           = "view" LocationExpr LocationExpr .
 ClearView      = "clear" "view" .
 Print          = ( "print" | "echo" ) String .
+Fail           = "fail" String .
 LocationExpr   = Location [ Offset ] .
 Location       = "cursor" | "BOF" | "EOF" | Name
                | "match-start" | "match-end"

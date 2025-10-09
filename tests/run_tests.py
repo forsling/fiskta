@@ -2280,6 +2280,47 @@ def tests():
              tokens=["find","abc","THEN","find","xyz"], input_file="overlap.txt",
              expect=dict(stdout="", exit=0)),  # THEN continues even after clause failure
 
+        # ---------- fail operation tests ----------
+        # Basic fail - always fails with message to stderr
+        dict(id="fail-001-basic",
+             tokens=["fail","Error message"], input_file="overlap.txt",
+             expect=dict(stdout="", stderr="Error message", exit=10)),
+
+        # fail with OR - fail executes when first clause fails
+        dict(id="fail-002-or-executes",
+             tokens=["find","xyz","OR","fail","xyz not found"], input_file="overlap.txt",
+             expect=dict(stdout="", stderr="xyz not found", exit=11)),
+
+        # fail with OR - fail not executed when first clause succeeds
+        dict(id="fail-003-or-short-circuit",
+             tokens=["find","abc","OR","fail","Should not see this"], input_file="overlap.txt",
+             expect=dict(stdout="", stderr="", exit=0)),
+
+        # fail with OR and recovery - fail, then another OR succeeds
+        dict(id="fail-004-or-recovery",
+             tokens=["find","xyz","OR","fail","First failed","OR","find","abc","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="abc", stderr="First failed", exit=0)),
+
+        # fail with THEN - fail executes, THEN continues
+        dict(id="fail-005-then-continues",
+             tokens=["fail","Failed","THEN","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="abc", stderr="Failed", exit=0)),
+
+        # fail in middle of clause - clause fails atomically
+        dict(id="fail-006-atomic-rollback",
+             tokens=["take","+3b","fail","Midway fail"], input_file="overlap.txt",
+             expect=dict(stdout="", stderr="Midway fail", exit=10)),
+
+        # fail with empty message (user's choice, though not recommended)
+        dict(id="fail-007-empty-message",
+             tokens=["find","xyz","OR","fail",""], input_file="overlap.txt",
+             expect=dict(stdout="", stderr="", exit=11)),
+
+        # fail with escape sequences in message
+        dict(id="fail-008-escape-sequences",
+             tokens=["find","xyz","OR","fail","Error:\\nxyz not found\\n"], input_file="overlap.txt",
+             expect=dict(stdout="", stderr="Error:\nxyz not found\n", exit=11)),
+
         # ---------- Mixed OR and THEN combinations ----------
         # OR followed by THEN - OR succeeds, THEN clause runs
         dict(id="logic-029-or-then-first-succeeds",

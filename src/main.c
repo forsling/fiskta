@@ -171,6 +171,8 @@ static const char* err_str(enum Err e)
         return "location not resolvable";
     case E_NO_MATCH:
         return "no match in window";
+    case E_FAIL_OP:
+        return "fail operation";
     case E_LABEL_FMT:
         return "bad label (A-Z0-9_-; first A-Z; <16)";
     case E_IO:
@@ -464,6 +466,9 @@ static void print_usage(void)
     printf("  print <string>              Emit literal bytes (alias: echo)\n");
     printf("                              Supports escape sequences: \\n \\t \\r \\0 \\\\ \\xHH\n");
     printf("                              Participates in clause atomicity\n");
+    printf("  fail <message>              Write message to stderr and fail clause\n");
+    printf("                              Message written immediately (not staged)\n");
+    printf("                              Useful with OR for error messages\n");
     printf("\n");
     printf("UNITS:\n");
     printf("  b                           Bytes\n");

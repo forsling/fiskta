@@ -242,6 +242,13 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                     plan->sum_take_ops++;
                     idx++; // skip string token
                 }
+            } else if (strcmp(cmd, "fail") == 0) {
+                idx++; // skip command token
+                if (idx < token_count) {
+                    plan->needle_count++;
+                    plan->needle_bytes += strlen(tokens[idx]);
+                    idx++; // skip message token
+                }
             } else {
                 idx++; // skip unknown token
             }
@@ -364,6 +371,10 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
                 idx++; // skip command token
                 if (idx < token_count)
                     idx++; // skip string
+            } else if (strcmp(cmd, "fail") == 0) {
+                idx++; // skip command token
+                if (idx < token_count)
+                    idx++; // skip message
             }
         }
 
@@ -727,6 +738,20 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
 
         // Parse string to String
         enum Err err = parse_string_to_bytes(str, &op->u.print.string, str_pool, str_pool_off, str_pool_cap);
+        if (err != E_OK)
+            return err;
+
+    } else if (strcmp(cmd, "fail") == 0) {
+        op->kind = OP_FAIL;
+
+        // Parse message
+        if (*idx >= token_count)
+            return E_PARSE;
+        const char* message = tokens[*idx];
+        (*idx)++;
+
+        // Parse message to String (empty is allowed, user's choice)
+        enum Err err = parse_string_to_bytes(message, &op->u.fail.message, str_pool, str_pool_off, str_pool_cap);
         if (err != E_OK)
             return err;
 
