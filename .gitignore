@@ -1,3 +1,12 @@
+ignore/
+bench/
+
+tests/fixtures/
+tests/__pycache__/
+
+.zig-cache
+zig-out/
+
 # Build artifacts
 build/
 *.o
@@ -49,9 +58,3 @@ gmon.out
 AGENTS.md
 CLAUDE.md
 
-ignore/
-tests/fixtures/
-tests/__pycache__/
-bench/
-.zig-cache
-zig-out/

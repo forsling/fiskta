@@ -19,19 +19,14 @@ pub fn build(b: *std.Build) !void {
     const mkdir_cmd = b.addSystemCommand(&.{ "mkdir", "-p", "zig-out/bin" });
 
     const zig_cc_cmd = b.addSystemCommand(&.{
-        "zig", "cc",
-        "-std=c11",
-        "-Wall",
-        "-Wextra",
-        "-Wconversion",
-        "-Wshadow",
-        "-I", "src",
-        "src/main.c",
-        "src/parse.c",
-        "src/engine.c",
-        "src/iosearch.c",
-        "src/reprog.c",
-        "-o", "zig-out/bin/fiskta",
+        "zig",            "cc",
+        "-std=c11",       "-Wall",
+        "-Wextra",        "-Wconversion",
+        "-Wshadow",       "-I",
+        "src",            "src/main.c",
+        "src/parse.c",    "src/engine.c",
+        "src/iosearch.c", "src/reprog.c",
+        "-o",             "zig-out/bin/fiskta",
     });
 
     // Add version define
@@ -69,7 +64,7 @@ pub fn build(b: *std.Build) !void {
     b.getInstallStep().dependOn(exe_step);
 
     // Run step
-    const run_cmd = b.addSystemCommand(&.{ "zig-out/bin/fiskta" });
+    const run_cmd = b.addSystemCommand(&.{"zig-out/bin/fiskta"});
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
@@ -101,7 +96,7 @@ pub fn build(b: *std.Build) !void {
     all_step.dependOn(&macos_arm.step);
 
     // Windows x86_64
-    const windows_x64 = createBuildStep(b, "x86_64-windows", .dynamic, "windows-x86_64", version, ".exe");
+    const windows_x64 = createBuildStep(b, "x86_64-windows", .dynamic, "x86_64", version, ".exe");
     all_step.dependOn(&windows_x64.step);
 }
 
@@ -110,19 +105,14 @@ fn createBuildStep(b: *std.Build, target_str: []const u8, linkage: std.builtin.L
     const mkdir_cmd = b.addSystemCommand(&.{ "mkdir", "-p", "zig-out/bin" });
 
     const zig_cc_cmd = b.addSystemCommand(&.{
-        "zig", "cc",
-        "-std=c11",
-        "-Wall",
-        "-Wextra",
-        "-Wconversion",
-        "-Wshadow",
-        "-I", "src",
-        "src/main.c",
-        "src/parse.c",
-        "src/engine.c",
-        "src/iosearch.c",
-        "src/reprog.c",
-        "-o", b.fmt("zig-out/bin/fiskta-{s}{s}", .{output_name, ext}),
+        "zig",            "cc",
+        "-std=c11",       "-Wall",
+        "-Wextra",        "-Wconversion",
+        "-Wshadow",       "-I",
+        "src",            "src/main.c",
+        "src/parse.c",    "src/engine.c",
+        "src/iosearch.c", "src/reprog.c",
+        "-o",             b.fmt("zig-out/bin/fiskta-{s}{s}", .{ output_name, ext }),
     });
 
     // Add version define
