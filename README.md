@@ -1,10 +1,11 @@
 # (fi)nd (sk)ip (ta)ke
 
-**fiskta** is a cursor-oriented data extraction tool. Unlike traditional text tools that match patterns on lines, fiskta lets you navigate through files with explicit position and movement commands—find a pattern, skip ahead, take some bytes. You think in terms of "where am I?" and "what do I do from here?" rather than "what pattern matches this line?"
+**fiskta** is a cursor-oriented data extraction tool. Unlike traditional that rely primarily on pattern matching, fiskta is built around cursor
+  position and movement: find a pattern, skip around, capture some bytes, characters or lines. Think in terms of "where am I?" and "what do I do from here?" rather than "what pattern matches this line?"
 
-It may be a good fit when grep is insufficient but you don't want to deal with something like awk: Extract text between delimiters, navigate multi-line structures, and build complex conditional extractions step by step. No cryptic syntax, just relatively straightforward imperative operations.
+It may be a good fit when grep is insufficient but you don't want to deal with something like awk: Extract text between delimiters, navigate multi-line structures, and build conditional extractions step by step. No cryptic syntax, just relatively straightforward imperative operations.
 
-fiskta has no external dependencies. Linux binaries are < 100KB when dynamically linked or when statically linked with musl. Memory use does not depend on input, only on fiskta operations (regex requires more memory), but should not be more than a few megabytes at worst.
+Zero dependencies beyond libc. Binaries under 100 KB. Memory use ranges from ~2 MB for simple operations to ~8 MB worst case.
 
 ## What does it do?
 
@@ -169,6 +170,7 @@ fiskta --loop 1s --loop-timeout 0 --input service.log find "ERROR" take to line-
 make              # Build optimized binary (./fiskta)
 make debug        # Build with debug symbols
 make test         # Run test suite (requires Python 3)
+tests/benchmark.sh ./fiskta  # Run performance benchmark
 ```
 
 ### Using Zig (easy cross-compilation)
