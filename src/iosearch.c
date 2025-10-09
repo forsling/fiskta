@@ -16,6 +16,10 @@
 #include <io.h>
 #endif
 
+#ifndef FISKTA_STDIN_SPOOL
+#define FISKTA_STDIN_SPOOL (256 * 1024)
+#endif
+
 // Forward declarations
 static enum Err bmh_forward(const unsigned char* text, size_t text_len,
     const unsigned char* needle, size_t nlen, i64* ms, i64* me);
@@ -56,7 +60,7 @@ enum Err io_open(File* io, const char* path,
 #endif
 
         // Copy stdin to temp file in chunks
-        unsigned char buf[256 * 1024]; // 256 KiB chunks
+        unsigned char buf[FISKTA_STDIN_SPOOL];
         // size will be determined with ftello after writing
 
         while (1) {

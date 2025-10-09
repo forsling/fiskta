@@ -9,12 +9,22 @@ typedef struct {
     i64 start;
 } ReThread;
 
-// Line indexing constants (tunable via environment variables)
+#ifndef FISKTA_IDX_BLOCK
+#define FISKTA_IDX_BLOCK (512 * 1024) // 512 KiB index block
+#endif
+#ifndef FISKTA_IDX_SUB
+#define FISKTA_IDX_SUB (2 * 1024) // 2 KiB subchunks
+#endif
+#ifndef FISKTA_IDX_MAX_BLOCKS
+#define FISKTA_IDX_MAX_BLOCKS 16
+#endif
+
+// Line indexing constants
 enum {
-    IDX_BLOCK = 1 * 1024 * 1024, // 1 MiB index block
-    IDX_SUB = 4 * 1024, // 4 KiB subchunks
-    IDX_MAX_BLOCKS = 64, // LRU cache size (bounded memory)
-    IDX_SUB_MAX = IDX_BLOCK / IDX_SUB // 256
+    IDX_BLOCK = FISKTA_IDX_BLOCK,
+    IDX_SUB = FISKTA_IDX_SUB,
+    IDX_MAX_BLOCKS = FISKTA_IDX_MAX_BLOCKS,
+    IDX_SUB_MAX = IDX_BLOCK / IDX_SUB
 };
 
 // Line block index structure
