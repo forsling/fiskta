@@ -383,10 +383,7 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
 
         // Check for link keywords
         if (idx < token_count) {
-            if (strcmp(tokens[idx], "AND") == 0) {
-                clause->link = LINK_AND;
-                idx++;
-            } else if (strcmp(tokens[idx], "OR") == 0) {
+            if (strcmp(tokens[idx], "OR") == 0) {
                 clause->link = LINK_OR;
                 idx++;
             } else if (strcmp(tokens[idx], "THEN") == 0) {

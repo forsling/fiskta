@@ -27,7 +27,7 @@ ERROR: connection failed
 ```
 Try multiple patterns—first match wins:
 ```bash
-$ echo 'WARNING: disk full' | fiskta find "ERROR:" OR find "WARNING:" AND take to line-end
+$ echo 'WARNING: disk full' | fiskta find "ERROR:" OR find "WARNING:" take to line-end
 WARNING: disk full
 ```
 
@@ -120,29 +120,6 @@ Connect clauses with:
 find "user" THEN take to line-end       # always take, even if find fails
 ```
 
-#### **`AND`** - run next clause only if this one succeeds
-
-This provides **conditional execution with short-circuiting**:
-```bash
-# AND: conditional execution - skip remaining clauses if any fails
-find "ERROR" AND take to line-end AND print "\n"
-# If ERROR found: outputs line + newline
-# If ERROR not found: outputs nothing (short-circuits)
-
-# Without AND (single clause): atomic rollback
-find "ERROR" take to line-end print "\n"
-# If ERROR not found: outputs nothing (atomic rollback)
-# Same output as AND, but different mechanism
-
-# With THEN: always runs all clauses
-find "ERROR" THEN take to line-end THEN print "\n"
-# If ERROR not found: outputs newline anyway (no short-circuit)
-# Different output than AND!
-```
-
-AND combines the commit after clause success (regardless of outcome of later clauses)
-behavior of THEN with the cascading failure mode of single-clause constructions.
-
 **`OR`** - run next clause only if this one fails
 ```bash
 find "cache" OR find "buffer"           # try cache first, fallback to buffer
@@ -151,6 +128,8 @@ find "cache" OR find "buffer"           # try cache first, fallback to buffer
 Use OR when you want to try multiple alternatives - only the first successful clause runs.
 
 Evaluation is strictly left-to-right (no operator precedence).
+
+**Why no AND?** Operations within a single clause already have implicit AND semantics (all must succeed). Use a single clause for atomic all-or-nothing execution, or `THEN` for sequential execution with commits between clauses.
 
 ### Command-Line Options
 

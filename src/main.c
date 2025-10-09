@@ -366,9 +366,6 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
     enum Err last_err = E_OK;
     i32 last_failed_clause = -1;
     StagedResult result;
-    bool and_chain_failed = false;
-    i32 and_chain_failed_at = -1;
-    bool clauses_succeeded_after_and_failure = false;
 
     for (i32 ci = 0; ci < prg->clause_count; ++ci) {
         i32 rc = 0, lc = 0;
@@ -403,9 +400,6 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
         // Handle links - the clause's link tells us what to do next
         if (e == E_OK) {
             ok++;
-            if (and_chain_failed) {
-                clauses_succeeded_after_and_failure = true;
-            }
             // Success: check this clause's link
             if (prg->clauses[ci].link == LINK_OR) {
                 // This clause succeeded and links with OR
@@ -414,25 +408,10 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
                     ci++; // Skip the OR alternative
                 }
             }
-            // For LINK_AND, LINK_THEN, or LINK_NONE: just continue to next clause
+            // For LINK_THEN or LINK_NONE: just continue to next clause
         } else {
             last_err = e;
             last_failed_clause = ci;
-
-            bool drop_and_chain = false;
-            if (ci > 0 && prg->clauses[ci - 1].link == LINK_AND)
-                drop_and_chain = true;
-            if (prg->clauses[ci].link == LINK_AND)
-                drop_and_chain = true;
-
-            if (drop_and_chain) {
-                and_chain_failed = true;
-                if (and_chain_failed_at == -1)
-                    and_chain_failed_at = ci;
-                while (ci + 1 < prg->clause_count && prg->clauses[ci].link == LINK_AND)
-                    ci++;
-                continue;
-            }
             // For LINK_OR, LINK_THEN, or LINK_NONE: continue to next clause
         }
     }
@@ -442,11 +421,8 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
 
     // Determine return value for exit code calculation:
     // - Positive: number of successful clauses
-    // - -1: No clauses succeeded (return last failed clause index)
-    // - -2 - N: AND chain failed at clause (N + 2)
-    if (and_chain_failed && !clauses_succeeded_after_and_failure) {
-        return -2 - and_chain_failed_at; // AND chain failure
-    } else if (ok == 0 && last_failed_clause >= 0) {
+    // - -2 - N: All clauses failed, last failure at clause (N + 2)
+    if (ok == 0 && last_failed_clause >= 0) {
         return -2 - last_failed_clause; // All clauses failed
     } else {
         return ok; // Success (at least one clause succeeded)
@@ -526,7 +502,6 @@ static void print_usage(void)
     printf("CLAUSES AND LOGICAL OPERATORS:\n");
     printf("  Operations are grouped into clauses connected by logical operators:\n");
     printf("    THEN    Sequential execution (always runs next clause)\n");
-    printf("    AND     Both clauses must succeed (short-circuits on failure)\n");
     printf("    OR      First success wins (short-circuits on success)\n");
     printf("\n");
     printf("  Within a clause: all ops must succeed or the clause fails atomically.\n");
@@ -547,7 +522,7 @@ static void print_usage(void)
     printf("      --                      Treat subsequent arguments as operations\n");
     printf("  -l, --loop <number><ms|s|m|h>   Re-run program on input with this delay (0=off)\n");
     printf("  -t, --loop-timeout <number><ms|s|m|h>\n");
-    printf("                              Stop looping after <time> with no input growth\n");
+    printf("                              Stop looping after time value with no input growth\n");
     printf("      --loop-view <policy>    View change policy: cursor (default) | delta | rescan\n");
     printf("  -h, --help                  Show this help message\n");
     printf("      --examples              Show comprehensive usage examples\n");

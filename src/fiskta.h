@@ -155,7 +155,6 @@ typedef struct {
 typedef enum {
     LINK_NONE, // No link (last clause)
     LINK_THEN, // Sequential
-    LINK_AND, // Both must succeed
     LINK_OR // First success wins
 } ClauseLink;
 
