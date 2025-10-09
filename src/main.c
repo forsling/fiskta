@@ -433,7 +433,7 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
 
 static void print_usage(void)
 {
-    printf("fiskta - (fi)nd (sk)ip (ta)ke v%s\n", FISKTA_VERSION);
+    printf("(fi)nd (sk)ip (ta)ke v%s\n", FISKTA_VERSION);
     printf("\n");
     printf("USAGE:\n");
     printf("  fiskta [options] <operations>\n");
@@ -557,11 +557,14 @@ static void print_examples(void)
     printf("  fiskta --input config.txt find \"[\" skip 1b take until \"]\"\n");
     printf("\n");
     printf("CONDITIONAL EXTRACTION:\n");
-    printf("  # Extract only if pattern found (AND)\n");
-    printf("  fiskta --input auth.log find \"login success\" AND find \"user=\" skip 5b take until \" \"\n");
+    printf("  # Extract only if pattern found (implicit AND within clause)\n");
+    printf("  fiskta --input auth.log find \"login success\" find \"user=\" skip 5b take until \" \"\n");
     printf("\n");
     printf("  # Try multiple patterns (OR)\n");
-    printf("  fiskta --input logs.txt find \"ERROR:\" OR find \"WARN:\" AND take to line-end\n");
+    printf("  fiskta --input logs.txt find \"ERROR:\" take to line-end OR find \"WARN:\" take to line-end\n");
+    printf("\n");
+    printf("  # Fail with error message if pattern not found\n");
+    printf("  fiskta --input config.txt find \"database\" OR fail \"Config missing database section\\n\"\n");
     printf("\n");
     printf("  # Sequential operations (THEN)\n");
     printf("  fiskta --input data.txt find \"header\" THEN take 5l THEN find \"footer\"\n");

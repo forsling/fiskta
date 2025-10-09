@@ -48,7 +48,7 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
     // Count clauses (number of separators + 1)
     plan->clause_count = 1;
     for (i32 i = 0; i < token_count; i++) {
-        if (strcmp(tokens[i], "THEN") == 0 || strcmp(tokens[i], "AND") == 0 || strcmp(tokens[i], "OR") == 0) {
+        if (strcmp(tokens[i], "THEN") == 0 || strcmp(tokens[i], "OR") == 0) {
             plan->clause_count++;
         }
     }
@@ -57,7 +57,7 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
     i32 idx = 0;
     while (idx < token_count) {
         // Count ops in this clause
-        while (idx < token_count && strcmp(tokens[idx], "THEN") != 0 && strcmp(tokens[idx], "AND") != 0 && strcmp(tokens[idx], "OR") != 0) {
+        while (idx < token_count && strcmp(tokens[idx], "THEN") != 0 && strcmp(tokens[idx], "OR") != 0) {
             const char* cmd = tokens[idx];
             plan->total_ops++;
 
@@ -246,7 +246,7 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
         }
 
         if (idx < token_count) {
-            if (strcmp(tokens[idx], "THEN") == 0 || strcmp(tokens[idx], "AND") == 0 || strcmp(tokens[idx], "OR") == 0) {
+            if (strcmp(tokens[idx], "THEN") == 0 || strcmp(tokens[idx], "OR") == 0) {
                 idx++;
             }
         }
@@ -289,7 +289,7 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
         // Count ops in this clause first
         i32 clause_start = idx;
         i32 clause_op_count = 0;
-        while (idx < token_count && strcmp(tokens[idx], "THEN") != 0 && strcmp(tokens[idx], "AND") != 0 && strcmp(tokens[idx], "OR") != 0) {
+        while (idx < token_count && strcmp(tokens[idx], "THEN") != 0 && strcmp(tokens[idx], "OR") != 0) {
             const char* cmd = tokens[idx];
             clause_op_count++;
             idx++;
@@ -371,7 +371,7 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
 
         // 3 Reset idx to clause start and parse for real
         idx = clause_start;
-        while (idx < token_count && strcmp(tokens[idx], "THEN") != 0 && strcmp(tokens[idx], "AND") != 0 && strcmp(tokens[idx], "OR") != 0) {
+        while (idx < token_count && strcmp(tokens[idx], "THEN") != 0 && strcmp(tokens[idx], "OR") != 0) {
             Op* op = &clause->ops[clause->op_count];
             enum Err err = parse_op_build(tokens, &idx, token_count, op, prg, str_pool, &str_pool_off, str_pool_cap);
             if (err != E_OK) {
