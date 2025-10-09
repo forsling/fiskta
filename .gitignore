@@ -45,6 +45,10 @@ coverage/
 *.prof
 gmon.out
 
+# Agent files
+AGENTS.md
+CLAUDE.md
+
 ignore/
 tests/fixtures/
 tests/__pycache__/
