@@ -37,7 +37,6 @@ enum {
     OP_TAKE_TO,
     OP_TAKE_UNTIL,
     OP_TAKE_UNTIL_RE,
-    OP_BOX,
     OP_LABEL,
     OP_GOTO,
     OP_VIEWSET,
@@ -130,11 +129,6 @@ typedef struct {
             LocExpr at;
             struct ReProg* prog;
         } take_until_re;
-        struct {
-            i32 right_offset;
-            i32 down_offset;
-            Unit unit; // UNIT_BYTES or UNIT_CHARS for horizontal offset
-        } box;
         struct {
             i32 name_idx;
         } label;

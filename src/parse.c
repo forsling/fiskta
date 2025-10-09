@@ -189,15 +189,6 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                         idx++; // skip number+unit
                     }
                 }
-            } else if (strcmp(cmd, "box") == 0) {
-                plan->sum_take_ops++; // Box is similar to take operations
-                idx++;
-                // Skip right_offset
-                if (idx < token_count)
-                    idx++;
-                // Skip down_offset
-                if (idx < token_count)
-                    idx++;
             } else if (strcmp(cmd, "label") == 0) {
                 plan->sum_label_ops++;
                 idx++;
@@ -583,81 +574,6 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
                 return err;
             (*idx)++;
         }
-
-    } else if (strcmp(cmd, "box") == 0) {
-        op->kind = OP_BOX;
-
-        // Parse right_offset with unit (e.g., "5b" or "10c")
-        if (*idx >= token_count)
-            return E_PARSE;
-        const char* right_token = tokens[*idx];
-        (*idx)++;
-
-        i32 right_offset = 0;
-        i32 sign = 1;
-        const char* p = right_token;
-        if (*p == '+') {
-            sign = 1;
-            p++;
-        } else if (*p == '-') {
-            sign = -1;
-            p++;
-        }
-        if (!isdigit(*p))
-            return E_PARSE;
-        while (isdigit(*p)) {
-            right_offset = right_offset * 10 + (*p - '0');
-            p++;
-        }
-
-        // Parse horizontal unit (must be 'b' or 'c')
-        Unit h_unit;
-        if (*p == 'b') {
-            h_unit = UNIT_BYTES;
-            p++;
-        } else if (*p == 'c') {
-            h_unit = UNIT_CHARS;
-            p++;
-        } else {
-            return E_PARSE; // Missing or invalid unit
-        }
-        if (*p != '\0')
-            return E_PARSE; // Extra characters
-
-        op->u.box.right_offset = sign * right_offset;
-        op->u.box.unit = h_unit;
-
-        // Parse down_offset with unit (must end with 'l')
-        if (*idx >= token_count)
-            return E_PARSE;
-        const char* down_token = tokens[*idx];
-        (*idx)++;
-
-        i32 down_offset = 0;
-        sign = 1;
-        p = down_token;
-        if (*p == '+') {
-            sign = 1;
-            p++;
-        } else if (*p == '-') {
-            sign = -1;
-            p++;
-        }
-        if (!isdigit(*p))
-            return E_PARSE;
-        while (isdigit(*p)) {
-            down_offset = down_offset * 10 + (*p - '0');
-            p++;
-        }
-
-        // Vertical unit must be 'l' (lines)
-        if (*p != 'l')
-            return E_PARSE;
-        p++;
-        if (*p != '\0')
-            return E_PARSE; // Extra characters
-
-        op->u.box.down_offset = sign * down_offset;
 
         /************************************************************
          * CONTROL OPERATIONS
