@@ -446,6 +446,9 @@ static void print_usage(void)
     printf("                              Search towards location (default: EOF)\n");
     printf("                              for <string>, move cursor to closest match\n");
     printf("  find:re [to <location>] <regex>  Regex enabled find\n");
+    printf("  find:bin [to <location>] <hex-string>\n");
+    printf("                              Find binary pattern (hex: DEADBEEF or DE AD BE EF)\n");
+    printf("                              Case-insensitive, whitespace ignored\n");
     printf("  take to <location>          Order-normalized: emits [min(cursor,L), max(cursor,L));\n");
     printf("                              cursor moves to the high end\n");
     printf("  take until <string> [at match-start|match-end|line-start|line-end]\n");
@@ -578,6 +581,13 @@ static void print_examples(void)
     printf("\n");
     printf("  # Extract with regex until\n");
     printf("  fiskta --input data.txt take until:re \"\\\\d+\" at match-end\n");
+    printf("\n");
+    printf("BINARY DATA:\n");
+    printf("  # Find PNG file header\n");
+    printf("  fiskta --input image.bin find:bin \"89 50 4E 47 0D 0A 1A 0A\" take to match-end\n");
+    printf("\n");
+    printf("  # Detect file type by magic number\n");
+    printf("  fiskta --input mystery.dat find:bin \"504B0304\" OR find:bin \"CAFEBABE\" OR find:bin \"FFD8FFE0\"\n");
     printf("\n");
     printf("STREAMING AND MONITORING:\n");
     printf("  # Monitor log file for errors (delta mode - only process new data)\n");

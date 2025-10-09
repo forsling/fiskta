@@ -51,6 +51,7 @@ content here
 **Searching:**
 - `find [to <location>] <string>` - Search within `[min(cursor,L), max(cursor,L))`, default L=EOF; picks match closest to cursor
 - `find:re [to <location>] <regex>` - Search using regular expressions within `[min(cursor,L), max(cursor,L))`; supports character classes, quantifiers, anchors
+- `find:bin [to <location>] <hex-string>` - Search for binary patterns specified as hexadecimal (e.g., `DEADBEEF` or `DE AD BE EF`); case-insensitive, whitespace-ignored
 
 **Navigation:**
 - `label <name>` - Mark current position with label
@@ -217,6 +218,31 @@ find:re "^\[.*\]"                       # line start anchor
 find:re "[0-9]{1,3}\.[0-9]{1,3}"        # IP address pattern
 find:re "[A-Za-z]+@[A-Za-z.]+"          # simple email pattern
 ```
+
+#### `find:bin [to <location>] <hex-string>`
+
+Search for binary patterns specified as hexadecimal strings. Same search behavior as `find` and `find:re`.
+
+Hex string format:
+- Pairs of hex digits (00-FF)
+- Case-insensitive (both `DEADBEEF` and `deadbeef` work)
+- Whitespace ignored (can use spaces/tabs for readability: `DE AD BE EF`)
+- Must have even number of hex digits
+- Invalid hex characters or odd digit count cause parse errors
+
+```bash
+find:bin "89504E470D0A1A0A"              # PNG file header
+find:bin "50 4B 03 04"                   # ZIP file signature (with spaces)
+find:bin "CAFEBABE"                      # Java class file magic number
+find:bin "de ad be ef"                   # lowercase works too
+find:bin to BOF "FFFE"                   # backward search for UTF-16 BOM
+```
+
+Common use cases:
+- File format detection (magic numbers)
+- Binary protocol parsing
+- Firmware analysis
+- Data carving from disk images
 
 ### Extracting
 
@@ -460,7 +486,7 @@ find "[section]" AND view cursor cursor+1000b
 ### View Scope
 
 Once a view is set:
-- `find` and `find:re` only search within the view
+- `find`, `find:re`, and `find:bin` only search within the view
 - `take` and `skip` can't move outside the view
 - `goto` fails if the target is outside the view
 - The view remains active until `clear view` or program ends
@@ -569,6 +595,31 @@ fiskta --input config.ini \
     goto LOOP
 ```
 
+### Find binary patterns
+
+Problem: Detect file type by magic number and extract relevant data
+
+```bash
+# Find PNG header and extract image dimensions
+fiskta --input image.bin \
+    find:bin "89 50 4E 47 0D 0A 1A 0A" \
+    skip 8b \
+    find:bin "49484452" \
+    skip 4b \
+    take 8b | xxd
+
+# Detect ZIP files
+fiskta --input archive.dat find:bin "504B0304" take to match-end
+
+# Find all JPEG markers in a file
+fiskta --input photo.jpg \
+    label LOOP \
+    find:bin "FFD8" OR find:bin "FFE0" OR find:bin "FFE1" \
+    take to match-end \
+    print "\n" \
+    goto LOOP
+```
+
 ---
 
 ## Grammar
@@ -576,10 +627,11 @@ fiskta --input config.ini \
 ```
 Program        = Clause { ( "THEN" | "OR" ) Clause } .
 Clause         = { Op } .
-Op             = Find | FindRegex | Skip | Take | Label | Goto
+Op             = Find | FindRegex | FindBinary | Skip | Take | Label | Goto
                | View | ClearView | Print | Fail .
 Find           = "find" [ "to" LocationExpr ] String .
 FindRegex      = "find" ":" "re" [ "to" LocationExpr ] String .
+FindBinary     = "find" ":" "bin" [ "to" LocationExpr ] String .
 Skip           = "skip" Number Unit .
 Take           = "take" ( SignedNumber Unit
                           | "to" LocationExpr

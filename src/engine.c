@@ -327,7 +327,11 @@ static enum Err find_op(
 
     i64 win_lo, win_hi;
 
-    enum Err err = resolve_loc_expr_cp(&op->u.find.to, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_VIEW, &win_hi);
+    // Handle both OP_FIND and OP_FIND_BIN (same structure, different union field names)
+    const LocExpr* to_loc = (op->kind == OP_FIND_BIN) ? &op->u.findbin.to : &op->u.find.to;
+    const String* needle = (op->kind == OP_FIND_BIN) ? &op->u.findbin.needle : &op->u.find.needle;
+
+    enum Err err = resolve_loc_expr_cp(to_loc, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_VIEW, &win_hi);
     if (err != E_OK)
         return err;
 
@@ -344,8 +348,8 @@ static enum Err find_op(
 
     i64 ms, me;
     err = io_find_window(io, win_lo, win_hi,
-        (const unsigned char*)op->u.find.needle.bytes,
-        (size_t)op->u.find.needle.len, dir, &ms, &me);
+        (const unsigned char*)needle->bytes,
+        (size_t)needle->len, dir, &ms, &me);
     if (err != E_OK)
         return err;
 
@@ -770,6 +774,8 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         return find_op(io, op, vm, c_cursor, c_last_match, *label_writes, *label_count, c_view);
     case OP_FIND_RE:
         return findr_op(io, op, vm, c_cursor, c_last_match, *label_writes, *label_count, c_view);
+    case OP_FIND_BIN:
+        return find_op(io, op, vm, c_cursor, c_last_match, *label_writes, *label_count, c_view);
     case OP_SKIP:
         return skip_op(io, op, c_cursor, c_view);
     case OP_GOTO:

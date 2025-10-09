@@ -179,6 +179,36 @@ END_SECTION_B
     # 25) commands file for CLI tests
     write(FIX / "commands_take_plus_2b.txt", b"take +2b\n")
 
+    # 26) binary-patterns.bin - File with various binary patterns for find:bin tests
+    bin_patterns = bytearray()
+    # PNG header
+    bin_patterns.extend(b"\x89\x50\x4E\x47\x0D\x0A\x1A\x0A")
+    bin_patterns.extend(b"SOME_TEXT_DATA_HERE")
+    # ZIP signature
+    bin_patterns.extend(b"\x50\x4B\x03\x04")
+    bin_patterns.extend(b"MORE_TEXT")
+    # CAFEBABE (Java class file)
+    bin_patterns.extend(b"\xCA\xFE\xBA\xBE")
+    bin_patterns.extend(b"PADDING")
+    # DEADBEEF pattern
+    bin_patterns.extend(b"\xDE\xAD\xBE\xEF")
+    bin_patterns.extend(b"END_DATA\n")
+    write(FIX / "binary-patterns.bin", bin_patterns)
+
+    # 27) binary-large.bin - Large binary file for buffer boundary testing
+    bin_large = bytearray(b"\x00" * (10 * 1024 * 1024))  # 10MB of zeros
+    # Insert pattern deep in the file
+    pattern_offset = 7 * 1024 * 1024 + 12345
+    bin_large[pattern_offset:pattern_offset+4] = b"\xDE\xAD\xBE\xEF"
+    write(FIX / "binary-large.bin", bin_large)
+
+    # 28) hex-test.bin - Simple file for hex parsing tests
+    hex_test = bytearray()
+    hex_test.extend(b"PREFIX_")
+    hex_test.extend(b"\x01\x0D\xFF")  # hex: 01 0D FF
+    hex_test.extend(b"_SUFFIX")
+    write(FIX / "hex-test.bin", hex_test)
+
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -1877,6 +1907,147 @@ def tests():
         dict(id="regex-118-until-re-escaped-chars",
              tokens=["take","until:re","\\n"], input_file="-", stdin=b"hello\nworld",
              expect=dict(stdout="hello", exit=0)),
+
+        # ---------- Binary Search (find:bin) Tests ----------
+        # Basic hex pattern matching
+        dict(id="findbin-001-basic-hex-uppercase",
+             tokens=["find:bin","89504E470D0A1A0A","take","+8b"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6", exit=0)),  # PNG header
+
+        dict(id="findbin-002-basic-hex-lowercase",
+             tokens=["find:bin","89504e470d0a1a0a","take","+8b"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6", exit=0)),  # PNG header lowercase
+
+        dict(id="findbin-003-mixed-case",
+             tokens=["find:bin","CaFeBaBe","take","+4b"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="65ab12a8ff3263fbc257e5ddf0aa563c64573d0bab1f1115b9b107834cfa6971", exit=0)),  # CAFEBABE
+
+        # Hex patterns with whitespace
+        dict(id="findbin-004-hex-with-spaces",
+             tokens=["find:bin","DE AD BE EF","take","+4b"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="5f78c33274e43fa9de5659265c1d917e25c03722dcb0b8d27db8d5feaa813953", exit=0)),  # DEADBEEF
+
+        dict(id="findbin-005-hex-with-tabs",
+             tokens=["find:bin","50\t4B\t03\t04","take","+4b"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="8dcc7e601606217f3b754766511182a916b17e9a26a94c9d887104eba92e9bb2", exit=0)),  # ZIP signature
+
+        dict(id="findbin-006-hex-mixed-whitespace",
+             tokens=["find:bin","50 4B\t03 04","take","+4b"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="8dcc7e601606217f3b754766511182a916b17e9a26a94c9d887104eba92e9bb2", exit=0)),  # ZIP signature
+
+        # Simple hex patterns
+        dict(id="findbin-007-simple-pattern",
+             tokens=["find:bin","010DFF","take","+3b"], input_file="hex-test.bin",
+             expect=dict(stdout_sha256="7add1b01be62f96315f673a5e2bbd217abe42e46d094f2564e5da936e3777af4", exit=0)),
+
+        dict(id="findbin-008-simple-pattern-spaces",
+             tokens=["find:bin","01 0D FF","take","+3b"], input_file="hex-test.bin",
+             expect=dict(stdout_sha256="7add1b01be62f96315f673a5e2bbd217abe42e46d094f2564e5da936e3777af4", exit=0)),
+
+        # Forward and backward search
+        dict(id="findbin-009-forward-search",
+             tokens=["find:bin","CAFEBABE","take","+4b"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="65ab12a8ff3263fbc257e5ddf0aa563c64573d0bab1f1115b9b107834cfa6971", exit=0)),
+
+        dict(id="findbin-010-backward-search",
+             tokens=["goto","EOF","find:bin","to","BOF","DEADBEEF","take","+4b"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="5f78c33274e43fa9de5659265c1d917e25c03722dcb0b8d27db8d5feaa813953", exit=0)),
+
+        # No match scenarios
+        dict(id="findbin-011-no-match",
+             tokens=["find:bin","FFFFFFFF","take","+1b"], input_file="hex-test.bin",
+             expect=dict(stdout="", exit=10)),
+
+        dict(id="findbin-012-empty-file",
+             tokens=["find:bin","DEADBEEF","take","+1b"], input_file="empty.txt",
+             expect=dict(stdout="", exit=10)),
+
+        # Error cases - odd number of hex digits
+        dict(id="findbin-013-odd-hex-digits",
+             tokens=["find:bin","DEA","take","+1b"], input_file="hex-test.bin",
+             expect=dict(stdout="", exit=2)),
+
+        # Error cases - invalid hex characters
+        dict(id="findbin-014-invalid-hex-char",
+             tokens=["find:bin","DEFG","take","+1b"], input_file="hex-test.bin",
+             expect=dict(stdout="", exit=2)),
+
+        dict(id="findbin-015-invalid-hex-special",
+             tokens=["find:bin","DE$F","take","+1b"], input_file="hex-test.bin",
+             expect=dict(stdout="", exit=2)),
+
+        # Error cases - empty pattern
+        dict(id="findbin-016-empty-pattern",
+             tokens=["find:bin",""], input_file="hex-test.bin",
+             expect=dict(stdout="", exit=2)),
+
+        # Large file search (buffer boundary testing)
+        dict(id="findbin-017-large-file-search",
+             tokens=["find:bin","DEADBEEF","take","+4b"], input_file="binary-large.bin",
+             expect=dict(stdout_sha256="5f78c33274e43fa9de5659265c1d917e25c03722dcb0b8d27db8d5feaa813953", exit=0)),
+
+        # Integration with match positions
+        dict(id="findbin-018-goto-match-start",
+             tokens=["find:bin","CAFEBABE","goto","match-start","take","to","match-end"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="65ab12a8ff3263fbc257e5ddf0aa563c64573d0bab1f1115b9b107834cfa6971", exit=0)),
+
+        dict(id="findbin-019-goto-match-end",
+             tokens=["find:bin","504B0304","goto","match-end","take","+4b"], input_file="binary-patterns.bin",
+             expect=dict(stdout="MORE", exit=0)),
+
+        # Integration with labels
+        dict(id="findbin-020-label-after-find",
+             tokens=["find:bin","DEADBEEF","label","MARK","goto","MARK","take","+4b"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="5f78c33274e43fa9de5659265c1d917e25c03722dcb0b8d27db8d5feaa813953", exit=0)),
+
+        # Integration with views
+        dict(id="findbin-021-find-within-view",
+             tokens=["view","BOF","BOF+50b","find:bin","504B0304","take","+4b"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="8dcc7e601606217f3b754766511182a916b17e9a26a94c9d887104eba92e9bb2", exit=0)),
+
+        dict(id="findbin-022-find-outside-view",
+             tokens=["view","BOF","BOF+10b","find:bin","DEADBEEF","take","+1b"], input_file="binary-patterns.bin",
+             expect=dict(stdout="", exit=10)),  # DEADBEEF is beyond view
+
+        # Integration with clauses
+        dict(id="findbin-023-multiple-clauses",
+             tokens=["find:bin","89504E47","take","+4b","THEN","find:bin","CAFEBABE","take","+4b"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="9e0cce7bfddeb213f8453efa50f344e5e1143f685e6e334df053d89e0c967790", exit=0)),  # Combined output
+
+        # Integration with OR
+        dict(id="findbin-024-or-first-match",
+             tokens=["find:bin","FFFFFFFF","OR","find:bin","DEADBEEF","take","+4b"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="5f78c33274e43fa9de5659265c1d917e25c03722dcb0b8d27db8d5feaa813953", exit=0)),
+
+        # Whitespace-only pattern (should fail as odd digits after removing whitespace if spaces only)
+        dict(id="findbin-025-whitespace-only",
+             tokens=["find:bin","   ","take","+1b"], input_file="hex-test.bin",
+             expect=dict(stdout="", exit=2)),
+
+        # All zeros pattern
+        dict(id="findbin-026-all-zeros",
+             tokens=["find:bin","00000000","take","+4b"], input_file="binary-large.bin",
+             expect=dict(stdout_sha256="df3f619804a92fdb4057192dc43dd748ea778adc52bc498ce80524c014b81119", exit=0)),
+
+        # Single byte pattern
+        dict(id="findbin-027-single-byte",
+             tokens=["find:bin","01","take","+1b"], input_file="hex-test.bin",
+             expect=dict(stdout_sha256="4bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459a", exit=0)),
+
+        # Real-world patterns - PNG header
+        dict(id="findbin-028-png-header",
+             tokens=["find:bin","89 50 4E 47 0D 0A 1A 0A","take","+8b"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6", exit=0)),
+
+        # Real-world patterns - ZIP signature
+        dict(id="findbin-029-zip-signature",
+             tokens=["find:bin","504B0304","take","+4b"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="8dcc7e601606217f3b754766511182a916b17e9a26a94c9d887104eba92e9bb2", exit=0)),
+
+        # Real-world patterns - Java class file
+        dict(id="findbin-030-java-class",
+             tokens=["find:bin","CAFEBABE","take","+4b"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="65ab12a8ff3263fbc257e5ddf0aa563c64573d0bab1f1115b9b107834cfa6971", exit=0)),
 
         # ---------- Views Feature Tests ----------
         # Basic view operations

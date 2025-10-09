@@ -24,6 +24,7 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
 static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg);
 static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* at);
 static enum Err parse_string_to_bytes(const char* str, String* out_string, char* str_pool, size_t* str_pool_off, size_t str_pool_cap);
+static enum Err parse_hex_to_bytes(const char* hex_str, String* out_string, char* str_pool, size_t* str_pool_off, size_t str_pool_cap);
 static enum Err parse_unsigned_number(const char* token, i32* sign, u64* n, Unit* unit);
 static enum Err parse_signed_number(const char* token, i64* offset, Unit* unit);
 static i32 find_or_add_name_build(Program* prg, const char* name);
@@ -108,6 +109,29 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                     }
                     plan->needle_count++; // account string storage (shared pool)
                     plan->needle_bytes += L;
+                    idx++;
+                }
+            } else if (strcmp(cmd, "find:bin") == 0) {
+                idx++;
+                if (idx < token_count && strcmp(tokens[idx], "to") == 0) {
+                    idx++;
+                    if (idx < token_count) {
+                        idx++;
+                        if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-'))
+                            idx++;
+                    }
+                }
+                // Skip hex string - count bytes needed (half the hex digits, ignoring whitespace)
+                if (idx < token_count) {
+                    const char* hex_str = tokens[idx];
+                    size_t hex_digits = 0;
+                    for (const char* p = hex_str; *p; p++) {
+                        if (!isspace(*p)) {
+                            hex_digits++;
+                        }
+                    }
+                    plan->needle_count++;
+                    plan->needle_bytes += hex_digits / 2; // bytes needed
                     idx++;
                 }
             } else if (strcmp(cmd, "skip") == 0) {
@@ -295,7 +319,7 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
             idx++;
 
             // Skip command-specific tokens
-            if (strcmp(cmd, "find") == 0) {
+            if (strcmp(cmd, "find") == 0 || strcmp(cmd, "find:re") == 0 || strcmp(cmd, "find:bin") == 0) {
                 if (idx < token_count && strcmp(tokens[idx], "to") == 0) {
                     idx++;
                     if (idx < token_count)
@@ -305,7 +329,7 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
                     }
                 }
                 if (idx < token_count)
-                    idx++; // skip needle
+                    idx++; // skip needle/pattern/hex
             } else if (strcmp(cmd, "skip") == 0) {
                 if (idx < token_count)
                     idx++; // skip number+unit
@@ -482,6 +506,36 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         if (err != E_OK)
             return err;
         op->u.findr.prog = NULL;
+
+    } else if (strcmp(cmd, "find:bin") == 0) {
+        op->kind = OP_FIND_BIN;
+
+        if (*idx < token_count && strcmp(tokens[*idx], "to") == 0) {
+            (*idx)++;
+            enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.findbin.to, prg);
+            if (err != E_OK)
+                return err;
+        } else {
+            // Default to EOF
+            op->u.findbin.to.base = LOC_EOF;
+            op->u.findbin.to.name_idx = -1;
+            op->u.findbin.to.offset = 0;
+            op->u.findbin.to.unit = UNIT_BYTES;
+        }
+
+        // Parse hex string
+        if (*idx >= token_count)
+            return E_PARSE;
+        const char* hex_str = tokens[*idx];
+        (*idx)++;
+
+        if (strlen(hex_str) == 0)
+            return E_BAD_NEEDLE;
+
+        // Parse hex string to bytes and copy to string pool
+        enum Err err = parse_hex_to_bytes(hex_str, &op->u.findbin.needle, str_pool, str_pool_off, str_pool_cap);
+        if (err != E_OK)
+            return err;
 
         /************************************************************
          * MOVEMENT OPERATIONS
@@ -955,6 +1009,66 @@ static int hex_value(char c)
     if (c >= 'A' && c <= 'F')
         return 10 + (c - 'A');
     return -1;
+}
+
+// Parse hex string like "DEADBEEF" or "DE AD BE EF" into bytes
+// Whitespace is ignored, case-insensitive
+static enum Err parse_hex_to_bytes(const char* hex_str, String* out_string, char* str_pool, size_t* str_pool_off, size_t str_pool_cap)
+{
+    // First pass: count hex digits (ignoring whitespace)
+    size_t hex_digit_count = 0;
+    for (const char* p = hex_str; *p; p++) {
+        if (isspace(*p)) {
+            continue;
+        }
+        if (hex_value(*p) < 0) {
+            return E_BAD_NEEDLE; // Invalid hex character
+        }
+        hex_digit_count++;
+    }
+
+    // Must have even number of hex digits
+    if (hex_digit_count == 0 || (hex_digit_count % 2) != 0) {
+        return E_BAD_NEEDLE;
+    }
+
+    size_t byte_count = hex_digit_count / 2;
+
+    // Check if we have space in the string pool
+    if (*str_pool_off + byte_count > str_pool_cap) {
+        return E_OOM;
+    }
+
+    // Second pass: parse hex digits into bytes
+    char* dst = str_pool + *str_pool_off;
+    size_t dst_pos = 0;
+    int pending_nibble = -1;
+
+    for (const char* p = hex_str; *p; p++) {
+        if (isspace(*p)) {
+            continue;
+        }
+
+        int nibble = hex_value(*p);
+        if (nibble < 0) {
+            return E_BAD_NEEDLE; // Should not happen (checked in first pass)
+        }
+
+        if (pending_nibble < 0) {
+            pending_nibble = nibble;
+        } else {
+            dst[dst_pos++] = (char)((pending_nibble << 4) | nibble);
+            pending_nibble = -1;
+        }
+    }
+
+    *str_pool_off += byte_count;
+
+    // Return String struct
+    out_string->bytes = dst;
+    out_string->len = (i32)byte_count;
+
+    return E_OK;
 }
 
 static enum Err parse_string_to_bytes(const char* str, String* out_string, char* str_pool, size_t* str_pool_off, size_t str_pool_cap)
