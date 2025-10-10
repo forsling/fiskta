@@ -63,7 +63,7 @@ content here
 
 **Navigation:**
 - `label <name>` - Mark current position with label
-- `goto <location>` - Jump to labeled position
+- `goto <location>` - Move cursor to labeled position
 - `view <L1> <L2>` - Limit all ops to `[min(L1,L2), max(L1,L2))`
 - `clear view` - Clear view; return to full file
 
@@ -153,6 +153,7 @@ Evaluation is strictly left-to-right (no operator precedence).
 
 **Looping & Streaming:**
 - `-l, --loop [<time>]` - Re-run program with delay (optional time with suffix: `ms`, `s`, `m`, `h`; default: no delay)
+- `-k, --ignore-loop-failures` - Continue looping on iteration failure
 - `-t, --loop-timeout <time>` - Stop after time with no input growth (requires suffix: `ms`, `s`, `m`, `h`)
 - `-w, --loop-view <policy>` - Which view of the file to process on each loop:
   - `cursor` - continue from last cursor position (default)
@@ -531,12 +532,11 @@ view BOF EOF          # back to full file
 
 **Extract from specific section:**
 ```bash
-find "[database]" skip to line-end label S \
-find "[" label E \
-view S E \
-label LOOP \
-find "=" take to line-end \
-goto LOOP
+fiskta --loop --input config.ini \
+    find "[database]" skip to line-end label S \
+    find "[" label E \
+    view S E \
+    find "=" take to line-end
 ```
 
 **Limit search scope:**
@@ -599,13 +599,11 @@ fiskta --input data.xml find "<tag>" skip 5b take until "<"
 
 ### Extract all occurrences
 
-Problem: Extract all email addresses (using labels and goto for loops)
+Problem: Extract all email addresses
 
 ```bash
-fiskta --input contacts.txt \
-    label START \
-    find:re "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+" take to match-end print "\n" \
-    goto START
+fiskta --loop --input contacts.txt \
+    find:re "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+" take to match-end print "\n"
 ```
 
 ### Extract from specific section
@@ -613,12 +611,10 @@ fiskta --input contacts.txt \
 Problem: Extract all config values from the `[database]` section only
 
 ```bash
-fiskta --input config.ini \
+fiskta --loop --input config.ini \
     find "[database]" skip to line-end \
     view cursor cursor+1000b \
-    label LOOP \
-    find "=" skip -1l take to line-end \
-    goto LOOP
+    find "=" skip -1l take to line-end
 ```
 
 ### Find binary patterns
@@ -638,12 +634,10 @@ fiskta --input image.bin \
 fiskta --input archive.dat find:bin "504B0304" take to match-end
 
 # Find all JPEG markers in a file
-fiskta --input photo.jpg \
-    label LOOP \
+fiskta --loop --input photo.jpg \
     find:bin "FFD8" OR find:bin "FFE0" OR find:bin "FFE1" \
     take to match-end \
-    print "\n" \
-    goto LOOP
+    print "\n"
 ```
 
 ---

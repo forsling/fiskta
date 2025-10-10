@@ -537,10 +537,14 @@ static void print_usage(void)
     printf("  -i, --input <path>          Read input from path (default: stdin)\n");
     printf("  -c, --commands <string|file>  Provide operations as a single string or file path\n");
     printf("      --                      Treat subsequent arguments as operations\n");
-    printf("  -l, --loop [<number><ms|s|m|h>] Re-run program on input with delay (default: no delay)\n");
+    printf("  -l, --loop [<number><ms|s|m|h>] Re-run fiskta program on input with optional delay\n");
+    printf("  -k, --ignore-loop-failures  Continue looping on iteration failure\n");
     printf("  -t, --loop-timeout <number><ms|s|m|h>\n");
     printf("                              Stop looping after time value with no input growth\n");
     printf("  -w, --loop-view <policy>    View change policy: cursor (default) | delta | rescan\n");
+    printf("                                cursor:  Continue from last cursor position\n");
+    printf("                                delta:   Only process new data since last run\n");
+    printf("                                rescan:  Re-scan entire file each iteration\n");
     printf("  -h, --help                  Show this help message\n");
     printf("      --examples              Show comprehensive usage examples\n");
     printf("  -v, --version               Show version information\n");
@@ -640,6 +644,7 @@ int main(int argc, char** argv)
     const char* command_file = NULL;
     int loop_ms = 0;
     bool loop_enabled = false;
+    bool ignore_loop_failures = false;
     int idle_timeout_ms = -1;
     LoopViewPolicy loop_view_policy = LOOP_VIEW_CURSOR;
 
@@ -730,6 +735,11 @@ int main(int argc, char** argv)
         if (strncmp(arg, "--loop-view=", 12) == 0) {
             if (parse_loop_view_option(arg + 12, &loop_view_policy) != 0)
                 return 2;
+            argi++;
+            continue;
+        }
+        if (strcmp(arg, "-k") == 0 || strcmp(arg, "--ignore-loop-failures") == 0) {
+            ignore_loop_failures = true;
             argi++;
             continue;
         }
@@ -1092,9 +1102,14 @@ int main(int argc, char** argv)
             goto cleanup;
         } else {
             i32 failed_clause = (-ok) - 2;
-            fprintf(stderr, "fiskta: clause %d failed (%s)\n", failed_clause, err_str(last_err));
-            exit_code = 10 + failed_clause;
-            goto cleanup;
+            // If looping with ignore-failures, continue to next iteration
+            if (loop_enabled && ignore_loop_failures) {
+                // Continue looping despite failure
+            } else {
+                fprintf(stderr, "fiskta: clause %d failed (%s)\n", failed_clause, err_str(last_err));
+                exit_code = 10 + failed_clause;
+                goto cleanup;
+            }
         }
 
         fflush(stdout);
