@@ -4,11 +4,9 @@
 
 #include "fiskta.h"
 #include "iosearch.h"
-#include "parse_plan.h"
 #include "reprog.h"
 #include "util.h"
 #include <ctype.h>
-#include <errno.h>
 #include <limits.h>
 #include <stdalign.h>
 #include <stdint.h>
@@ -45,27 +43,33 @@ static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
                 continue;
             }
             if (c == '\'' || c == '"') {
-                if (ntok >= max_tokens)
-                    return -1; // NEW
-                if (boff >= sizeof buf)
-                    return -1; // NEW
+                if (ntok >= max_tokens) {
+                    return -1;
+                }
+                if (boff >= sizeof buf) {
+                    return -1;
+                }
                 out[ntok] = &buf[boff];
                 st = (c == '\'') ? S_SQ : S_DQ;
                 p++;
                 continue;
             }
             // start token, reprocess this char in S_TOKEN
-            if (ntok >= max_tokens)
-                return -1; // NEW
-            if (boff >= sizeof buf)
-                return -1; // NEW
+            if (ntok >= max_tokens) {
+                return -1;
+            }
+            if (boff >= sizeof buf) {
+                return -1;
+            }
             out[ntok] = &buf[boff];
             st = S_TOKEN;
             continue;
-        } else if (st == S_TOKEN) {
+        }
+        if (st == S_TOKEN) {
             if (c == ' ' || c == '\t') {
-                if (boff >= sizeof buf)
+                if (boff >= sizeof buf) {
                     return -1; // NUL safety
+                }
                 buf[boff++] = '\0';
                 ntok++;
                 st = S_WS;
@@ -85,30 +89,34 @@ static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
             if (c == '\\' && p[1]) {
                 unsigned char next = (unsigned char)p[1];
                 if (next == ' ' || next == '\t' || next == '\\' || next == '\'' || next == '"') {
-                    if (boff >= sizeof buf)
+                    if (boff >= sizeof buf) {
                         return -1;
+                    }
                     buf[boff++] = (char)next;
                     p += 2;
                     continue;
                 }
             }
-            if (boff >= sizeof buf)
+            if (boff >= sizeof buf) {
                 return -1;
+            }
             buf[boff++] = (char)c;
             p++;
             continue;
-        } else if (st == S_SQ) {
+        } if (st == S_SQ) {
             if (c == '\'') {
                 st = S_TOKEN;
                 p++;
                 continue;
             }
-            if (boff >= sizeof buf)
+            if (boff >= sizeof buf) {
                 return -1;
+            }
             buf[boff++] = (char)c;
             p++;
             continue;
-        } else { // S_DQ
+        }
+        if (st == S_DQ) {
             if (c == '"') {
                 st = S_TOKEN;
                 p++;
@@ -117,15 +125,17 @@ static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
             if (c == '\\' && p[1]) {
                 unsigned char esc = (unsigned char)p[1];
                 if (esc == '"' || esc == '\\') {
-                    if (boff >= sizeof buf)
+                    if (boff >= sizeof buf) {
                         return -1;
+                    }
                     buf[boff++] = (char)esc;
                     p += 2;
                     continue;
                 }
             }
-            if (boff >= sizeof buf)
+            if (boff >= sizeof buf) {
                 return -1;
+            }
             buf[boff++] = (char)c;
             p++;
             continue;
@@ -133,13 +143,16 @@ static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
     }
 
     if (st == S_TOKEN || st == S_SQ || st == S_DQ) {
-        if (boff >= sizeof buf)
-            return -1; // NEW
+        if (boff >= sizeof buf) {
+            return -1;
+        }
         buf[boff++] = '\0';
-        if (ntok < max_tokens)
+        if (ntok < max_tokens) {
             ntok++;
-        else
-            return -1; // NEW
+        }
+        else {
+            return -1;
+        }
     }
     return ntok;
 }
@@ -148,16 +161,6 @@ static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
 #include <fcntl.h>
 #include <io.h>
 #endif
-
-enum Err engine_run(const Program*, const char*, FILE*);
-enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
-enum Err parse_build(i32 token_count, const String* tokens, const char* in_path, Program* prg, const char** in_path_out,
-    Clause* clauses_buf, Op* ops_buf,
-    char* str_pool, size_t str_pool_cap);
-enum Err io_open(File* io, const char* path,
-    unsigned char* search_buf, size_t search_buf_cap);
-void commit_labels(VM* vm, const LabelWrite* label_writes, i32 label_count);
-enum Err io_emit(File* io, i64 start, i64 end, FILE* out);
 
 static const char* err_str(enum Err e)
 {
@@ -189,10 +192,12 @@ static const char* err_str(enum Err e)
 
 static void print_err(enum Err e, const char* msg)
 {
-    if (msg)
+    if (msg) {
         fprintf(stderr, "fiskta: %s (%s)\n", msg, err_str(e));
-    else
+    }
+    else {
         fprintf(stderr, "fiskta: %s\n", err_str(e));
+    }
 }
 
 static size_t align_or_die(size_t x, size_t align)
@@ -247,8 +252,9 @@ static uint64_t now_millis(void)
 
 static void refresh_file_size(File* io)
 {
-    if (!io || !io->f)
+    if (!io || !io->f) {
         return;
+    }
 
     int fd = fileno(io->f);
     struct stat st;
@@ -261,8 +267,9 @@ static void refresh_file_size(File* io)
 
 static int parse_loop_view_option(const char* value, LoopViewPolicy* out)
 {
-    if (!value || !out)
+    if (!value || !out) {
         return 1;
+    }
     if (strcmp(value, "delta") == 0) {
         *out = LOOP_VIEW_DELTA;
         return 0;
@@ -281,8 +288,9 @@ static int parse_loop_view_option(const char* value, LoopViewPolicy* out)
 
 static int parse_time_option(const char* value, const char* opt_name, int* out)
 {
-    if (!value || !opt_name || !out)
+    if (!value || !opt_name || !out) {
         return 1;
+    }
 
     // Parse: 0, 100ms, 5s, 2m, 1h (suffix required for non-zero values)
     char* end = NULL;
@@ -338,8 +346,9 @@ static int parse_time_option(const char* value, const char* opt_name, int* out)
 
 static int parse_loop_timeout_option(const char* value, int* out)
 {
-    if (!value || !out)
+    if (!value || !out) {
         return 1;
+    }
     if (strcmp(value, "none") == 0 || strcmp(value, "off") == 0 || strcmp(value, "-1") == 0) {
         *out = -1;
         return 0;
@@ -352,8 +361,9 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
     enum Err* last_err_out,
     i64 window_lo, i64 window_hi)
 {
-    if (last_err_out)
+    if (last_err_out) {
         *last_err_out = E_OK;
+    }
 
     io_reset_full(io);
 
@@ -361,16 +371,19 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
     VM* vm_exec = vm ? vm : &local_vm;
     if (!vm) {
         memset(vm_exec, 0, sizeof(*vm_exec));
-        for (i32 i = 0; i < MAX_LABELS; i++)
+        for (i32 i = 0; i < MAX_LABELS; i++) {
             vm_exec->label_pos[i] = -1;
+        }
     }
 
     i64 lo = clamp64(window_lo, 0, io_size(io));
     i64 hi = clamp64(window_hi, 0, io_size(io));
-    if (vm_exec->cursor < lo)
+    if (vm_exec->cursor < lo) {
         vm_exec->cursor = lo;
-    if (vm_exec->cursor > hi)
+    }
+    if (vm_exec->cursor > hi) {
         vm_exec->cursor = hi;
+    }
     vm_exec->view.active = true;
     vm_exec->view.lo = lo;
     vm_exec->view.hi = hi;
@@ -382,7 +395,8 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
     StagedResult result;
 
     for (i32 ci = 0; ci < prg->clause_count; ++ci) {
-        i32 rc = 0, lc = 0;
+        i32 rc = 0;
+        i32 lc = 0;
         clause_caps(&prg->clauses[ci], &rc, &lc);
         Range* r_tmp = (rc > 0) ? clause_ranges : NULL;
         LabelWrite* lw_tmp = (lc > 0) ? clause_labels : NULL;
@@ -396,11 +410,13 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
                     e = io_emit(io, result.ranges[i].file.start, result.ranges[i].file.end, stdout);
                 } else {
                     // RANGE_LIT: write literal bytes
-                    if ((size_t)fwrite(result.ranges[i].lit.bytes, 1, (size_t)result.ranges[i].lit.len, stdout) != (size_t)result.ranges[i].lit.len)
+                    if ((size_t)fwrite(result.ranges[i].lit.bytes, 1, (size_t)result.ranges[i].lit.len, stdout) != (size_t)result.ranges[i].lit.len) {
                         e = E_IO;
+                    }
                 }
-                if (e != E_OK)
+                if (e != E_OK) {
                     break;
+                }
             }
             if (e == E_OK) {
                 // Commit staged VM state
@@ -430,17 +446,17 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
         }
     }
 
-    if (last_err_out)
+    if (last_err_out) {
         *last_err_out = last_err;
-
+    }
     // Determine return value for exit code calculation:
     // - Positive: number of successful clauses
     // - -2 - N: All clauses failed, last failure at clause (N + 2)
     if (ok == 0 && last_failed_clause >= 0) {
         return -2 - last_failed_clause; // All clauses failed
-    } else {
-        return ok; // Success (at least one clause succeeded)
     }
+    return ok; // Success (at least one clause succeeded)
+
 }
 
 static void print_usage(void)
@@ -690,8 +706,9 @@ int main(int argc, char** argv)
             loop_enabled = true;
             // Check if next arg looks like a time value (starts with digit)
             if (argi + 1 < argc && isdigit((unsigned char)argv[argi + 1][0])) {
-                if (parse_time_option(argv[argi + 1], "--loop", &loop_ms) != 0)
+                if (parse_time_option(argv[argi + 1], "--loop", &loop_ms) != 0) {
                     return 2;
+                }
                 argi += 2;
             } else {
                 // No value provided, default to 0ms
@@ -702,8 +719,9 @@ int main(int argc, char** argv)
         }
         if (strncmp(arg, "--loop=", 7) == 0) {
             loop_enabled = true;
-            if (parse_time_option(arg + 7, "--loop", &loop_ms) != 0)
+            if (parse_time_option(arg + 7, "--loop", &loop_ms) != 0) {
                 return 2;
+            }
             argi++;
             continue;
         }
@@ -712,14 +730,16 @@ int main(int argc, char** argv)
                 fprintf(stderr, "fiskta: --loop-timeout requires a value\n");
                 return 2;
             }
-            if (parse_loop_timeout_option(argv[argi + 1], &idle_timeout_ms) != 0)
+            if (parse_loop_timeout_option(argv[argi + 1], &idle_timeout_ms) != 0) {
                 return 2;
+            }
             argi += 2;
             continue;
         }
         if (strncmp(arg, "--loop-timeout=", 15) == 0) {
-            if (parse_loop_timeout_option(arg + 15, &idle_timeout_ms) != 0)
+            if (parse_loop_timeout_option(arg + 15, &idle_timeout_ms) != 0) {
                 return 2;
+            }
             argi++;
             continue;
         }
@@ -728,14 +748,16 @@ int main(int argc, char** argv)
                 fprintf(stderr, "fiskta: --loop-view requires a value\n");
                 return 2;
             }
-            if (parse_loop_view_option(argv[argi + 1], &loop_view_policy) != 0)
+            if (parse_loop_view_option(argv[argi + 1], &loop_view_policy) != 0) {
                 return 2;
+            }
             argi += 2;
             continue;
         }
         if (strncmp(arg, "--loop-view=", 12) == 0) {
-            if (parse_loop_view_option(arg + 12, &loop_view_policy) != 0)
+            if (parse_loop_view_option(arg + 12, &loop_view_policy) != 0) {
                 return 2;
+            }
             argi++;
             continue;
         }
@@ -832,8 +854,9 @@ int main(int argc, char** argv)
             return 2;
         }
         for (size_t i = 0; i < total; ++i) {
-            if (file_content_buf[i] == '\n' || file_content_buf[i] == '\r')
+            if (file_content_buf[i] == '\n' || file_content_buf[i] == '\r') {
                 file_content_buf[i] = ' ';
+            }
         }
         i32 n = split_ops_string(file_content_buf, splitv, (i32)(sizeof splitv / sizeof splitv[0]));
         if (n == -1) {
@@ -916,8 +939,9 @@ skip_conversion:
 
     // Choose per-run thread capacity as ~2x max nins, min 32.
     int re_threads_cap = plan.re_ins_estimate_max > 0 ? 2 * plan.re_ins_estimate_max : 32;
-    if (re_threads_cap < 32)
+    if (re_threads_cap < 32) {
         re_threads_cap = 32;
+    }
     const size_t re_threads_bytes = (size_t)re_threads_cap * sizeof(ReThread);
 
     /************************************************************
@@ -954,26 +978,26 @@ skip_conversion:
         print_err(E_OOM, "arena alloc");
         return 4; // Exit code 4: Resource limit
     }
-    Arena A;
-    arena_init(&A, block, total);
+    Arena arena;
+    arena_init(&arena, block, total);
 
     /************************************************************
      * PHASE 4: CARVE ARENA SLICES
      * Partition the memory block into specific buffers
      ************************************************************/
-    unsigned char* search_buf = arena_alloc(&A, search_buf_cap, alignof(unsigned char));
-    Clause* clauses_buf = arena_alloc(&A, clauses_bytes, alignof(Clause));
-    Op* ops_buf = arena_alloc(&A, ops_bytes, alignof(Op));
-    ReThread* re_curr_thr = arena_alloc(&A, re_threads_bytes, alignof(ReThread));
-    ReThread* re_next_thr = arena_alloc(&A, re_threads_bytes, alignof(ReThread));
-    unsigned char* seen_curr = arena_alloc(&A, re_seen_bytes_each, 1);
-    unsigned char* seen_next = arena_alloc(&A, re_seen_bytes_each, 1);
-    ReProg* re_progs = arena_alloc(&A, re_prog_bytes, alignof(ReProg));
-    ReInst* re_ins = arena_alloc(&A, re_ins_bytes, alignof(ReInst));
-    ReClass* re_cls = arena_alloc(&A, re_cls_bytes, alignof(ReClass));
-    char* str_pool = arena_alloc(&A, str_pool_bytes, alignof(char));
-    Range* clause_ranges = (plan.sum_take_ops > 0) ? arena_alloc(&A, (size_t)plan.sum_take_ops * sizeof(Range), alignof(Range)) : NULL;
-    LabelWrite* clause_labels = (plan.sum_label_ops > 0) ? arena_alloc(&A, (size_t)plan.sum_label_ops * sizeof(LabelWrite), alignof(LabelWrite)) : NULL;
+    unsigned char* search_buf = arena_alloc(&arena, search_buf_cap, alignof(unsigned char));
+    Clause* clauses_buf = arena_alloc(&arena, clauses_bytes, alignof(Clause));
+    Op* ops_buf = arena_alloc(&arena, ops_bytes, alignof(Op));
+    ReThread* re_curr_thr = arena_alloc(&arena, re_threads_bytes, alignof(ReThread));
+    ReThread* re_next_thr = arena_alloc(&arena, re_threads_bytes, alignof(ReThread));
+    unsigned char* seen_curr = arena_alloc(&arena, re_seen_bytes_each, 1);
+    unsigned char* seen_next = arena_alloc(&arena, re_seen_bytes_each, 1);
+    ReProg* re_progs = arena_alloc(&arena, re_prog_bytes, alignof(ReProg));
+    ReInst* re_ins = arena_alloc(&arena, re_ins_bytes, alignof(ReInst));
+    ReClass* re_cls = arena_alloc(&arena, re_cls_bytes, alignof(ReClass));
+    char* str_pool = arena_alloc(&arena, str_pool_bytes, alignof(char));
+    Range* clause_ranges = (plan.sum_take_ops > 0) ? arena_alloc(&arena, (size_t)plan.sum_take_ops * sizeof(Range), alignof(Range)) : NULL;
+    LabelWrite* clause_labels = (plan.sum_label_ops > 0) ? arena_alloc(&arena, (size_t)plan.sum_label_ops * sizeof(LabelWrite), alignof(LabelWrite)) : NULL;
 
     if (!search_buf || !clauses_buf || !ops_buf
         || !re_curr_thr || !re_next_thr || !seen_curr || !seen_next
@@ -1004,7 +1028,9 @@ skip_conversion:
     }
 
     // Compile all regex patterns upfront
-    i32 re_prog_idx = 0, re_ins_idx = 0, re_cls_idx = 0;
+    i32 re_prog_idx = 0;
+    i32 re_ins_idx = 0;
+    i32 re_cls_idx = 0;
     for (i32 ci = 0; ci < prg.clause_count; ++ci) {
         Clause* clause = &prg.clauses[ci];
         for (i32 i = 0; i < clause->op_count; ++i) {
@@ -1048,7 +1074,7 @@ skip_conversion:
     }
 
     io_set_regex_scratch(&io, re_curr_thr, re_next_thr, re_threads_cap,
-        seen_curr, seen_next, (size_t)re_seen_bytes_each);
+        seen_curr, seen_next, re_seen_bytes_each);
 
     /*****************************************************
      * PHASE 7: EXECUTE PROGRAM
@@ -1063,11 +1089,13 @@ skip_conversion:
     uint64_t last_change_ms = now_millis();
     VM saved_vm;
     memset(&saved_vm, 0, sizeof(saved_vm));
-    for (i32 i = 0; i < MAX_LABELS; i++)
+    for (i32 i = 0; i < MAX_LABELS; i++) {
         saved_vm.label_pos[i] = -1;
+    }
     bool have_saved_vm = false;
-    if (!loop_enabled)
+    if (!loop_enabled) {
         idle_timeout_ms = -1;
+    }
 
     for (;;) {
         refresh_file_size(&io);
@@ -1077,18 +1105,22 @@ skip_conversion:
             last_size = window_end;
             last_change_ms = now_ms;
         }
-        if (window_start > window_end)
+        if (window_start > window_end) {
             window_start = window_end;
+        }
 
         i64 effective_start = window_start;
-        if (loop_view_policy == LOOP_VIEW_RESCAN)
+        if (loop_view_policy == LOOP_VIEW_RESCAN) {
             effective_start = 0;
-        else if (loop_view_policy == LOOP_VIEW_CURSOR && have_saved_vm)
+        }
+        else if (loop_view_policy == LOOP_VIEW_CURSOR && have_saved_vm) {
             effective_start = clamp64(saved_vm.cursor, 0, window_end);
+        }
 
         if (loop_enabled && loop_view_policy == LOOP_VIEW_DELTA && effective_start >= window_end) {
-            if (idle_timeout_ms >= 0 && (now_ms - last_change_ms) >= (uint64_t)idle_timeout_ms)
+            if (idle_timeout_ms >= 0 && (now_ms - last_change_ms) >= (uint64_t)idle_timeout_ms) {
                 break;
+            }
             sleep_msec(loop_ms);
             continue;
         }
@@ -1120,14 +1152,16 @@ skip_conversion:
 
         fflush(stdout);
 
-        if (!loop_enabled)
+        if (!loop_enabled) {
             break;
+        }
 
         if (loop_view_policy == LOOP_VIEW_CURSOR) {
             have_saved_vm = true;
             window_start = clamp64(saved_vm.cursor, 0, window_end);
-            if (saved_vm.cursor != prev_cursor)
+            if (saved_vm.cursor != prev_cursor) {
                 last_change_ms = now_ms;
+            }
         } else if (loop_view_policy == LOOP_VIEW_DELTA) {
             window_start = window_end;
         } else {
@@ -1135,8 +1169,9 @@ skip_conversion:
         }
 
         now_ms = now_millis();
-        if (idle_timeout_ms >= 0 && (now_ms - last_change_ms) >= (uint64_t)idle_timeout_ms)
+        if (idle_timeout_ms >= 0 && (now_ms - last_change_ms) >= (uint64_t)idle_timeout_ms) {
             break;
+        }
 
         sleep_msec(loop_ms);
     }

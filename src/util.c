@@ -1,8 +1,8 @@
 #define _POSIX_C_SOURCE 199309L
 #include "util.h"
-#include <limits.h>
 #include <ctype.h>
 #include <errno.h>
+#include <limits.h>
 #include <stdalign.h>
 #include <string.h>
 
@@ -14,8 +14,9 @@
 
 void arena_init(Arena* a, void* mem, size_t cap)
 {
-    if (!a)
+    if (!a) {
         return;
+    }
     a->base = (unsigned char*)mem;
     a->cap = cap;
     a->off = 0;
@@ -23,12 +24,14 @@ void arena_init(Arena* a, void* mem, size_t cap)
 
 void* arena_alloc(Arena* a, size_t n, size_t align)
 {
-    if (!a)
+    if (!a) {
         return NULL;
+    }
 
     size_t a0 = align ? align : alignof(max_align_t);
-    if (a0 == 0 || (a0 & (a0 - 1)) != 0)
+    if (a0 == 0 || (a0 & (a0 - 1)) != 0) {
         return NULL;
+    }
 
     size_t p = a->off;
     if (a0 > 1) {
@@ -36,14 +39,16 @@ void* arena_alloc(Arena* a, size_t n, size_t align)
         size_t rem = p & mask;
         if (rem) {
             size_t add = a0 - rem;
-            if (SIZE_MAX - p < add)
+            if (SIZE_MAX - p < add) {
                 return NULL;
+            }
             p += add;
         }
     }
 
-    if (p > a->cap || n > a->cap - p)
+    if (p > a->cap || n > a->cap - p) {
         return NULL;
+    }
 
     void* ptr = a->base + p;
     a->off = p + n;
@@ -52,30 +57,36 @@ void* arena_alloc(Arena* a, size_t n, size_t align)
 
 size_t safe_align(size_t x, size_t align)
 {
-    if (align <= 1)
+    if (align <= 1) {
         return x;
+    }
     size_t rem = x % align;
-    if (rem == 0)
+    if (rem == 0) {
         return x;
+    }
     size_t add = align - rem;
-    if (SIZE_MAX - x < add)
+    if (SIZE_MAX - x < add) {
         return SIZE_MAX;
+    }
     return x + add;
 }
 
 int add_overflow(size_t a, size_t b, size_t* out)
 {
-    if (SIZE_MAX - a < b)
+    if (SIZE_MAX - a < b) {
         return 1;
-    if (out)
+    }
+    if (out) {
         *out = a + b;
+    }
     return 0;
 }
 
 void sleep_msec(int msec)
 {
-    if (msec <= 0)
+    if (msec <= 0) {
         return;
+    }
 
 #ifdef _WIN32
     Sleep((DWORD)msec);
@@ -90,74 +101,92 @@ void sleep_msec(int msec)
 
 bool string_eq(String a, String b)
 {
-    if (a.len != b.len)
+    if (a.len != b.len) {
         return false;
-    if (a.len == 0)
+    }
+    if (a.len == 0) {
         return true;
-    if (!a.bytes || !b.bytes)
+    }
+    if (!a.bytes || !b.bytes) {
         return false;
+    }
     return memcmp(a.bytes, b.bytes, (size_t)a.len) == 0;
 }
 
 bool string_eq_cstr(String s, const char* literal)
 {
-    if (!literal)
+    if (!literal) {
         return s.len == 0;
+    }
     return string_eq(s, string_from_cstr(literal));
 }
 
 char string_first(String s)
 {
-    return (s.len > 0 && s.bytes) ? s.bytes[0] : '\0';
+    if (!s.bytes || s.len <= 0) {
+        return '\0';
+}
+    return s.bytes[0];
 }
 
 String string_from_cstr(const char* s)
 {
-    if (!s)
-        return (String){ NULL, 0 };
+    if (!s) {
+        return (String) { NULL, 0 };
+    }
     size_t len = strlen(s);
-    if (len > INT32_MAX)
+    if (len > INT32_MAX) {
         len = INT32_MAX;
-    return (String){ s, (i32)len };
+    }
+    return (String) { s, (i32)len };
 }
 
 static int hex_value(char c)
 {
-    if (c >= '0' && c <= '9')
+    if (c >= '0' && c <= '9') {
         return c - '0';
-    if (c >= 'a' && c <= 'f')
+    }
+    if (c >= 'a' && c <= 'f') {
         return 10 + (c - 'a');
-    if (c >= 'A' && c <= 'F')
+    }
+    if (c >= 'A' && c <= 'F') {
         return 10 + (c - 'A');
+    }
     return -1;
 }
 
 String parse_hex_to_bytes(String hex_str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum Err* err_out)
 {
     String out = { 0 };
-    if (err_out)
+    if (err_out) {
         *err_out = E_OK;
+    }
 
-    if (hex_str.len < 0)
+    if (hex_str.len < 0) {
         goto bad_hex;
+    }
 
     size_t hex_digit_count = 0;
     for (i32 i = 0; i < hex_str.len; ++i) {
         unsigned char c = (unsigned char)hex_str.bytes[i];
-        if (isspace(c))
+        if (isspace(c)) {
             continue;
-        if (hex_value((char)c) < 0)
+        }
+        if (hex_value((char)c) < 0) {
             goto bad_hex;
+        }
         hex_digit_count++;
     }
 
-    if (hex_digit_count == 0 || (hex_digit_count % 2) != 0)
+    if (hex_digit_count == 0 || (hex_digit_count % 2) != 0) {
         goto bad_hex;
+    }
 
     size_t byte_count = hex_digit_count / 2;
     if (*str_pool_off + byte_count > str_pool_cap) {
-        if (err_out)
+        if (err_out) {
             *err_out = E_OOM;
+        }
         return out;
     }
 
@@ -167,12 +196,14 @@ String parse_hex_to_bytes(String hex_str, char* str_pool, size_t* str_pool_off, 
 
     for (i32 i = 0; i < hex_str.len; ++i) {
         unsigned char c = (unsigned char)hex_str.bytes[i];
-        if (isspace(c))
+        if (isspace(c)) {
             continue;
+        }
 
         int nibble = hex_value((char)c);
-        if (nibble < 0)
+        if (nibble < 0) {
             goto bad_hex;
+        }
 
         if (pending_nibble < 0) {
             pending_nibble = nibble;
@@ -188,19 +219,22 @@ String parse_hex_to_bytes(String hex_str, char* str_pool, size_t* str_pool_off, 
     return out;
 
 bad_hex:
-    if (err_out)
+    if (err_out) {
         *err_out = E_BAD_HEX;
+    }
     return out;
 }
 
 String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum Err* err_out)
 {
     String out = { 0 };
-    if (err_out)
+    if (err_out) {
         *err_out = E_OK;
+    }
 
-    if (str.len < 0)
+    if (str.len < 0) {
         return out;
+    }
 
     size_t src_len = (size_t)str.len;
     size_t dst_len = 0;
@@ -214,12 +248,14 @@ String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, s
                 continue;
             }
             if (esc == 'x') {
-                if (i + 3 >= src_len)
+                if (i + 3 >= src_len) {
                     goto parse_err;
+                }
                 int hi = hex_value(str.bytes[i + 2]);
                 int lo = hex_value(str.bytes[i + 3]);
-                if (hi < 0 || lo < 0)
+                if (hi < 0 || lo < 0) {
                     goto parse_err;
+                }
                 dst_len++;
                 i += 3;
                 continue;
@@ -231,8 +267,9 @@ String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, s
     }
 
     if (*str_pool_off + dst_len > str_pool_cap) {
-        if (err_out)
+        if (err_out) {
             *err_out = E_OOM;
+        }
         return out;
     }
 
@@ -268,12 +305,14 @@ String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, s
                 continue;
             }
             if (esc == 'x') {
-                if (i + 3 >= src_len)
+                if (i + 3 >= src_len) {
                     goto parse_err;
+                }
                 int hi = hex_value(str.bytes[i + 2]);
                 int lo = hex_value(str.bytes[i + 3]);
-                if (hi < 0 || lo < 0)
+                if (hi < 0 || lo < 0) {
                     goto parse_err;
+                }
                 dst[dst_pos++] = (char)((hi << 4) | lo);
                 i += 3;
                 continue;
@@ -290,38 +329,44 @@ String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, s
     return out;
 
 parse_err:
-    if (err_out)
+    if (err_out) {
         *err_out = E_PARSE;
-    return (String){ 0 };
+    }
+    return (String) { 0 };
 }
 
 // Parser-specific String helpers
 
 bool string_char_in_set(char c, const char* set)
 {
-    if (!set)
+    if (!set) {
         return false;
+    }
     for (const char* p = set; *p; p++) {
-        if (*p == c)
+        if (*p == c) {
             return true;
+        }
     }
     return false;
 }
 
 bool string_is_valid_label(String s)
 {
-    if (s.len <= 0 || s.len > 16 || !s.bytes)
+    if (s.len <= 0 || s.len > 16 || !s.bytes) {
         return false;
+    }
 
     // First character must be A-Z
-    if (s.bytes[0] < 'A' || s.bytes[0] > 'Z')
+    if (s.bytes[0] < 'A' || s.bytes[0] > 'Z') {
         return false;
+    }
 
     // Remaining characters must be A-Z, 0-9, _, or -
     for (i32 i = 1; i < s.len; i++) {
         char c = s.bytes[i];
-        if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-'))
+        if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-')) {
             return false;
+        }
     }
 
     return true;
@@ -329,12 +374,14 @@ bool string_is_valid_label(String s)
 
 bool string_copy_to_buffer(String src, char* dst, size_t dst_cap)
 {
-    if (!dst || dst_cap == 0 || !src.bytes)
+    if (!dst || dst_cap == 0 || !src.bytes) {
         return false;
+    }
 
     size_t copy_len = (size_t)src.len;
-    if (copy_len >= dst_cap)
+    if (copy_len >= dst_cap) {
         return false; // Would truncate
+    }
 
     memcpy(dst, src.bytes, copy_len);
     dst[copy_len] = '\0';
@@ -343,15 +390,23 @@ bool string_copy_to_buffer(String src, char* dst, size_t dst_cap)
 
 static bool parse_unit_suffix(String s, i32* unit_start, Unit* unit)
 {
-    if (s.len == 0)
+    if (s.len == 0) {
         return false;
+    }
 
     char last = s.bytes[s.len - 1];
     switch (last) {
-        case 'b': *unit = UNIT_BYTES; break;
-        case 'l': *unit = UNIT_LINES; break;
-        case 'c': *unit = UNIT_CHARS; break;
-        default: return false;
+    case 'b':
+        *unit = UNIT_BYTES;
+        break;
+    case 'l':
+        *unit = UNIT_LINES;
+        break;
+    case 'c':
+        *unit = UNIT_CHARS;
+        break;
+    default:
+        return false;
     }
 
     *unit_start = s.len - 1;
@@ -360,18 +415,21 @@ static bool parse_unit_suffix(String s, i32* unit_start, Unit* unit)
 
 static bool parse_number_part(String s, i32 unit_start, u64* out)
 {
-    if (unit_start <= 0)
+    if (unit_start <= 0) {
         return false;
+    }
 
     u64 result = 0;
     for (i32 i = 0; i < unit_start; i++) {
         char c = s.bytes[i];
-        if (c < '0' || c > '9')
+        if (c < '0' || c > '9') {
             return false;
+        }
 
         u64 digit = (u64)(c - '0');
-        if (result > (UINT64_MAX - digit) / 10)
+        if (result > (UINT64_MAX - digit) / 10) {
             return false; // Overflow
+        }
 
         result = result * 10 + digit;
     }
@@ -382,20 +440,23 @@ static bool parse_number_part(String s, i32 unit_start, u64* out)
 
 bool string_try_parse_unsigned(String s, u64* out, Unit* unit)
 {
-    if (!s.bytes || s.len <= 0 || !out || !unit)
+    if (!s.bytes || s.len <= 0 || !out || !unit) {
         return false;
+    }
 
     i32 unit_start;
-    if (!parse_unit_suffix(s, &unit_start, unit))
+    if (!parse_unit_suffix(s, &unit_start, unit)) {
         return false;
+    }
 
     return parse_number_part(s, unit_start, out);
 }
 
 bool string_try_parse_signed(String s, i64* out, Unit* unit)
 {
-    if (!s.bytes || s.len <= 0 || !out || !unit)
+    if (!s.bytes || s.len <= 0 || !out || !unit) {
         return false;
+    }
 
     i32 start = 0;
     bool negative = false;
@@ -408,59 +469,33 @@ bool string_try_parse_signed(String s, i64* out, Unit* unit)
         negative = true;
     }
 
-    if (start >= s.len)
+    if (start >= s.len) {
         return false;
+    }
 
     // Create substring without sign
     String unsigned_part = { s.bytes + start, s.len - start };
 
     u64 unsigned_val;
-    if (!string_try_parse_unsigned(unsigned_part, &unsigned_val, unit))
+    if (!string_try_parse_unsigned(unsigned_part, &unsigned_val, unit)) {
         return false;
+    }
 
     if (negative) {
-        if (unsigned_val > (u64)INT64_MAX + 1)
+        if (unsigned_val > (u64)INT64_MAX + 1) {
             return false; // Would overflow
+        }
         *out = -(i64)unsigned_val;
     } else {
-        if (unsigned_val > (u64)INT64_MAX)
+        if (unsigned_val > (u64)INT64_MAX) {
             return false; // Would overflow
-    *out = (i64)unsigned_val;
+        }
+        *out = (i64)unsigned_val;
     }
 
     return true;
 }
 
-// Token handling optimizations
-
-// Precomputed keyword Strings for fast comparison
-const String KW_THEN = { "THEN", 4 };
-const String KW_OR = { "OR", 2 };
-const String KW_TO = { "to", 2 };
-const String KW_AT = { "at", 2 };
-const String KW_LEN = { "len", 3 };
-const String KW_FIND = { "find", 4 };
-const String KW_FIND_RE = { "find:re", 7 };
-const String KW_FIND_BIN = { "find:bin", 8 };
-const String KW_SKIP = { "skip", 4 };
-const String KW_TAKE = { "take", 4 };
-const String KW_UNTIL = { "until", 5 };
-const String KW_UNTIL_RE = { "until:re", 8 };
-const String KW_UNTIL_BIN = { "until:bin", 9 };
-const String KW_LABEL = { "label", 5 };
-const String KW_GOTO = { "goto", 4 };
-const String KW_VIEW = { "view", 4 };
-const String KW_CLEAR = { "clear", 5 };
-const String KW_PRINT = { "print", 5 };
-const String KW_ECHO = { "echo", 4 };
-const String KW_FAIL = { "fail", 4 };
-const String KW_CURSOR = { "cursor", 6 };
-const String KW_BOF = { "BOF", 3 };
-const String KW_EOF = { "EOF", 3 };
-const String KW_MATCH_START = { "match-start", 11 };
-const String KW_MATCH_END = { "match-end", 9 };
-const String KW_LINE_START = { "line-start", 10 };
-const String KW_LINE_END = { "line-end", 8 };
 
 void convert_tokens_to_strings(char** tokens, i32 token_count, String* out)
 {
@@ -469,10 +504,6 @@ void convert_tokens_to_strings(char** tokens, i32 token_count, String* out)
     }
 }
 
-bool string_eq_keyword(String s, const String* keyword)
-{
-    return string_eq(s, *keyword);
-}
 
 i32 split_ops_string_optimized(const char* s, String* out, i32 max_tokens)
 {
@@ -481,7 +512,11 @@ i32 split_ops_string_optimized(const char* s, String* out, i32 max_tokens)
     i32 ntok = 0;
     i32 token_start = 0;
 
-    enum { S_WS, S_TOKEN, S_SQ, S_DQ } st = S_WS;
+    enum { S_WS,
+        S_TOKEN,
+        S_SQ,
+        S_DQ } st
+        = S_WS;
     const char* p = s;
 
     while (*p && ntok < max_tokens) {
@@ -493,20 +528,23 @@ i32 split_ops_string_optimized(const char* s, String* out, i32 max_tokens)
                 continue;
             }
             if (c == '\'' || c == '"') {
-                if (boff >= sizeof buf - 1)
+                if (boff >= sizeof buf - 1) {
                     return -1;
+                }
                 token_start = (i32)boff;
                 st = (c == '\'') ? S_SQ : S_DQ;
                 p++;
                 continue;
             }
             // Start token
-            if (boff >= sizeof buf - 1)
+            if (boff >= sizeof buf - 1) {
                 return -1;
+            }
             token_start = (i32)boff;
             st = S_TOKEN;
             continue;
-        } else if (st == S_TOKEN) {
+        }
+        if (st == S_TOKEN) {
             if (c == ' ' || c == '\t') {
                 // End token
                 out[ntok].bytes = buf + token_start;
@@ -527,23 +565,27 @@ i32 split_ops_string_optimized(const char* s, String* out, i32 max_tokens)
                 continue;
             }
             // Regular character
-            if (boff >= sizeof buf - 1)
+            if (boff >= sizeof buf - 1) {
                 return -1;
+            }
             buf[boff++] = (char)c;
             p++;
             continue;
-        } else if (st == S_SQ) {
+        }
+        if (st == S_SQ) {
             if (c == '\'') {
                 st = S_TOKEN;
                 p++;
                 continue;
             }
-            if (boff >= sizeof buf - 1)
+            if (boff >= sizeof buf - 1) {
                 return -1;
+            }
             buf[boff++] = (char)c;
             p++;
             continue;
-        } else { // S_DQ
+        }
+        if (st == S_DQ) {
             if (c == '"') {
                 st = S_TOKEN;
                 p++;
@@ -552,15 +594,17 @@ i32 split_ops_string_optimized(const char* s, String* out, i32 max_tokens)
             if (c == '\\' && p[1]) {
                 unsigned char esc = (unsigned char)p[1];
                 if (esc == '"' || esc == '\\') {
-                    if (boff >= sizeof buf - 1)
+                    if (boff >= sizeof buf - 1) {
                         return -1;
+                    }
                     buf[boff++] = (char)esc;
                     p += 2;
                     continue;
                 }
             }
-            if (boff >= sizeof buf - 1)
+            if (boff >= sizeof buf - 1) {
                 return -1;
+            }
             buf[boff++] = (char)c;
             p++;
             continue;

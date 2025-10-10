@@ -34,34 +34,6 @@ bool string_char_in_set(char c, const char* set);
 
 // Token handling optimizations
 void convert_tokens_to_strings(char** tokens, i32 token_count, String* out);
-bool string_eq_keyword(String s, const String* keyword);
 i32 split_ops_string_optimized(const char* s, String* out, i32 max_tokens);
 
 // Precomputed keyword Strings for fast comparison
-extern const String KW_THEN;
-extern const String KW_OR;
-extern const String KW_TO;
-extern const String KW_AT;
-extern const String KW_LEN;
-extern const String KW_FIND;
-extern const String KW_FIND_RE;
-extern const String KW_FIND_BIN;
-extern const String KW_SKIP;
-extern const String KW_TAKE;
-extern const String KW_UNTIL;
-extern const String KW_UNTIL_RE;
-extern const String KW_UNTIL_BIN;
-extern const String KW_LABEL;
-extern const String KW_GOTO;
-extern const String KW_VIEW;
-extern const String KW_CLEAR;
-extern const String KW_PRINT;
-extern const String KW_ECHO;
-extern const String KW_FAIL;
-extern const String KW_CURSOR;
-extern const String KW_BOF;
-extern const String KW_EOF;
-extern const String KW_MATCH_START;
-extern const String KW_MATCH_END;
-extern const String KW_LINE_START;
-extern const String KW_LINE_END;

@@ -8,7 +8,7 @@
  ****************************/
 
 static inline void cls_clear(ReClass* c) { memset(c->bits, 0, sizeof c->bits); }
-static inline void cls_set(ReClass* c, unsigned char ch) { c->bits[ch >> 3] |= (unsigned char)(1u << (ch & 7)); }
+static inline void cls_set(ReClass* c, unsigned char ch) { c->bits[ch >> 3] |= (unsigned char)(1U << (ch & 7)); }
 static inline void cls_set_range(ReClass* c, unsigned char a, unsigned char b)
 {
     if (a > b) {
@@ -18,8 +18,9 @@ static inline void cls_set_range(ReClass* c, unsigned char a, unsigned char b)
     }
     for (unsigned v = a;; ++v) {
         cls_set(c, (unsigned char)v);
-        if (v == b)
+        if (v == b) {
             break;
+        }
     }
 }
 static inline void cls_set_ws(ReClass* c)
@@ -54,23 +55,26 @@ typedef struct {
 
 static enum Err emit_inst(ReB* b, ReOp op, int x, int y, unsigned char ch, int cls_idx, int* out_idx)
 {
-    if (b->nins >= b->ins_cap)
+    if (b->nins >= b->ins_cap) {
         return E_OOM;
+    }
     int idx = b->nins++;
     b->ins[idx].op = op;
     b->ins[idx].x = x;
     b->ins[idx].y = y;
     b->ins[idx].ch = ch;
     b->ins[idx].cls_idx = cls_idx;
-    if (out_idx)
+    if (out_idx) {
         *out_idx = idx;
+    }
     return E_OK;
 }
 
 static enum Err new_class(ReB* b, const ReClass* src, int* idx_out)
 {
-    if (b->ncls >= b->cls_cap)
+    if (b->ncls >= b->cls_cap) {
         return E_OOM;
+    }
     b->cls[b->ncls] = *src;
     *idx_out = b->ncls++;
     return E_OK;
@@ -88,8 +92,9 @@ static enum Err parse_class(ReB* b, String pat, int* i_inout, int* out_cls_idx)
     cls_clear(&cls);
     int negated = 0;
 
-    if (pat.bytes[i] == ']')
+    if (pat.bytes[i] == ']') {
         return E_PARSE; // empty
+    }
 
     // Check for negation
     if (pat.bytes[i] == '^') {
@@ -101,44 +106,51 @@ static enum Err parse_class(ReB* b, String pat, int* i_inout, int* out_cls_idx)
         unsigned char a;
         if (pat.bytes[i] == '\\') {
             ++i;
-            if (i >= pat.len)
+            if (i >= pat.len) {
                 return E_PARSE;
+            }
             switch (pat.bytes[i]) {
             case 'd':
                 cls_set_digit(&cls);
                 break;
             case 'D': { // non-digits: set all then clear digits
-                for (int v = 0; v < 256; ++v)
+                for (int v = 0; v < 256; ++v) {
                     cls_set(&cls, (unsigned char)v);
+                }
                 ReClass d;
                 cls_clear(&d);
                 cls_set_digit(&d);
-                for (int bit = 0; bit < 32; ++bit)
+                for (int bit = 0; bit < 32; ++bit) {
                     cls.bits[bit] &= (unsigned char)~d.bits[bit];
+                }
             } break;
             case 'w':
                 cls_set_word(&cls);
                 break;
             case 'W': {
-                for (int v = 0; v < 256; ++v)
+                for (int v = 0; v < 256; ++v) {
                     cls_set(&cls, (unsigned char)v);
+                }
                 ReClass w;
                 cls_clear(&w);
                 cls_set_word(&w);
-                for (int bit = 0; bit < 32; ++bit)
+                for (int bit = 0; bit < 32; ++bit) {
                     cls.bits[bit] &= (unsigned char)~w.bits[bit];
+                }
             } break;
             case 's':
                 cls_set_ws(&cls);
                 break;
             case 'S': {
-                for (int v = 0; v < 256; ++v)
+                for (int v = 0; v < 256; ++v) {
                     cls_set(&cls, (unsigned char)v);
+                }
                 ReClass ws;
                 cls_clear(&ws);
                 cls_set_ws(&ws);
-                for (int bit = 0; bit < 32; ++bit)
+                for (int bit = 0; bit < 32; ++bit) {
                     cls.bits[bit] &= (unsigned char)~ws.bits[bit];
+                }
             } break;
             default:
                 cls_set(&cls, (unsigned char)pat.bytes[i]);
@@ -152,8 +164,9 @@ static enum Err parse_class(ReB* b, String pat, int* i_inout, int* out_cls_idx)
                 ++i;
                 if (pat.bytes[i] == '\\') {
                     ++i;
-                    if (i >= pat.len)
+                    if (i >= pat.len) {
                         return E_PARSE;
+                    }
                     bch = (unsigned char)pat.bytes[i++];
                 } else {
                     bch = (unsigned char)pat.bytes[i++];
@@ -164,24 +177,28 @@ static enum Err parse_class(ReB* b, String pat, int* i_inout, int* out_cls_idx)
             }
         }
     }
-    if (i >= pat.len || pat.bytes[i] != ']')
+    if (i >= pat.len || pat.bytes[i] != ']') {
         return E_PARSE;
+    }
     ++i;
 
     // Apply negation if needed
     if (negated) {
         ReClass negated_cls;
-        for (int v = 0; v < 256; ++v)
+        for (int v = 0; v < 256; ++v) {
             cls_set(&negated_cls, (unsigned char)v);
-        for (int bit = 0; bit < 32; ++bit)
+        }
+        for (int bit = 0; bit < 32; ++bit) {
             negated_cls.bits[bit] &= (unsigned char)~cls.bits[bit];
+        }
         cls = negated_cls;
     }
 
     int cls_idx;
     enum Err e = new_class(b, &cls, &cls_idx);
-    if (e != E_OK)
+    if (e != E_OK) {
         return e;
+    }
     *i_inout = i;
     *out_cls_idx = cls_idx;
     return E_OK;
@@ -198,19 +215,23 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout);
 static enum Err compile_subpattern(ReB* b, String pat, int len)
 {
     // 1) Collect top-level alternatives (respect escapes/parentheses)
-    int depth = 0, nalt = 1;
+    int depth = 0;
+    int nalt = 1;
     for (int j = 0; j < len; ++j) {
         if (pat.bytes[j] == '\\') {
-            if (j + 1 < len)
+            if (j + 1 < len) {
                 ++j;
+            }
             continue;
         }
-        if (pat.bytes[j] == '(')
+        if (pat.bytes[j] == '(') {
             ++depth;
-        else if (pat.bytes[j] == ')')
+        }
+        else if (pat.bytes[j] == ')') {
             --depth;
-        else if (pat.bytes[j] == '|' && depth == 0)
+        } else if (pat.bytes[j] == '|' && depth == 0) {
             ++nalt;
+}
     }
 
     // Single alt: compile linearly and return
@@ -219,8 +240,9 @@ static enum Err compile_subpattern(ReB* b, String pat, int len)
         String tmp_bytes = { pat.bytes, len };
         while (i < len) {
             enum Err e = compile_piece(b, tmp_bytes, &i);
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
         }
         return E_OK;
     }
@@ -243,19 +265,22 @@ static enum Err compile_subpattern(ReB* b, String pat, int len)
         goto cleanup;
     }
 
-    int k = 0, start = 0;
+    int k = 0;
+    int start = 0;
     depth = 0;
     for (int j = 0; j < len; ++j) {
         if (pat.bytes[j] == '\\') {
-            if (j + 1 < len)
+            if (j + 1 < len) {
                 ++j;
+            }
             continue;
         }
-        if (pat.bytes[j] == '(')
+        if (pat.bytes[j] == '(') {
             ++depth;
-        else if (pat.bytes[j] == ')')
+        }
+        else if (pat.bytes[j] == ')') {
             --depth;
-        else if (pat.bytes[j] == '|' && depth == 0) {
+        } else if (pat.bytes[j] == '|' && depth == 0) {
             lo[k] = start;
             alen[k] = j - start;
             ++k;
@@ -313,8 +338,9 @@ static enum Err compile_subpattern(ReB* b, String pat, int len)
 
     // 4) Continuation point and patching
     int cont = b->nins;
-    for (int i = 0; i < nalt; ++i)
+    for (int i = 0; i < nalt; ++i) {
         b->ins[jmp_pc[i]].x = cont;
+    }
 
     for (int i = 0; i < nalt - 1; ++i) {
         b->ins[split_pc[i]].x = alt_start_pc[i];
@@ -336,8 +362,9 @@ cleanup:
 static enum Err compile_piece(ReB* b, String pat, int* i_inout)
 {
     int i = *i_inout;
-    if (i >= pat.len)
+    if (i >= pat.len) {
         return E_PARSE;
+    }
 
     // Identify atom without emitting yet if quantifier needs ordering
     enum { A_CHAR,
@@ -360,35 +387,42 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
     } else if (pat.bytes[i] == '[') {
         i++;
         enum Err e = parse_class(b, pat, &i, &cls_idx);
-        if (e != E_OK)
+        if (e != E_OK) {
             return e;
+        }
         ak = A_CLASS;
     } else if (pat.bytes[i] == '\\') {
         i++;
-        if (i >= pat.len)
+        if (i >= pat.len) {
             return E_PARSE;
+        }
         switch (pat.bytes[i]) {
         case 'd': {
             ReClass c;
             cls_clear(&c);
             cls_set_digit(&c);
             enum Err e = new_class(b, &c, &cls_idx);
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
             ak = A_CLASS;
         } break;
         case 'D': {
             ReClass c;
-            for (int v = 0; v < 256; ++v)
+            cls_clear(&c);
+            for (int v = 0; v < 256; ++v) {
                 cls_set(&c, (unsigned char)v);
+            }
             ReClass d;
             cls_clear(&d);
             cls_set_digit(&d);
-            for (int b2 = 0; b2 < 32; ++b2)
+            for (int b2 = 0; b2 < 32; ++b2) {
                 c.bits[b2] &= (unsigned char)~d.bits[b2];
+            }
             enum Err e = new_class(b, &c, &cls_idx);
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
             ak = A_CLASS;
         } break;
         case 'w': {
@@ -396,22 +430,27 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             cls_clear(&c);
             cls_set_word(&c);
             enum Err e = new_class(b, &c, &cls_idx);
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
             ak = A_CLASS;
         } break;
         case 'W': {
             ReClass c;
-            for (int v = 0; v < 256; ++v)
+            cls_clear(&c);
+            for (int v = 0; v < 256; ++v) {
                 cls_set(&c, (unsigned char)v);
+            }
             ReClass w;
             cls_clear(&w);
             cls_set_word(&w);
-            for (int b2 = 0; b2 < 32; ++b2)
+            for (int b2 = 0; b2 < 32; ++b2) {
                 c.bits[b2] &= (unsigned char)~w.bits[b2];
+            }
             enum Err e = new_class(b, &c, &cls_idx);
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
             ak = A_CLASS;
         } break;
         case 's': {
@@ -419,22 +458,27 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             cls_clear(&c);
             cls_set_ws(&c);
             enum Err e = new_class(b, &c, &cls_idx);
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
             ak = A_CLASS;
         } break;
         case 'S': {
             ReClass c;
-            for (int v = 0; v < 256; ++v)
+            cls_clear(&c);
+            for (int v = 0; v < 256; ++v) {
                 cls_set(&c, (unsigned char)v);
+            }
             ReClass ws;
             cls_clear(&ws);
             cls_set_ws(&ws);
-            for (int b2 = 0; b2 < 32; ++b2)
+            for (int b2 = 0; b2 < 32; ++b2) {
                 c.bits[b2] &= (unsigned char)~ws.bits[b2];
+            }
             enum Err e = new_class(b, &c, &cls_idx);
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
             ak = A_CLASS;
         } break;
         case 'n':
@@ -474,17 +518,21 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
 
     // --- NEW: grouping atom '(' ... ')' with nested alternation ---
     if (pat.bytes[i - 1] == '(') {
-        int j = i, depth = 1;
+        int j = i;
+        int depth = 1;
         while (j < pat.len) {
             if (pat.bytes[j] == '\\') {
-                if (j + 1 < pat.len)
+                if (j + 1 < pat.len) {
                     j += 2;
-                else
+                }
+                else {
                     return E_PARSE;
+                }
                 continue;
             }
-            if (pat.bytes[j] == '(')
+            if (pat.bytes[j] == '(') {
                 depth++;
+            }
             else if (pat.bytes[j] == ')') {
                 depth--;
                 if (depth == 0) {
@@ -493,8 +541,9 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             }
             j++;
         }
-        if (j >= pat.len || pat.bytes[j] != ')')
+        if (j >= pat.len || pat.bytes[j] != ')') {
             return E_PARSE; // unmatched '('
+        }
 
         int inner_lo = i;
         int inner_len = j - inner_lo;
@@ -505,8 +554,9 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             // Empty group: compile a dead epsilon (never proceeds)
             int dead_pc;
             enum Err e2 = emit_inst(b, RI_JMP, 0, 0, 0, -1, &dead_pc);
-            if (e2 != E_OK)
+            if (e2 != E_OK) {
                 return e2;
+            }
             b->ins[dead_pc].x = dead_pc;
             i = j + 1;
             *i_inout = i;
@@ -514,20 +564,25 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
         }
 
         enum Err e;
-        int split_pc, group_entry, cont, jmp_pc;
+        int split_pc;
+        int group_entry;
+        int cont;
+        int jmp_pc;
 
         // Use canonical Thompson constructions based on quantifier
         if (q == '?') {
             // 4 ( ... )? - pre-split: split(take, skip)
             e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc);
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
 
             group_entry = b->nins;
             String inner_bytes = { pat.bytes + inner_lo, inner_len };
             e = compile_subpattern(b, inner_bytes, inner_len);
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
             cont = b->nins;
 
             b->ins[split_pc].x = group_entry; // take
@@ -537,18 +592,21 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
         } else if (q == '*') {
             // 4 ( ... )* - pre-split + back-jump: split(take, next), body, jmp split
             e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc);
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
 
             group_entry = b->nins;
             String inner_bytes = { pat.bytes + inner_lo, inner_len };
             e = compile_subpattern(b, inner_bytes, inner_len);
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
 
             e = emit_inst(b, RI_JMP, split_pc, 0, 0, -1, &jmp_pc);
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
 
             cont = b->nins;
             b->ins[split_pc].x = group_entry; // take one more (greedy)
@@ -561,12 +619,14 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             group_entry = b->nins;
             String inner_bytes = { pat.bytes + inner_lo, inner_len };
             e = compile_subpattern(b, inner_bytes, inner_len);
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
 
             e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc);
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
             b->ins[split_pc].x = group_entry; // loop back to group start
             b->ins[split_pc].y = b->nins; // fallthrough to next instruction
 
@@ -575,8 +635,9 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             // No quantifier - just compile the body
             String inner_bytes = { pat.bytes + inner_lo, inner_len };
             e = compile_subpattern(b, inner_bytes, inner_len);
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
             i = j + 1;
         }
 
@@ -586,7 +647,8 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
 
     // Look for quantifier
     char q = pat.bytes[i];
-    int min_count = 1, max_count = 1; // default for single atom
+    int min_count = 1;
+    int max_count = 1; // default for single atom
     int is_quantified = 0;
 
     if (q == '*' || q == '+' || q == '?') {
@@ -605,12 +667,15 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             min_count = 0;
             max_count = 1;
             break;
+        default:
+            break;
         }
     } else if (q == '{') {
         // Parse {n,m} quantifier
         i++; // skip '{'
-        if (i >= pat.len || !isdigit(pat.bytes[i]))
+        if (i >= pat.len || !isdigit(pat.bytes[i])) {
             return E_PARSE;
+        }
 
         // Parse minimum count
         min_count = 0;
@@ -636,8 +701,9 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
                     max_count = max_count * 10 + (pat.bytes[i] - '0');
                     i++;
                 }
-                if (i >= pat.len || pat.bytes[i] != '}')
+                if (i >= pat.len || pat.bytes[i] != '}') {
                     return E_PARSE;
+                }
                 i++;
             } else {
                 return E_PARSE;
@@ -669,19 +735,23 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             e = emit_inst(b, RI_EOL, 0, 0, 0, -1, NULL);
             break;
         }
-        if (e != E_OK)
+        if (e != E_OK) {
             return e;
+        }
     } else {
         // Handle quantified patterns
-        if (ak == A_BOL || ak == A_EOL)
+        if (ak == A_BOL || ak == A_EOL) {
             return E_PARSE; // 4 anchors can't be quantified
+        }
 
         if (min_count == 0 && max_count == 1) {
             // ? quantifier - greedy: split(take, cont), atom
-            int idx_split, idx_atom;
+            int idx_split;
+            int idx_atom;
             e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split);
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
             switch (ak) {
             case A_CHAR:
                 e = emit_inst(b, RI_CHAR, 0, 0, ch, -1, &idx_atom);
@@ -695,16 +765,20 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             default:
                 return E_PARSE;
             }
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
             b->ins[idx_split].x = idx_atom; // take first -> greedy
             b->ins[idx_split].y = b->nins; // continue after atom
         } else if (min_count == 0 && max_count == -1) {
             // * quantifier - greedy: split(loop, cont), atom, jmp split
-            int idx_split, idx_atom, idx_jmp;
+            int idx_split;
+            int idx_atom;
+            int idx_jmp;
             e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split);
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
             switch (ak) {
             case A_CHAR:
                 e = emit_inst(b, RI_CHAR, 0, 0, ch, -1, &idx_atom);
@@ -718,16 +792,19 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             default:
                 return E_PARSE;
             }
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
             e = emit_inst(b, RI_JMP, idx_split, 0, 0, -1, &idx_jmp);
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
             b->ins[idx_split].x = idx_atom; // loop first -> greedy
             b->ins[idx_split].y = b->nins; // continue after jmp
         } else if (min_count == 1 && max_count == -1) {
             // + quantifier - atom, split(loop, cont)
-            int idx_atom, idx_split;
+            int idx_atom;
+            int idx_split;
             switch (ak) {
             case A_CHAR:
                 e = emit_inst(b, RI_CHAR, 0, 0, ch, -1, &idx_atom);
@@ -741,11 +818,13 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             default:
                 return E_PARSE;
             }
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
             e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split);
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
             b->ins[idx_split].x = idx_atom; // loop back to atom
             b->ins[idx_split].y = b->nins; // fallthrough to next instruction
         } else {
@@ -768,16 +847,20 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
                 default:
                     return E_PARSE;
                 }
-                if (e != E_OK)
+                if (e != E_OK) {
                     return e;
+                }
             }
 
             if (max_count == -1) {
                 // unlimited tail == greedy '*'
-                int sp, at, jmp;
+                int sp;
+                int at;
+                int jmp;
                 e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &sp);
-                if (e != E_OK)
+                if (e != E_OK) {
                     return e;
+                }
                 switch (ak) {
                 case A_CHAR:
                     e = emit_inst(b, RI_CHAR, 0, 0, ch, -1, &at);
@@ -791,20 +874,24 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
                 default:
                     return E_PARSE;
                 }
-                if (e != E_OK)
+                if (e != E_OK) {
                     return e;
+                }
                 e = emit_inst(b, RI_JMP, sp, 0, 0, -1, &jmp);
-                if (e != E_OK)
+                if (e != E_OK) {
                     return e;
+                }
                 b->ins[sp].x = at;
                 b->ins[sp].y = b->nins;
             } else if (max_count > min_count) {
                 int opt = max_count - min_count;
                 for (int k = 0; k < opt; ++k) {
-                    int sp, at;
+                    int sp;
+                    int at;
                     e = emit_inst(b, RI_SPLIT, 0, 0, 0, -1, &sp);
-                    if (e != E_OK)
+                    if (e != E_OK) {
                         return e;
+                    }
                     switch (ak) {
                     case A_CHAR:
                         e = emit_inst(b, RI_CHAR, 0, 0, ch, -1, &at);
@@ -818,8 +905,9 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
                     default:
                         return E_PARSE;
                     }
-                    if (e != E_OK)
+                    if (e != E_OK) {
                         return e;
+                    }
                     b->ins[sp].x = at; // take one more (greedy)
                     b->ins[sp].y = b->nins; // or stop here
                 }
@@ -847,23 +935,27 @@ enum Err re_compile_into(String pattern,
     b.cls = cls_base;
     b.cls_cap = cls_cap;
 
-    if (!pattern.bytes || pattern.len == 0)
+    if (!pattern.bytes || pattern.len == 0) {
         return E_BAD_NEEDLE;
+    }
 
     // Always use the proven single-pass emitter (with nested alternation via compile_subpattern)
     // First, check top-level alternation
-    int depth = 0, has_bar = 0;
+    int depth = 0;
+    int has_bar = 0;
     for (int j = 0; j < pattern.len; ++j) {
         if (pattern.bytes[j] == '\\') {
-            if (j + 1 < pattern.len)
+            if (j + 1 < pattern.len) {
                 j++;
+            }
             continue;
         }
-        if (pattern.bytes[j] == '(')
+        if (pattern.bytes[j] == '(') {
             depth++;
-        else if (pattern.bytes[j] == ')')
+        }
+        else if (pattern.bytes[j] == ')') {
             depth--;
-        else if (pattern.bytes[j] == '|' && depth == 0) {
+        } else if (pattern.bytes[j] == '|' && depth == 0) {
             has_bar = 1;
             break;
         }
@@ -873,19 +965,22 @@ enum Err re_compile_into(String pattern,
         int i = 0;
         while (i < pattern.len) {
             enum Err e = compile_piece(&b, pattern, &i);
-            if (e != E_OK)
+            if (e != E_OK) {
                 return e;
+            }
         }
     } else {
         enum Err e2 = compile_subpattern(&b, pattern, pattern.len);
-        if (e2 != E_OK)
+        if (e2 != E_OK) {
             return e2;
+        }
     }
 
     // Emit final match instruction
     enum Err e = emit_inst(&b, RI_MATCH, 0, 0, 0, -1, NULL);
-    if (e != E_OK)
+    if (e != E_OK) {
         return e;
+    }
 
     out->ins = b.ins;
     out->nins = b.nins;

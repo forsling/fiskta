@@ -226,7 +226,16 @@ enum { FW_WIN = FISKTA_FW_WIN,
     OVERLAP_MIN = FISKTA_OVERLAP_MIN,
     OVERLAP_MAX = FISKTA_OVERLAP_MAX };
 
-static inline i64 clamp64(i64 x, i64 lo, i64 hi) { return x < lo ? lo : (x > hi ? hi : x); }
+static inline i64 clamp64(i64 x, i64 lo, i64 hi)
+{
+    if (x < lo) {
+        return lo;
+    }
+    if (x > hi) {
+        return hi;
+    }
+    return x;
+}
 
 // Forward declarations for engine functions
 typedef struct {
@@ -250,3 +259,23 @@ enum Err stage_clause(const Clause* clause,
     Range* ranges, i32 ranges_cap,
     LabelWrite* label_writes, i32 label_cap,
     StagedResult* result);
+
+typedef struct ParsePlan {
+    i32 clause_count;
+    i32 total_ops;
+    i32 sum_take_ops;
+    i32 sum_label_ops;
+    i32 needle_count;
+    size_t needle_bytes;
+    i32 sum_findr_ops;
+    i32 re_ins_estimate;
+    i32 re_classes_estimate;
+    i32 re_ins_estimate_max;
+} ParsePlan;
+
+enum Err engine_run(const Program* prg, const char* in_path, FILE* out);
+enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
+enum Err parse_build(i32 token_count, const String* tokens, const char* in_path, Program* prg, const char** in_path_out,
+    Clause* clauses_buf, Op* ops_buf,
+    char* str_pool, size_t str_pool_cap);
+void commit_labels(VM* vm, const LabelWrite* label_writes, i32 label_count);
