@@ -38,6 +38,7 @@ enum {
     OP_TAKE_TO,
     OP_TAKE_UNTIL,
     OP_TAKE_UNTIL_RE,
+    OP_TAKE_UNTIL_BIN,
     OP_LABEL,
     OP_GOTO,
     OP_VIEWSET,
@@ -134,6 +135,11 @@ typedef struct {
             LocExpr at;
             struct ReProg* prog;
         } take_until_re;
+        struct {
+            String needle; // parsed hex bytes
+            bool has_at;
+            LocExpr at;
+        } take_until_bin;
         struct {
             i32 name_idx;
         } label;

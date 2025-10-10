@@ -2049,6 +2049,76 @@ def tests():
              tokens=["find:bin","CAFEBABE","take","+4b"], input_file="binary-patterns.bin",
              expect=dict(stdout_sha256="65ab12a8ff3263fbc257e5ddf0aa563c64573d0bab1f1115b9b107834cfa6971", exit=0)),
 
+        # ---------- Binary Take Until (take until:bin) Tests ----------
+        # Basic take until:bin
+        dict(id="takeuntilbin-001-basic",
+             tokens=["take","until:bin","DEADBEEF"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="40e2b10b86401214c686fa44ca8d85fc61cd4ea97fd2cdf5ee7409cf0a6541dc", exit=0)),  # Everything before DEADBEEF
+
+        dict(id="takeuntilbin-002-hex-lowercase",
+             tokens=["take","until:bin","deadbeef"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="40e2b10b86401214c686fa44ca8d85fc61cd4ea97fd2cdf5ee7409cf0a6541dc", exit=0)),
+
+        dict(id="takeuntilbin-003-hex-with-spaces",
+             tokens=["take","until:bin","DE AD BE EF"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="40e2b10b86401214c686fa44ca8d85fc61cd4ea97fd2cdf5ee7409cf0a6541dc", exit=0)),
+
+        # Take until with at clause
+        dict(id="takeuntilbin-004-at-match-end",
+             tokens=["take","until:bin","CAFEBABE","at","match-end"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="f3a4e56cbb9de856f7775305ccee5bcf5f1a41be9d21e68d085bb22f8681c92d", exit=0)),
+
+        dict(id="takeuntilbin-005-at-match-start",
+             tokens=["take","until:bin","504B0304","at","match-start"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="07a2380f5c0958106abc5c709b6ffc447ef7ab19019713c8b44c1ac06316f6fd", exit=0)),
+
+        # Multiple take until:bin operations
+        dict(id="takeuntilbin-006-sequential",
+             tokens=["take","until:bin","504B0304","take","until:bin","CAFEBABE"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="0a86745b019f26aa9a872ee193d6098faf0f1e722fb91efd45e09fb687330b5e", exit=0)),
+
+        # Error cases
+        dict(id="takeuntilbin-007-no-match",
+             tokens=["take","until:bin","FFFFFFFF"], input_file="hex-test.bin",
+             expect=dict(stdout="", exit=10)),
+
+        dict(id="takeuntilbin-008-odd-hex-digits",
+             tokens=["take","until:bin","DEA"], input_file="hex-test.bin",
+             expect=dict(stdout="", exit=2)),
+
+        dict(id="takeuntilbin-009-invalid-hex",
+             tokens=["take","until:bin","DEFG"], input_file="hex-test.bin",
+             expect=dict(stdout="", exit=2)),
+
+        dict(id="takeuntilbin-010-empty-pattern",
+             tokens=["take","until:bin",""], input_file="hex-test.bin",
+             expect=dict(stdout="", exit=2)),
+
+        # Integration with views
+        dict(id="takeuntilbin-011-within-view",
+             tokens=["view","BOF","BOF+50b","take","until:bin","504B0304"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="07a2380f5c0958106abc5c709b6ffc447ef7ab19019713c8b44c1ac06316f6fd", exit=0)),
+
+        # Integration with OR
+        dict(id="takeuntilbin-012-or-fallback",
+             tokens=["take","until:bin","FFFFFFFF","OR","take","until:bin","DEADBEEF"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="40e2b10b86401214c686fa44ca8d85fc61cd4ea97fd2cdf5ee7409cf0a6541dc", exit=0)),
+
+        # Match position update
+        dict(id="takeuntilbin-013-match-position",
+             tokens=["take","until:bin","CAFEBABE","goto","match-start","take","to","match-end"], input_file="binary-patterns.bin",
+             expect=dict(stdout_sha256="f3a4e56cbb9de856f7775305ccee5bcf5f1a41be9d21e68d085bb22f8681c92d", exit=0)),
+
+        # Large file
+        dict(id="takeuntilbin-014-large-file",
+             tokens=["take","until:bin","DEADBEEF"], input_file="binary-large.bin",
+             expect=dict(stdout_sha256="17764f1de746043516796e3d7a363479075f7bb007f6066f8bfa70c3b3fe40cf", exit=0)),
+
+        # Simple pattern
+        dict(id="takeuntilbin-015-simple-pattern",
+             tokens=["take","until:bin","010DFF"], input_file="hex-test.bin",
+             expect=dict(stdout="PREFIX_", exit=0)),
+
         # ---------- Views Feature Tests ----------
         # Basic view operations
         dict(id="view-001-basic-viewset",

@@ -188,6 +188,33 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
                                 }
                             }
                         }
+                    } else if (strcmp(next, "until:bin") == 0) {
+                        plan->sum_take_ops++;
+                        idx++;
+                        // Skip hex string - count bytes needed (half the hex digits, ignoring whitespace)
+                        if (idx < token_count) {
+                            const char* hex_str = tokens[idx];
+                            size_t hex_digits = 0;
+                            for (const char* p = hex_str; *p; p++) {
+                                if (!isspace(*p)) {
+                                    hex_digits++;
+                                }
+                            }
+                            plan->needle_count++;
+                            plan->needle_bytes += hex_digits / 2; // bytes needed
+                            idx++;
+                        }
+                        // Skip "at" expression if present
+                        if (idx < token_count && strcmp(tokens[idx], "at") == 0) {
+                            idx++;
+                            if (idx < token_count) {
+                                idx++;
+                                // Skip offset if present
+                                if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
+                                    idx++;
+                                }
+                            }
+                        }
                     } else if (strcmp(next, "until") == 0) {
                         plan->sum_take_ops++;
                         idx++;
@@ -343,10 +370,10 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
                         if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
                             idx++; // skip offset
                         }
-                    } else if (strcmp(next, "until") == 0) {
+                    } else if (strcmp(next, "until") == 0 || strcmp(next, "until:re") == 0 || strcmp(next, "until:bin") == 0) {
                         idx++;
                         if (idx < token_count)
-                            idx++; // skip needle
+                            idx++; // skip needle/pattern/hex
                         if (idx < token_count && strcmp(tokens[idx], "at") == 0) {
                             idx++;
                             if (idx < token_count)
@@ -593,6 +620,34 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
                 op->u.take_until_re.has_at = false;
             }
             op->u.take_until_re.prog = NULL;
+        } else if (strcmp(next, "until:bin") == 0) {
+            op->kind = OP_TAKE_UNTIL_BIN;
+            (*idx)++;
+
+            // Parse hex string
+            if (*idx >= token_count)
+                return E_PARSE;
+            const char* hex_str = tokens[*idx];
+            (*idx)++;
+
+            if (strlen(hex_str) == 0)
+                return E_BAD_NEEDLE;
+
+            // Parse hex string to bytes and copy to string pool
+            enum Err err = parse_hex_to_bytes(hex_str, &op->u.take_until_bin.needle, str_pool, str_pool_off, str_pool_cap);
+            if (err != E_OK)
+                return err;
+
+            // Parse "at" expression if present
+            if (*idx < token_count && strcmp(tokens[*idx], "at") == 0) {
+                (*idx)++;
+                op->u.take_until_bin.has_at = true;
+                enum Err err2 = parse_at_expr_build(tokens, idx, token_count, &op->u.take_until_bin.at);
+                if (err2 != E_OK)
+                    return err2;
+            } else {
+                op->u.take_until_bin.has_at = false;
+            }
         } else if (strcmp(next, "until") == 0) {
             op->kind = OP_TAKE_UNTIL;
             (*idx)++;

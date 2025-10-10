@@ -55,6 +55,7 @@ void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap)
         case OP_TAKE_TO:
         case OP_TAKE_UNTIL:
         case OP_TAKE_UNTIL_RE:
+        case OP_TAKE_UNTIL_BIN:
         case OP_PRINT:
             rc++;
             break;
@@ -643,15 +644,19 @@ static enum Err take_until_common(
     LabelWrite* label_writes,
     i32 label_count,
     const View* c_view,
-    bool use_regex)
+    OpKind kind)
 {
     // Search forward from cursor to view end
     i64 ms, me;
     enum Err err;
-    if (use_regex) {
+    if (kind == OP_TAKE_UNTIL_RE) {
         err = io_findr_window(io, vclamp(c_view, io, *c_cursor), veof(c_view, io),
             op->u.take_until_re.prog, DIR_FWD, &ms, &me);
-    } else {
+    } else if (kind == OP_TAKE_UNTIL_BIN) {
+        err = io_find_window(io, vclamp(c_view, io, *c_cursor), veof(c_view, io),
+            (const unsigned char*)op->u.take_until_bin.needle.bytes,
+            (size_t)op->u.take_until_bin.needle.len, DIR_FWD, &ms, &me);
+    } else { // OP_TAKE_UNTIL
         err = io_find_window(io, vclamp(c_view, io, *c_cursor), veof(c_view, io),
             (const unsigned char*)op->u.take_until.needle.bytes,
             (size_t)op->u.take_until.needle.len, DIR_FWD, &ms, &me);
@@ -665,9 +670,20 @@ static enum Err take_until_common(
     c_last_match->valid = true;
 
     i64 target;
-    bool has_at = use_regex ? op->u.take_until_re.has_at : op->u.take_until.has_at;
+    bool has_at;
+    const LocExpr* at;
+    if (kind == OP_TAKE_UNTIL_RE) {
+        has_at = op->u.take_until_re.has_at;
+        at = &op->u.take_until_re.at;
+    } else if (kind == OP_TAKE_UNTIL_BIN) {
+        has_at = op->u.take_until_bin.has_at;
+        at = &op->u.take_until_bin.at;
+    } else { // OP_TAKE_UNTIL
+        has_at = op->u.take_until.has_at;
+        at = &op->u.take_until.at;
+    }
+
     if (has_at) {
-        const LocExpr* at = use_regex ? &op->u.take_until_re.at : &op->u.take_until.at;
         err = resolve_loc_expr_cp(at, io, vm, c_last_match, ms,
             label_writes, label_count, c_view, CLAMP_VIEW, &target);
         if (err != E_OK)
@@ -705,7 +721,7 @@ static enum Err take_until_op(
     const View* c_view)
 {
     return take_until_common(io, op, vm, c_cursor, c_last_match,
-        ranges, range_count, range_cap, label_writes, label_count, c_view, false);
+        ranges, range_count, range_cap, label_writes, label_count, c_view, OP_TAKE_UNTIL);
 }
 
 static enum Err take_until_re_op(
@@ -722,7 +738,24 @@ static enum Err take_until_re_op(
     const View* c_view)
 {
     return take_until_common(io, op, vm, c_cursor, c_last_match,
-        ranges, range_count, range_cap, label_writes, label_count, c_view, true);
+        ranges, range_count, range_cap, label_writes, label_count, c_view, OP_TAKE_UNTIL_RE);
+}
+
+static enum Err take_until_bin_op(
+    File* io,
+    const Op* op,
+    VM* vm,
+    i64* c_cursor,
+    Match* c_last_match,
+    Range* ranges,
+    i32* range_count,
+    i32 range_cap,
+    LabelWrite* label_writes,
+    i32 label_count,
+    const View* c_view)
+{
+    return take_until_common(io, op, vm, c_cursor, c_last_match,
+        ranges, range_count, range_cap, label_writes, label_count, c_view, OP_TAKE_UNTIL_BIN);
 }
 
 enum Err stage_clause(const Clause* clause,
@@ -788,6 +821,8 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         return take_until_op(io, op, vm, c_cursor, c_last_match, *ranges, range_count, *range_cap, *label_writes, *label_count, c_view);
     case OP_TAKE_UNTIL_RE:
         return take_until_re_op(io, op, vm, c_cursor, c_last_match, *ranges, range_count, *range_cap, *label_writes, *label_count, c_view);
+    case OP_TAKE_UNTIL_BIN:
+        return take_until_bin_op(io, op, vm, c_cursor, c_last_match, *ranges, range_count, *range_cap, *label_writes, *label_count, c_view);
     case OP_LABEL:
         return label_op(op, c_cursor, *label_writes, label_count, *label_cap);
     case OP_VIEWSET:

@@ -47,6 +47,7 @@ content here
 - `take to <location>` - Order-normalized: emits `[min(cursor,L), max(cursor,L))`; cursor moves to the high end
 - `take until <string> [at match-start|match-end|line-start|line-end]` - Forward-only: emits `[cursor, B)` where B is derived from the match; cursor moves only if B > cursor. Default: `at match-start` (exclude pattern). `line-start`/`line-end` are relative to the match.
 - `take until:re <regex> [at match-start|match-end|line-start|line-end]` - Same as `take until` but with regex pattern support
+- `take until:bin <hex-string> [at match-start|match-end|line-start|line-end]` - Same as `take until` but with binary pattern support (hex format like `find:bin`)
 
 **Searching:**
 - `find [to <location>] <string>` - Search within `[min(cursor,L), max(cursor,L))`, default L=EOF; picks match closest to cursor
@@ -300,6 +301,25 @@ take until:re "[A-Z]" at match-end       # extract until first capital letter (i
 take until:re "\\s+" at line-start       # extract until whitespace, up to line start
 take until:re "\\n\\n"                   # extract until blank line
 ```
+
+#### `take until:bin <hex-string> [at match-start|match-end|line-start|line-end]`
+
+Forward-only search for binary patterns specified as hexadecimal strings. Extracts from cursor until binary pattern is found. Same behavior and `at` clause options as `take until` and `take until:re`.
+
+Hex string format follows the same rules as `find:bin` (case-insensitive, whitespace-ignored, must have even number of hex digits).
+
+```bash
+take until:bin "0D0A"                    # extract until CRLF (excluded)
+take until:bin "00 00" at match-end      # extract until double null (included)
+take until:bin "DEADBEEF"                # extract until marker bytes
+take until:bin "FF D8 FF" at line-start  # extract until JPEG SOI marker
+```
+
+Common use cases:
+- Extract data until binary delimiter
+- Parse binary protocols with markers
+- Extract sections of binary files
+- Process structured binary data
 
 ### Movement
 
@@ -636,7 +656,8 @@ Skip           = "skip" Number Unit .
 Take           = "take" ( SignedNumber Unit
                           | "to" LocationExpr
                           | "until" String [ "at" AtExpr ]
-                          | "until" ":" "re" String [ "at" AtExpr ] ) .
+                          | "until" ":" "re" String [ "at" AtExpr ]
+                          | "until" ":" "bin" String [ "at" AtExpr ] ) .
 Label          = "label" Name .
 Goto           = "goto" LocationExpr .
 View           = "view" LocationExpr LocationExpr .
