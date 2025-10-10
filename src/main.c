@@ -167,6 +167,8 @@ static const char* err_str(enum Err e)
         return "parse error";
     case E_BAD_NEEDLE:
         return "empty needle";
+    case E_BAD_HEX:
+        return "invalid hex string";
     case E_LOC_RESOLVE:
         return "location not resolvable";
     case E_NO_MATCH:

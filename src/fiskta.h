@@ -69,6 +69,7 @@ enum Err {
     E_OK = 0,
     E_PARSE,
     E_BAD_NEEDLE,
+    E_BAD_HEX,
     E_LOC_RESOLVE,
     E_NO_MATCH,
     E_FAIL_OP,

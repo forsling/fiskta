@@ -1077,14 +1077,14 @@ static enum Err parse_hex_to_bytes(const char* hex_str, String* out_string, char
             continue;
         }
         if (hex_value(*p) < 0) {
-            return E_BAD_NEEDLE; // Invalid hex character
+            return E_BAD_HEX; // Invalid hex character
         }
         hex_digit_count++;
     }
 
     // Must have even number of hex digits
     if (hex_digit_count == 0 || (hex_digit_count % 2) != 0) {
-        return E_BAD_NEEDLE;
+        return E_BAD_HEX;
     }
 
     size_t byte_count = hex_digit_count / 2;
