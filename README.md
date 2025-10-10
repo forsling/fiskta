@@ -312,7 +312,7 @@ Hex string format follows the same rules as `find:bin` (case-insensitive, whites
 take until:bin "0D0A"                    # extract until CRLF (excluded)
 take until:bin "00 00" at match-end      # extract until double null (included)
 take until:bin "DEADBEEF"                # extract until marker bytes
-take until:bin "FF D8 FF" at line-start  # extract until JPEG SOI marker
+take until:bin "FF D8 FF" at match-end   # extract until JPEG SOI marker (included)
 ```
 
 Common use cases:
