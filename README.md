@@ -145,9 +145,9 @@ Evaluation is strictly left-to-right (no operator precedence).
 - `--` - Treat remaining args as operations
 
 **Looping & Streaming:**
-- `-l, --loop <time>` - Re-run program every time (requires suffix: `ms`, `s`, `m`, `h`; or `0` to disable)
+- `-l, --loop [<time>]` - Re-run program with delay (optional time with suffix: `ms`, `s`, `m`, `h`; default: no delay)
 - `-t, --loop-timeout <time>` - Stop after time with no input growth (requires suffix: `ms`, `s`, `m`, `h`)
-- `--loop-view <policy>` - Which view of the file to process on each loop:
+- `-w, --loop-view <policy>` - Which view of the file to process on each loop:
   - `cursor` - continue from last cursor position (default)
   - `delta` - only new data since last run
   - `rescan` - re-scan entire file each time
@@ -420,13 +420,12 @@ fiskta can monitor a file and repeatedly execute your program as new data arrive
 
 ### Loop Mode
 
-Enable with `--loop <time>` to re-run your program at regular intervals. Time values require a suffix: `ms` (milliseconds), `s` (seconds), `m` (minutes), `h` (hours). The special value `0` (without suffix) disables looping:
+Enable with `--loop` or `--loop <time>` to re-run your program at regular intervals. The time value is optional and requires a suffix: `ms` (milliseconds), `s` (seconds), `m` (minutes), `h` (hours). If no time is specified, it defaults to no delay (continuous looping):
 
 ```bash
-fiskta --loop 1s --input service.log find "ERROR" take to line-end
+fiskta --loop 1s --input service.log find "ERROR" take to line-end  # Loop every second
+fiskta --loop --input service.log find "ERROR" take to line-end     # Loop continuously (no delay)
 ```
-
-This will check the file every second and output new ERROR lines.
 
 ### Loop View
 
@@ -500,7 +499,7 @@ Views are part of clause atomicity. If a clause fails, view changes are rolled b
 
 ```bash
 # View is only set if find succeeds
-find "[section]" AND view cursor cursor+1000b
+find "[section]" view cursor cursor+1000b
 ```
 
 ### View Scope
@@ -571,7 +570,7 @@ Problem: Extract the username only if the line contains "login success"
 
 ```bash
 fiskta --input auth.log \
-    find "login success" AND skip to line-end skip -1l find "user=" skip 5b take until " "
+    find "login success" skip to line-end skip -1l find "user=" skip 5b take until " "
 ```
 
 ### Try multiple patterns
@@ -580,7 +579,7 @@ Problem: Extract error messages that might start with "ERROR:" or "FATAL:"
 
 ```bash
 fiskta --input app.log \
-    find "ERROR:" OR find "FATAL:" AND take to line-end
+    find "ERROR:" take to line-end OR find "FATAL:" take to line-end
 ```
 
 ### Extract between delimiters
