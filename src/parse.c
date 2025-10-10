@@ -71,7 +71,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                     plan->needle_bytes += (size_t)tokens[idx].len;
                     idx++;
                 }
-            } else if (string_eq_cstr(cmd_tok, "find:re")) {
+            } else if (string_eq_keyword(cmd_tok, &KW_FIND_RE)) {
                 idx++;
                 if (idx < token_count && string_eq_keyword(tokens[idx], &KW_TO)) {
                     idx++;
@@ -106,7 +106,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                     plan->needle_bytes += L;
                     idx++;
                 }
-            } else if (string_eq_cstr(cmd_tok, "find:bin")) {
+            } else if (string_eq_keyword(cmd_tok, &KW_FIND_BIN)) {
                 idx++;
                 if (idx < token_count && string_eq_keyword(tokens[idx], &KW_TO)) {
                     idx++;
@@ -130,15 +130,15 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                     plan->needle_bytes += hex_digits / 2;
                     idx++;
                 }
-            } else if (string_eq_cstr(cmd_tok, "skip")) {
+            } else if (string_eq_keyword(cmd_tok, &KW_SKIP)) {
                 idx++;
                 if (idx < token_count)
                     idx++;
-            } else if (string_eq_cstr(cmd_tok, "take")) {
+            } else if (string_eq_keyword(cmd_tok, &KW_TAKE)) {
                 idx++;
                 if (idx < token_count) {
                     const String next_tok = tokens[idx];
-                    if (string_eq_cstr(next_tok, "to")) {
+                    if (string_eq_keyword(next_tok, &KW_TO)) {
                         plan->sum_take_ops++;
                         idx++;
                         if (idx < token_count)
@@ -148,7 +148,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                             if (first == '+' || first == '-')
                                 idx++;
                         }
-                    } else if (string_eq_cstr(next_tok, "until:re")) {
+                    } else if (string_eq_keyword(next_tok, &KW_UNTIL_RE)) {
                         plan->sum_take_ops++;
                         idx++;
                         if (idx < token_count) {
@@ -174,7 +174,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                             plan->needle_bytes += L;
                             idx++;
                         }
-                        if (idx < token_count && string_eq_cstr(tokens[idx], "at")) {
+                        if (idx < token_count && string_eq_keyword(tokens[idx], &KW_AT)) {
                             idx++;
                             if (idx < token_count)
                                 idx++;
@@ -184,7 +184,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                                     idx++;
                             }
                         }
-                    } else if (string_eq_cstr(next_tok, "until:bin")) {
+                    } else if (string_eq_keyword(next_tok, &KW_UNTIL_BIN)) {
                         plan->sum_take_ops++;
                         idx++;
                         if (idx < token_count) {
@@ -199,7 +199,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                             plan->needle_bytes += hex_digits / 2;
                             idx++;
                         }
-                        if (idx < token_count && string_eq_cstr(tokens[idx], "at")) {
+                        if (idx < token_count && string_eq_keyword(tokens[idx], &KW_AT)) {
                             idx++;
                             if (idx < token_count)
                                 idx++;
@@ -209,7 +209,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                                     idx++;
                             }
                         }
-                    } else if (string_eq_cstr(next_tok, "until")) {
+                    } else if (string_eq_keyword(next_tok, &KW_UNTIL)) {
                         plan->sum_take_ops++;
                         idx++;
                         if (idx < token_count) {
@@ -217,7 +217,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                             plan->needle_bytes += (size_t)tokens[idx].len;
                             idx++;
                         }
-                        if (idx < token_count && string_eq_cstr(tokens[idx], "at")) {
+                        if (idx < token_count && string_eq_keyword(tokens[idx], &KW_AT)) {
                             idx++;
                             if (idx < token_count)
                                 idx++;
@@ -229,7 +229,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                         }
                     } else {
                         plan->sum_take_ops++;
-                        if (string_eq_cstr(next_tok, "len")) {
+                        if (string_eq_keyword(next_tok, &KW_LEN)) {
                             idx++;
                             if (idx < token_count)
                                 idx++;
@@ -238,12 +238,12 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                         }
                     }
                 }
-            } else if (string_eq_cstr(cmd_tok, "label")) {
+            } else if (string_eq_keyword(cmd_tok, &KW_LABEL)) {
                 plan->sum_label_ops++;
                 idx++;
                 if (idx < token_count)
                     idx++;
-            } else if (string_eq_cstr(cmd_tok, "goto")) {
+            } else if (string_eq_keyword(cmd_tok, &KW_GOTO)) {
                 idx++;
                 if (idx < token_count)
                     idx++;
@@ -252,7 +252,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                     if (first == '+' || first == '-')
                         idx++;
                 }
-            } else if (string_eq_cstr(cmd_tok, "view")) {
+            } else if (string_eq_keyword(cmd_tok, &KW_VIEW)) {
                 idx++;
                 if (idx < token_count)
                     idx++;
@@ -268,11 +268,11 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                     if (first == '+' || first == '-')
                         idx++;
                 }
-            } else if (string_eq_cstr(cmd_tok, "clear")) {
+            } else if (string_eq_keyword(cmd_tok, &KW_CLEAR)) {
                 idx++;
                 if (idx < token_count)
                     idx++;
-            } else if (string_eq_cstr(cmd_tok, "print") || string_eq_cstr(cmd_tok, "echo")) {
+            } else if (string_eq_keyword(cmd_tok, &KW_PRINT) || string_eq_keyword(cmd_tok, &KW_ECHO)) {
                 idx++;
                 if (idx < token_count) {
                     plan->needle_count++;
@@ -280,7 +280,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                     plan->sum_take_ops++;
                     idx++;
                 }
-            } else if (string_eq_cstr(cmd_tok, "fail")) {
+            } else if (string_eq_keyword(cmd_tok, &KW_FAIL)) {
                 idx++;
                 if (idx < token_count) {
                     plan->needle_count++;
@@ -292,7 +292,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
             }
         }
 
-        if (idx < token_count && (string_eq_cstr(tokens[idx], "THEN") || string_eq_cstr(tokens[idx], "OR"))) {
+        if (idx < token_count && (string_eq_keyword(tokens[idx], &KW_THEN) || string_eq_keyword(tokens[idx], &KW_OR))) {
             idx++;
         }
     }
@@ -341,7 +341,7 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
             idx++;
 
             // Skip command-specific tokens
-            if (string_eq_cstr(cmd_tok, "find") || string_eq_cstr(cmd_tok, "find:re") || string_eq_cstr(cmd_tok, "find:bin")) {
+            if (string_eq_keyword(cmd_tok, &KW_FIND) || string_eq_keyword(cmd_tok, &KW_FIND_RE) || string_eq_keyword(cmd_tok, &KW_FIND_BIN)) {
                 if (idx < token_count && string_eq_keyword(tokens[idx], &KW_TO)) {
                     idx++;
                     if (idx < token_count)
@@ -352,24 +352,24 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
                 }
                 if (idx < token_count)
                     idx++; // skip needle/pattern/hex
-            } else if (string_eq_cstr(cmd_tok, "skip")) {
+            } else if (string_eq_keyword(cmd_tok, &KW_SKIP)) {
                 if (idx < token_count)
                     idx++; // skip number+unit
-            } else if (string_eq_cstr(cmd_tok, "take")) {
+            } else if (string_eq_keyword(cmd_tok, &KW_TAKE)) {
                 if (idx < token_count) {
                     const String next_tok = tokens[idx];
-                    if (string_eq_cstr(next_tok, "to")) {
+                    if (string_eq_keyword(next_tok, &KW_TO)) {
                         idx++;
                         if (idx < token_count)
                             idx++; // skip location
                         if (idx < token_count && (TOK_FIRST(tokens, idx) == '+' || TOK_FIRST(tokens, idx) == '-')) {
                             idx++; // skip offset
                         }
-                    } else if (string_eq_cstr(next_tok, "until") || string_eq_cstr(next_tok, "until:re") || string_eq_cstr(next_tok, "until:bin")) {
+                    } else if (string_eq_keyword(next_tok, &KW_UNTIL) || string_eq_keyword(next_tok, &KW_UNTIL_RE) || string_eq_keyword(next_tok, &KW_UNTIL_BIN)) {
                         idx++;
                         if (idx < token_count)
                             idx++; // skip needle/pattern/hex
-                        if (idx < token_count && string_eq_cstr(tokens[idx], "at")) {
+                        if (idx < token_count && string_eq_keyword(tokens[idx], &KW_AT)) {
                             idx++;
                             if (idx < token_count)
                                 idx++; // skip location
@@ -378,7 +378,7 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
                             }
                         }
                     } else {
-                        if (string_eq_cstr(next_tok, "len")) {
+                        if (string_eq_keyword(next_tok, &KW_LEN)) {
                             idx++;
                             if (idx < token_count)
                                 idx++;
@@ -387,16 +387,16 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
                         }
                     }
                 }
-            } else if (string_eq_cstr(cmd_tok, "label")) {
+            } else if (string_eq_keyword(cmd_tok, &KW_LABEL)) {
                 if (idx < token_count)
                     idx++; // skip name
-            } else if (string_eq_cstr(cmd_tok, "goto")) {
+            } else if (string_eq_keyword(cmd_tok, &KW_GOTO)) {
                 if (idx < token_count)
                     idx++; // skip location
                 if (idx < token_count && (TOK_FIRST(tokens, idx) == '+' || TOK_FIRST(tokens, idx) == '-')) {
                     idx++; // skip offset
                 }
-            } else if (string_eq_cstr(cmd_tok, "view")) {
+            } else if (string_eq_keyword(cmd_tok, &KW_VIEW)) {
                 if (idx < token_count)
                     idx++; // skip first location
                 if (idx < token_count && (TOK_FIRST(tokens, idx) == '+' || TOK_FIRST(tokens, idx) == '-')) {
@@ -407,14 +407,14 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
                 if (idx < token_count && (TOK_FIRST(tokens, idx) == '+' || TOK_FIRST(tokens, idx) == '-')) {
                     idx++; // skip offset
                 }
-            } else if (string_eq_cstr(cmd_tok, "clear")) {
+            } else if (string_eq_keyword(cmd_tok, &KW_CLEAR)) {
                 if (idx < token_count)
                     idx++; // skip "view" or label name
-            } else if (string_eq_cstr(cmd_tok, "print") || string_eq_cstr(cmd_tok, "echo")) {
+            } else if (string_eq_keyword(cmd_tok, &KW_PRINT) || string_eq_keyword(cmd_tok, &KW_ECHO)) {
                 idx++; // skip command token
                 if (idx < token_count)
                     idx++; // skip string
-            } else if (string_eq_cstr(cmd_tok, "fail")) {
+            } else if (string_eq_keyword(cmd_tok, &KW_FAIL)) {
                 idx++; // skip command token
                 if (idx < token_count)
                     idx++; // skip message
@@ -482,10 +482,10 @@ static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, 
     /************************************************************
      * SEARCH OPERATIONS
      ************************************************************/
-    if (string_eq_cstr(cmd_tok, "find")) {
+    if (string_eq_keyword(cmd_tok, &KW_FIND)) {
         op->kind = OP_FIND;
 
-        if (*idx < token_count && string_eq_cstr(tokens[*idx], "to")) {
+        if (*idx < token_count && string_eq_keyword(tokens[*idx], &KW_TO)) {
             (*idx)++;
             enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.find.to, prg);
             if (err != E_OK)
@@ -512,10 +512,10 @@ static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, 
         if (err != E_OK)
             return err;
 
-    } else if (string_eq_cstr(cmd_tok, "find:re")) {
+    } else if (string_eq_keyword(cmd_tok, &KW_FIND_RE)) {
         op->kind = OP_FIND_RE;
 
-        if (*idx < token_count && string_eq_cstr(tokens[*idx], "to")) {
+        if (*idx < token_count && string_eq_keyword(tokens[*idx], &KW_TO)) {
             (*idx)++;
             enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.findr.to, prg);
             if (err != E_OK)
@@ -536,10 +536,10 @@ static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, 
             return err;
         op->u.findr.prog = NULL;
 
-    } else if (string_eq_cstr(cmd_tok, "find:bin")) {
+    } else if (string_eq_keyword(cmd_tok, &KW_FIND_BIN)) {
         op->kind = OP_FIND_BIN;
 
-        if (*idx < token_count && string_eq_cstr(tokens[*idx], "to")) {
+        if (*idx < token_count && string_eq_keyword(tokens[*idx], &KW_TO)) {
             (*idx)++;
             enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.findbin.to, prg);
             if (err != E_OK)
@@ -569,7 +569,7 @@ static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, 
         /************************************************************
          * MOVEMENT OPERATIONS
          ************************************************************/
-    } else if (string_eq_cstr(cmd_tok, "skip")) {
+    } else if (string_eq_keyword(cmd_tok, &KW_SKIP)) {
         op->kind = OP_SKIP;
 
         if (*idx >= token_count)
@@ -582,18 +582,18 @@ static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, 
         /************************************************************
          * EXTRACTION OPERATIONS
          ************************************************************/
-    } else if (string_eq_cstr(cmd_tok, "take")) {
+    } else if (string_eq_keyword(cmd_tok, &KW_TAKE)) {
         if (*idx >= token_count)
             return E_PARSE;
 
         const String next_tok = tokens[*idx];
-        if (string_eq_cstr(next_tok, "to")) {
+        if (string_eq_keyword(next_tok, &KW_TO)) {
             op->kind = OP_TAKE_TO;
             (*idx)++;
             enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.take_to.to, prg);
             if (err != E_OK)
                 return err;
-        } else if (string_eq_cstr(next_tok, "until:re")) {
+        } else if (string_eq_keyword(next_tok, &KW_UNTIL_RE)) {
             op->kind = OP_TAKE_UNTIL_RE;
             (*idx)++;
 
@@ -612,7 +612,7 @@ static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, 
                 return err;
 
             // Parse "at" expression if present
-            if (*idx < token_count && string_eq_cstr(tokens[*idx], "at")) {
+            if (*idx < token_count && string_eq_keyword(tokens[*idx], &KW_AT)) {
                 (*idx)++;
                 op->u.take_until_re.has_at = true;
                 enum Err err2 = parse_at_expr_build(tokens, idx, token_count, &op->u.take_until_re.at);
@@ -622,7 +622,7 @@ static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, 
                 op->u.take_until_re.has_at = false;
             }
             op->u.take_until_re.prog = NULL;
-        } else if (string_eq_cstr(next_tok, "until:bin")) {
+        } else if (string_eq_keyword(next_tok, &KW_UNTIL_BIN)) {
             op->kind = OP_TAKE_UNTIL_BIN;
             (*idx)++;
 
@@ -641,7 +641,7 @@ static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, 
                 return err;
 
             // Parse "at" expression if present
-            if (*idx < token_count && string_eq_cstr(tokens[*idx], "at")) {
+            if (*idx < token_count && string_eq_keyword(tokens[*idx], &KW_AT)) {
                 (*idx)++;
                 op->u.take_until_bin.has_at = true;
                 enum Err err2 = parse_at_expr_build(tokens, idx, token_count, &op->u.take_until_bin.at);
@@ -650,7 +650,7 @@ static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, 
             } else {
                 op->u.take_until_bin.has_at = false;
             }
-        } else if (string_eq_cstr(next_tok, "until")) {
+        } else if (string_eq_keyword(next_tok, &KW_UNTIL)) {
             op->kind = OP_TAKE_UNTIL;
             (*idx)++;
 
@@ -669,7 +669,7 @@ static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, 
                 return err;
 
             // Parse "at" expression if present
-            if (*idx < token_count && string_eq_cstr(tokens[*idx], "at")) {
+            if (*idx < token_count && string_eq_keyword(tokens[*idx], &KW_AT)) {
                 (*idx)++;
                 op->u.take_until.has_at = true;
                 enum Err err2 = parse_at_expr_build(tokens, idx, token_count, &op->u.take_until.at);
@@ -680,7 +680,7 @@ static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, 
             }
         } else {
             op->kind = OP_TAKE_LEN;
-            if (string_eq_cstr(next_tok, "len")) {
+            if (string_eq_keyword(next_tok, &KW_LEN)) {
                 (*idx)++;
                 if (*idx >= token_count)
                     return E_PARSE;
@@ -694,7 +694,7 @@ static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, 
         /************************************************************
          * CONTROL OPERATIONS
          ************************************************************/
-    } else if (string_eq_cstr(cmd_tok, "label")) {
+    } else if (string_eq_keyword(cmd_tok, &KW_LABEL)) {
         op->kind = OP_LABEL;
 
         if (*idx >= token_count)
@@ -710,7 +710,7 @@ static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, 
             return E_OOM;
         op->u.label.name_idx = name_idx;
 
-    } else if (string_eq_cstr(cmd_tok, "goto")) {
+    } else if (string_eq_keyword(cmd_tok, &KW_GOTO)) {
         op->kind = OP_GOTO;
 
         if (*idx >= token_count)
@@ -722,7 +722,7 @@ static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, 
         /************************************************************
          * VIEW OPERATIONS
          ************************************************************/
-    } else if (string_eq_cstr(cmd_tok, "view")) {
+    } else if (string_eq_keyword(cmd_tok, &KW_VIEW)) {
         op->kind = OP_VIEWSET;
 
         if (*idx >= token_count)
@@ -737,7 +737,7 @@ static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, 
         if (err != E_OK)
             return err;
 
-    } else if (string_eq_cstr(cmd_tok, "clear")) {
+    } else if (string_eq_keyword(cmd_tok, &KW_CLEAR)) {
         // Parse second token to determine what to clear
         if (*idx >= token_count)
             return E_PARSE;
@@ -745,7 +745,7 @@ static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, 
         String target_tok = tokens[*idx];
         (*idx)++;
 
-        if (string_eq_cstr(target_tok, "view")) {
+        if (string_eq_keyword(target_tok, &KW_VIEW)) {
             op->kind = OP_VIEWCLEAR;
             // No additional parsing needed
         } else {
@@ -756,7 +756,7 @@ static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, 
         /************************************************************
          * OUTPUT/UTILITY OPERATIONS
          ************************************************************/
-    } else if (string_eq_cstr(cmd_tok, "print") || string_eq_cstr(cmd_tok, "echo")) {
+    } else if (string_eq_keyword(cmd_tok, &KW_PRINT) || string_eq_keyword(cmd_tok, &KW_ECHO)) {
         op->kind = OP_PRINT;
 
         // Parse string
@@ -773,7 +773,7 @@ static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, 
         if (err != E_OK)
             return err;
 
-    } else if (string_eq_cstr(cmd_tok, "fail")) {
+    } else if (string_eq_keyword(cmd_tok, &KW_FAIL)) {
         op->kind = OP_FAIL;
 
         // Parse message
@@ -820,8 +820,9 @@ static enum Err parse_loc_expr_build(const String* tokens, i32* idx, i32 token_c
             return E_PARSE;
 
         // Parse offset part
-        // Create String for offset part
-        String offset_str = { offset_start, (i32)strlen(offset_start) };
+        // Create String for offset part - compute length directly
+        i32 offset_len = (i32)(token_tok.len - (offset_start - token_tok.bytes));
+        String offset_str = { offset_start, offset_len };
         enum Err err = parse_signed_number(offset_str, &loc->offset, &loc->unit);
         if (err != E_OK)
             return err;
@@ -837,19 +838,19 @@ static enum Err parse_loc_expr_build(const String* tokens, i32* idx, i32 token_c
     }
 
     // Parse base location
-    if (string_eq_cstr(base_tok, "cursor")) {
+    if (string_eq_keyword(base_tok, &KW_CURSOR)) {
         loc->base = LOC_CURSOR;
-    } else if (string_eq_cstr(base_tok, "BOF")) {
+    } else if (string_eq_keyword(base_tok, &KW_BOF)) {
         loc->base = LOC_BOF;
-    } else if (string_eq_cstr(base_tok, "EOF")) {
+    } else if (string_eq_keyword(base_tok, &KW_EOF)) {
         loc->base = LOC_EOF;
-    } else if (string_eq_cstr(base_tok, "match-start")) {
+    } else if (string_eq_keyword(base_tok, &KW_MATCH_START)) {
         loc->base = LOC_MATCH_START;
-    } else if (string_eq_cstr(base_tok, "match-end")) {
+    } else if (string_eq_keyword(base_tok, &KW_MATCH_END)) {
         loc->base = LOC_MATCH_END;
-    } else if (string_eq_cstr(base_tok, "line-start")) {
+    } else if (string_eq_keyword(base_tok, &KW_LINE_START)) {
         loc->base = LOC_LINE_START;
-    } else if (string_eq_cstr(base_tok, "line-end")) {
+    } else if (string_eq_keyword(base_tok, &KW_LINE_END)) {
         loc->base = LOC_LINE_END;
     } else if (is_valid_label_name(base_tok)) {
         loc->base = LOC_NAME;
@@ -899,8 +900,9 @@ static enum Err parse_at_expr_build(const String* tokens, i32* idx, i32 token_co
             return E_PARSE;
 
         // Parse offset part
-        // Create String for offset part
-        String offset_str = { offset_start, (i32)strlen(offset_start) };
+        // Create String for offset part - compute length directly
+        i32 offset_len = (i32)(token_tok.len - (offset_start - token_tok.bytes));
+        String offset_str = { offset_start, offset_len };
         enum Err err = parse_signed_number(offset_str, &at->offset, &at->unit);
         if (err != E_OK)
             return err;
@@ -916,13 +918,13 @@ static enum Err parse_at_expr_build(const String* tokens, i32* idx, i32 token_co
     }
 
     // Parse base location
-    if (string_eq_cstr(base_tok, "match-start")) {
+    if (string_eq_keyword(base_tok, &KW_MATCH_START)) {
         at->base = LOC_MATCH_START;
-    } else if (string_eq_cstr(base_tok, "match-end")) {
+    } else if (string_eq_keyword(base_tok, &KW_MATCH_END)) {
         at->base = LOC_MATCH_END;
-    } else if (string_eq_cstr(base_tok, "line-start")) {
+    } else if (string_eq_keyword(base_tok, &KW_LINE_START)) {
         at->base = LOC_LINE_START;
-    } else if (string_eq_cstr(base_tok, "line-end")) {
+    } else if (string_eq_keyword(base_tok, &KW_LINE_END)) {
         at->base = LOC_LINE_END;
     } else {
         return E_PARSE;
