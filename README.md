@@ -102,7 +102,7 @@ content here
 
 ### Regex Syntax
 
-- **Character Classes**: `\d` (digits), `\w` (word), `\s` (space), `[a-z]`, `[^0-9]`
+- **Character Classes**: `\d` (digits), `\D` (non-digits), `\w` (word), `\W` (non-word), `\s` (space), `\S` (non-space), `[a-z]`, `[^0-9]`
 - **Quantifiers**: `*` (0+), `+` (1+), `?` (0-1), `{n}` (exactly n), `{n,m}` (n to m)
 - **Grouping**: `( ... )` (group subpatterns), `(a|b)+` (quantified groups)
 - **Anchors**: `^` (line start), `$` (line end)
@@ -214,7 +214,7 @@ find to EOF+1000b "END"   # search forward but only 1000 bytes
 Search using regular expressions. Same search behavior as `find`.
 
 Regex syntax:
-- Classes: `\d` (digit), `\w` (word), `\s` (space), `[a-z]`, `[^0-9]`
+- Classes: `\d` (digit), `\D` (non-digit), `\w` (word), `\W` (non-word), `\s` (space), `\S` (non-space), `[a-z]`, `[^0-9]`
 - Quantifiers: `*` (0+), `+` (1+), `?` (0-1), `{n}`, `{n,m}`
 - Anchors: `^` (line start), `$` (line end)
 - Alternation: `|`, Grouping: `(...)`, Any char: `.`

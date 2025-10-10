@@ -507,7 +507,8 @@ static void print_usage(void)
     printf("                              (inline offsets like BOF+100b are allowed)\n");
     printf("\n");
     printf("REGEX SYNTAX:\n");
-    printf("  Character Classes: \\d (digits), \\w (word), \\s (space), [a-z], [^0-9]\n");
+    printf("  Character Classes: \\d (digits), \\D (non-digits), \\w (word), \\W (non-word),\n");
+    printf("                     \\s (space), \\S (non-space), [a-z], [^0-9]\n");
     printf("  Quantifiers: * (0+), + (1+), ? (0-1), {n} (exactly n), {n,m} (n to m)\n");
     printf("  Grouping: ( ... ) (group subpatterns), (a|b)+ (quantified groups)\n");
     printf("  Anchors: ^ (line start), $ (line end)\n");
