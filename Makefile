@@ -3,11 +3,11 @@ VERSION ?= $(shell cat VERSION 2>/dev/null || echo "dev")
 
 CC = cc
 CFLAGS = -std=c11 -O3 -Wall -Wextra -Wconversion -Wshadow
-CPPFLAGS = -DFISKTA_VERSION=\"$(VERSION)\"
+CPPFLAGS = -DFISKTA_VERSION=\"$(VERSION)\" -D_POSIX_C_SOURCE=199309L
 TARGET = fiskta
 SRCDIR = src
 BUILDDIR = build
-SOURCES = $(SRCDIR)/main.c $(SRCDIR)/parse.c $(SRCDIR)/engine.c $(SRCDIR)/iosearch.c $(SRCDIR)/reprog.c
+SOURCES = $(SRCDIR)/main.c $(SRCDIR)/parse.c $(SRCDIR)/engine.c $(SRCDIR)/iosearch.c $(SRCDIR)/reprog.c $(SRCDIR)/util.c
 OBJECTS = $(SOURCES:$(SRCDIR)/%.c=$(BUILDDIR)/%.o)
 
 PREFIX ?= /usr/local

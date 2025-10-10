@@ -1,9 +1,13 @@
 #include "fiskta.h"
 #include "parse_plan.h"
+#include "util.h"
 #include <ctype.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define TOK_BYTES(tokens, idx) ((tokens)[idx].bytes)
+#define TOK_FIRST(tokens, idx) string_first((tokens)[idx])
 
 // Helper function to find inline offset start
 static const char* find_inline_offset_start(const char* s)
@@ -19,23 +23,15 @@ static const char* find_inline_offset_start(const char* s)
     return NULL;
 }
 
-static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op, Program* prg,
+static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, Op* op, Program* prg,
     char* str_pool, size_t* str_pool_off, size_t str_pool_cap);
-static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg);
-static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* at);
-static enum Err parse_string_to_bytes(const char* str, String* out_string, char* str_pool, size_t* str_pool_off, size_t str_pool_cap);
-static enum Err parse_hex_to_bytes(const char* hex_str, String* out_string, char* str_pool, size_t* str_pool_off, size_t str_pool_cap);
-static enum Err parse_unsigned_number(const char* token, i32* sign, u64* n, Unit* unit);
-static enum Err parse_signed_number(const char* token, i64* offset, Unit* unit);
-static i32 find_or_add_name_build(Program* prg, const char* name);
-static bool is_valid_label_name(const char* name);
-static int hex_value(char c);
-enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
-enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
-    Clause* clauses_buf, Op* ops_buf,
-    char* str_pool, size_t str_pool_cap);
-
-enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out)
+static enum Err parse_loc_expr_build(const String* tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg);
+static enum Err parse_at_expr_build(const String* tokens, i32* idx, i32 token_count, LocExpr* at);
+static enum Err parse_unsigned_number(String token, i32* sign, u64* n, Unit* unit);
+static enum Err parse_signed_number(String token, i64* offset, Unit* unit);
+static i32 find_or_add_name_build(Program* prg, String name);
+static bool is_valid_label_name(String name);
+enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_path, ParsePlan* plan, const char** in_path_out)
 {
     memset(plan, 0, sizeof(*plan));
 
@@ -43,270 +39,269 @@ enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, Pa
         return E_PARSE;
     }
 
-    // Input path is passed separately
     *in_path_out = in_path;
 
-    // Count clauses (number of separators + 1)
     plan->clause_count = 1;
     for (i32 i = 0; i < token_count; i++) {
-        if (strcmp(tokens[i], "THEN") == 0 || strcmp(tokens[i], "OR") == 0) {
+        if (string_eq_keyword(tokens[i], &KW_THEN) || string_eq_keyword(tokens[i], &KW_OR)) {
             plan->clause_count++;
         }
     }
 
-    // Count operations and analyze needs
     i32 idx = 0;
     while (idx < token_count) {
-        // Count ops in this clause
-        while (idx < token_count && strcmp(tokens[idx], "THEN") != 0 && strcmp(tokens[idx], "OR") != 0) {
-            const char* cmd = tokens[idx];
+        while (idx < token_count && !string_eq_keyword(tokens[idx], &KW_THEN) && !string_eq_keyword(tokens[idx], &KW_OR)) {
+            const String cmd_tok = tokens[idx];
             plan->total_ops++;
 
-            if (strcmp(cmd, "find") == 0) {
+            if (string_eq_keyword(cmd_tok, &KW_FIND)) {
                 idx++;
-                if (idx < token_count && strcmp(tokens[idx], "to") == 0) {
+                if (idx < token_count && string_eq_keyword(tokens[idx], &KW_TO)) {
                     idx++;
-                    // Skip location expression
-                    if (idx < token_count) {
+                    if (idx < token_count)
                         idx++;
-                        // Skip offset if present
-                        if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
+                    if (idx < token_count) {
+                        char first = string_first(tokens[idx]);
+                        if (first == '+' || first == '-')
                             idx++;
-                        }
                     }
                 }
-                // Skip needle
                 if (idx < token_count) {
                     plan->needle_count++;
-                    plan->needle_bytes += strlen(tokens[idx]);
+                    plan->needle_bytes += (size_t)tokens[idx].len;
                     idx++;
                 }
-            } else if (strcmp(cmd, "find:re") == 0) {
+            } else if (string_eq_cstr(cmd_tok, "find:re")) {
                 idx++;
-                if (idx < token_count && strcmp(tokens[idx], "to") == 0) {
+                if (idx < token_count && string_eq_keyword(tokens[idx], &KW_TO)) {
                     idx++;
-                    if (idx < token_count) {
+                    if (idx < token_count)
                         idx++;
-                        if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-'))
+                    if (idx < token_count) {
+                        char first = string_first(tokens[idx]);
+                        if (first == '+' || first == '-')
                             idx++;
                     }
                 }
                 if (idx < token_count) {
-                    const char* pat = tokens[idx];
-                    size_t L = strlen(pat);
+                    const String pat_tok = tokens[idx];
+                    const char* pat = pat_tok.bytes;
+                    size_t L = (size_t)pat_tok.len;
                     plan->sum_findr_ops++;
                     i32 est = (i32)(4 * L + 8);
                     plan->re_ins_estimate += est;
-                    if (est > plan->re_ins_estimate_max) {
+                    if (est > plan->re_ins_estimate_max)
                         plan->re_ins_estimate_max = est;
-                    }
-                    // crude class count estimate: count '[' and escape sequences that create classes
-                    for (const char* p = pat; *p; ++p) {
-                        if (*p == '[')
+                    for (i32 pi = 0; pi < pat_tok.len; ++pi) {
+                        char c = pat[pi];
+                        if (c == '[')
                             plan->re_classes_estimate++;
-                        if (*p == '\\' && p[1] && strchr("dDwWsS", p[1]))
-                            plan->re_classes_estimate++;
-                    }
-                    plan->needle_count++; // account string storage (shared pool)
-                    plan->needle_bytes += L;
-                    idx++;
-                }
-            } else if (strcmp(cmd, "find:bin") == 0) {
-                idx++;
-                if (idx < token_count && strcmp(tokens[idx], "to") == 0) {
-                    idx++;
-                    if (idx < token_count) {
-                        idx++;
-                        if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-'))
-                            idx++;
-                    }
-                }
-                // Skip hex string - count bytes needed (half the hex digits, ignoring whitespace)
-                if (idx < token_count) {
-                    const char* hex_str = tokens[idx];
-                    size_t hex_digits = 0;
-                    for (const char* p = hex_str; *p; p++) {
-                        if (!isspace(*p)) {
-                            hex_digits++;
+                        if (c == '\\' && pi + 1 < pat_tok.len) {
+                            char next = pat[pi + 1];
+                            if (string_char_in_set(next, "dDwWsS"))
+                                plan->re_classes_estimate++;
                         }
                     }
                     plan->needle_count++;
-                    plan->needle_bytes += hex_digits / 2; // bytes needed
+                    plan->needle_bytes += L;
                     idx++;
                 }
-            } else if (strcmp(cmd, "skip") == 0) {
+            } else if (string_eq_cstr(cmd_tok, "find:bin")) {
+                idx++;
+                if (idx < token_count && string_eq_keyword(tokens[idx], &KW_TO)) {
+                    idx++;
+                    if (idx < token_count)
+                        idx++;
+                    if (idx < token_count) {
+                        char first = string_first(tokens[idx]);
+                        if (first == '+' || first == '-')
+                            idx++;
+                    }
+                }
+                if (idx < token_count) {
+                    const String hex_tok = tokens[idx];
+                    size_t hex_digits = 0;
+                    for (i32 pi = 0; pi < hex_tok.len; ++pi) {
+                        unsigned char c = (unsigned char)hex_tok.bytes[pi];
+                        if (!isspace(c))
+                            hex_digits++;
+                    }
+                    plan->needle_count++;
+                    plan->needle_bytes += hex_digits / 2;
+                    idx++;
+                }
+            } else if (string_eq_cstr(cmd_tok, "skip")) {
                 idx++;
                 if (idx < token_count)
                     idx++;
-            } else if (strcmp(cmd, "take") == 0) {
+            } else if (string_eq_cstr(cmd_tok, "take")) {
                 idx++;
                 if (idx < token_count) {
-                    const char* next = tokens[idx];
-                    if (strcmp(next, "to") == 0) {
+                    const String next_tok = tokens[idx];
+                    if (string_eq_cstr(next_tok, "to")) {
                         plan->sum_take_ops++;
                         idx++;
-                        // Skip location expression
-                        if (idx < token_count) {
+                        if (idx < token_count)
                             idx++;
-                            // Skip offset if present
-                            if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
+                        if (idx < token_count) {
+                            char first = string_first(tokens[idx]);
+                            if (first == '+' || first == '-')
                                 idx++;
-                            }
                         }
-                    } else if (strcmp(next, "until:re") == 0) {
+                    } else if (string_eq_cstr(next_tok, "until:re")) {
                         plan->sum_take_ops++;
                         idx++;
-                        // Skip pattern
                         if (idx < token_count) {
-                            const char* pat = tokens[idx];
-                            size_t L = strlen(pat);
-                            plan->sum_findr_ops++; // Use same counter as findr for regex patterns
+                            const String pat_tok = tokens[idx];
+                            const char* pat = pat_tok.bytes;
+                            size_t L = (size_t)pat_tok.len;
+                            plan->sum_findr_ops++;
                             i32 est = (i32)(4 * L + 8);
                             plan->re_ins_estimate += est;
-                            if (est > plan->re_ins_estimate_max) {
+                            if (est > plan->re_ins_estimate_max)
                                 plan->re_ins_estimate_max = est;
-                            }
-                            // crude class count estimate: count '[' and escape sequences that create classes
-                            for (const char* p = pat; *p; ++p) {
-                                if (*p == '[')
+                            for (i32 pi = 0; pi < pat_tok.len; ++pi) {
+                                char c = pat[pi];
+                                if (c == '[')
                                     plan->re_classes_estimate++;
-                                if (*p == '\\' && p[1] && strchr("dDwWsS", p[1]))
-                                    plan->re_classes_estimate++;
+                                if (c == '\\' && pi + 1 < pat_tok.len) {
+                                    char next_c = pat[pi + 1];
+                                    if (string_char_in_set(next_c, "dDwWsS"))
+                                        plan->re_classes_estimate++;
+                                }
                             }
-                            plan->needle_count++; // account string storage (shared pool)
+                            plan->needle_count++;
                             plan->needle_bytes += L;
                             idx++;
                         }
-                        // Skip "at" expression if present
-                        if (idx < token_count && strcmp(tokens[idx], "at") == 0) {
+                        if (idx < token_count && string_eq_cstr(tokens[idx], "at")) {
                             idx++;
-                            if (idx < token_count) {
+                            if (idx < token_count)
                                 idx++;
-                                // Skip offset if present
-                                if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
+                            if (idx < token_count) {
+                                char first = string_first(tokens[idx]);
+                                if (first == '+' || first == '-')
                                     idx++;
-                                }
                             }
                         }
-                    } else if (strcmp(next, "until:bin") == 0) {
+                    } else if (string_eq_cstr(next_tok, "until:bin")) {
                         plan->sum_take_ops++;
                         idx++;
-                        // Skip hex string - count bytes needed (half the hex digits, ignoring whitespace)
                         if (idx < token_count) {
-                            const char* hex_str = tokens[idx];
+                            const String hex_tok = tokens[idx];
                             size_t hex_digits = 0;
-                            for (const char* p = hex_str; *p; p++) {
-                                if (!isspace(*p)) {
+                            for (i32 pi = 0; pi < hex_tok.len; ++pi) {
+                                unsigned char c = (unsigned char)hex_tok.bytes[pi];
+                                if (!isspace(c))
                                     hex_digits++;
-                                }
                             }
                             plan->needle_count++;
-                            plan->needle_bytes += hex_digits / 2; // bytes needed
+                            plan->needle_bytes += hex_digits / 2;
                             idx++;
                         }
-                        // Skip "at" expression if present
-                        if (idx < token_count && strcmp(tokens[idx], "at") == 0) {
+                        if (idx < token_count && string_eq_cstr(tokens[idx], "at")) {
                             idx++;
-                            if (idx < token_count) {
+                            if (idx < token_count)
                                 idx++;
-                                // Skip offset if present
-                                if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
+                            if (idx < token_count) {
+                                char first = string_first(tokens[idx]);
+                                if (first == '+' || first == '-')
                                     idx++;
-                                }
                             }
                         }
-                    } else if (strcmp(next, "until") == 0) {
+                    } else if (string_eq_cstr(next_tok, "until")) {
                         plan->sum_take_ops++;
                         idx++;
-                        // Skip needle
                         if (idx < token_count) {
                             plan->needle_count++;
-                            plan->needle_bytes += strlen(tokens[idx]);
+                            plan->needle_bytes += (size_t)tokens[idx].len;
                             idx++;
                         }
-                        // Skip "at" expression if present
-                        if (idx < token_count && strcmp(tokens[idx], "at") == 0) {
+                        if (idx < token_count && string_eq_cstr(tokens[idx], "at")) {
                             idx++;
-                            if (idx < token_count) {
+                            if (idx < token_count)
                                 idx++;
-                                // Skip offset if present
-                                if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
+                            if (idx < token_count) {
+                                char first = string_first(tokens[idx]);
+                                if (first == '+' || first == '-')
                                     idx++;
-                                }
                             }
                         }
                     } else {
                         plan->sum_take_ops++;
-                        idx++; // skip number+unit
+                        if (string_eq_cstr(next_tok, "len")) {
+                            idx++;
+                            if (idx < token_count)
+                                idx++;
+                        } else {
+                            idx++;
+                        }
                     }
                 }
-            } else if (strcmp(cmd, "label") == 0) {
+            } else if (string_eq_cstr(cmd_tok, "label")) {
                 plan->sum_label_ops++;
                 idx++;
-                if (idx < token_count) {
-                    idx++;
-                }
-            } else if (strcmp(cmd, "goto") == 0) {
-                idx++;
-                if (idx < token_count) {
-                    idx++;
-                    // Skip offset if present
-                    if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
-                        idx++;
-                    }
-                }
-            } else if (strcmp(cmd, "view") == 0) {
-                idx++;
-                // Skip two location expressions
-                if (idx < token_count) {
-                    idx++;
-                    // Skip offset if present
-                    if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
-                        idx++;
-                    }
-                }
-                if (idx < token_count) {
-                    idx++;
-                    // Skip offset if present
-                    if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
-                        idx++;
-                    }
-                }
-            } else if (strcmp(cmd, "clear") == 0) {
-                idx++; // skip "clear"
                 if (idx < token_count)
-                    idx++; // skip "view" or label name
-            } else if (strcmp(cmd, "print") == 0 || strcmp(cmd, "echo") == 0) {
-                idx++; // skip command token
+                    idx++;
+            } else if (string_eq_cstr(cmd_tok, "goto")) {
+                idx++;
+                if (idx < token_count)
+                    idx++;
                 if (idx < token_count) {
-                    plan->needle_count++;
-                    plan->needle_bytes += strlen(tokens[idx]);
-                    plan->sum_take_ops++;
-                    idx++; // skip string token
+                    char first = string_first(tokens[idx]);
+                    if (first == '+' || first == '-')
+                        idx++;
                 }
-            } else if (strcmp(cmd, "fail") == 0) {
-                idx++; // skip command token
+            } else if (string_eq_cstr(cmd_tok, "view")) {
+                idx++;
+                if (idx < token_count)
+                    idx++;
+                if (idx < token_count) {
+                    char first = string_first(tokens[idx]);
+                    if (first == '+' || first == '-')
+                        idx++;
+                }
+                if (idx < token_count)
+                    idx++;
+                if (idx < token_count) {
+                    char first = string_first(tokens[idx]);
+                    if (first == '+' || first == '-')
+                        idx++;
+                }
+            } else if (string_eq_cstr(cmd_tok, "clear")) {
+                idx++;
+                if (idx < token_count)
+                    idx++;
+            } else if (string_eq_cstr(cmd_tok, "print") || string_eq_cstr(cmd_tok, "echo")) {
+                idx++;
                 if (idx < token_count) {
                     plan->needle_count++;
-                    plan->needle_bytes += strlen(tokens[idx]);
-                    idx++; // skip message token
+                    plan->needle_bytes += (size_t)tokens[idx].len;
+                    plan->sum_take_ops++;
+                    idx++;
+                }
+            } else if (string_eq_cstr(cmd_tok, "fail")) {
+                idx++;
+                if (idx < token_count) {
+                    plan->needle_count++;
+                    plan->needle_bytes += (size_t)tokens[idx].len;
+                    idx++;
                 }
             } else {
-                idx++; // skip unknown token
+                return E_PARSE;
             }
         }
 
-        if (idx < token_count) {
-            if (strcmp(tokens[idx], "THEN") == 0 || strcmp(tokens[idx], "OR") == 0) {
-                idx++;
-            }
+        if (idx < token_count && (string_eq_cstr(tokens[idx], "THEN") || string_eq_cstr(tokens[idx], "OR"))) {
+            idx++;
         }
     }
 
     return E_OK;
 }
 
-enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
+
+enum Err parse_build(i32 token_count, const String* tokens, const char* in_path, Program* prg, const char** in_path_out,
     Clause* clauses_buf, Op* ops_buf,
     char* str_pool, size_t str_pool_cap)
 {
@@ -340,80 +335,86 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
         // Count ops in this clause first
         i32 clause_start = idx;
         i32 clause_op_count = 0;
-        while (idx < token_count && strcmp(tokens[idx], "THEN") != 0 && strcmp(tokens[idx], "OR") != 0) {
-            const char* cmd = tokens[idx];
+        while (idx < token_count && !string_eq_keyword(tokens[idx], &KW_THEN) && !string_eq_keyword(tokens[idx], &KW_OR)) {
+            String cmd_tok = tokens[idx];
             clause_op_count++;
             idx++;
 
             // Skip command-specific tokens
-            if (strcmp(cmd, "find") == 0 || strcmp(cmd, "find:re") == 0 || strcmp(cmd, "find:bin") == 0) {
-                if (idx < token_count && strcmp(tokens[idx], "to") == 0) {
+            if (string_eq_cstr(cmd_tok, "find") || string_eq_cstr(cmd_tok, "find:re") || string_eq_cstr(cmd_tok, "find:bin")) {
+                if (idx < token_count && string_eq_keyword(tokens[idx], &KW_TO)) {
                     idx++;
                     if (idx < token_count)
                         idx++; // skip location
-                    if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
+                    if (idx < token_count && (TOK_FIRST(tokens, idx) == '+' || TOK_FIRST(tokens, idx) == '-')) {
                         idx++; // skip offset
                     }
                 }
                 if (idx < token_count)
                     idx++; // skip needle/pattern/hex
-            } else if (strcmp(cmd, "skip") == 0) {
+            } else if (string_eq_cstr(cmd_tok, "skip")) {
                 if (idx < token_count)
                     idx++; // skip number+unit
-            } else if (strcmp(cmd, "take") == 0) {
+            } else if (string_eq_cstr(cmd_tok, "take")) {
                 if (idx < token_count) {
-                    const char* next = tokens[idx];
-                    if (strcmp(next, "to") == 0) {
+                    const String next_tok = tokens[idx];
+                    if (string_eq_cstr(next_tok, "to")) {
                         idx++;
                         if (idx < token_count)
                             idx++; // skip location
-                        if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
+                        if (idx < token_count && (TOK_FIRST(tokens, idx) == '+' || TOK_FIRST(tokens, idx) == '-')) {
                             idx++; // skip offset
                         }
-                    } else if (strcmp(next, "until") == 0 || strcmp(next, "until:re") == 0 || strcmp(next, "until:bin") == 0) {
+                    } else if (string_eq_cstr(next_tok, "until") || string_eq_cstr(next_tok, "until:re") || string_eq_cstr(next_tok, "until:bin")) {
                         idx++;
                         if (idx < token_count)
                             idx++; // skip needle/pattern/hex
-                        if (idx < token_count && strcmp(tokens[idx], "at") == 0) {
+                        if (idx < token_count && string_eq_cstr(tokens[idx], "at")) {
                             idx++;
                             if (idx < token_count)
                                 idx++; // skip location
-                            if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
+                            if (idx < token_count && (TOK_FIRST(tokens, idx) == '+' || TOK_FIRST(tokens, idx) == '-')) {
                                 idx++; // skip offset
                             }
                         }
                     } else {
-                        idx++; // skip number+unit
+                        if (string_eq_cstr(next_tok, "len")) {
+                            idx++;
+                            if (idx < token_count)
+                                idx++;
+                        } else {
+                            idx++;
+                        }
                     }
                 }
-            } else if (strcmp(cmd, "label") == 0) {
+            } else if (string_eq_cstr(cmd_tok, "label")) {
                 if (idx < token_count)
                     idx++; // skip name
-            } else if (strcmp(cmd, "goto") == 0) {
+            } else if (string_eq_cstr(cmd_tok, "goto")) {
                 if (idx < token_count)
                     idx++; // skip location
-                if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
+                if (idx < token_count && (TOK_FIRST(tokens, idx) == '+' || TOK_FIRST(tokens, idx) == '-')) {
                     idx++; // skip offset
                 }
-            } else if (strcmp(cmd, "view") == 0) {
+            } else if (string_eq_cstr(cmd_tok, "view")) {
                 if (idx < token_count)
                     idx++; // skip first location
-                if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
+                if (idx < token_count && (TOK_FIRST(tokens, idx) == '+' || TOK_FIRST(tokens, idx) == '-')) {
                     idx++; // skip offset
                 }
                 if (idx < token_count)
                     idx++; // skip second location
-                if (idx < token_count && (tokens[idx][0] == '+' || tokens[idx][0] == '-')) {
+                if (idx < token_count && (TOK_FIRST(tokens, idx) == '+' || TOK_FIRST(tokens, idx) == '-')) {
                     idx++; // skip offset
                 }
-            } else if (strcmp(cmd, "clear") == 0) {
+            } else if (string_eq_cstr(cmd_tok, "clear")) {
                 if (idx < token_count)
                     idx++; // skip "view" or label name
-            } else if (strcmp(cmd, "print") == 0 || strcmp(cmd, "echo") == 0) {
+            } else if (string_eq_cstr(cmd_tok, "print") || string_eq_cstr(cmd_tok, "echo")) {
                 idx++; // skip command token
                 if (idx < token_count)
                     idx++; // skip string
-            } else if (strcmp(cmd, "fail") == 0) {
+            } else if (string_eq_cstr(cmd_tok, "fail")) {
                 idx++; // skip command token
                 if (idx < token_count)
                     idx++; // skip message
@@ -422,7 +423,7 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
 
         // 3 Reset idx to clause start and parse for real
         idx = clause_start;
-        while (idx < token_count && strcmp(tokens[idx], "THEN") != 0 && strcmp(tokens[idx], "OR") != 0) {
+        while (idx < token_count && !string_eq_keyword(tokens[idx], &KW_THEN) && !string_eq_keyword(tokens[idx], &KW_OR)) {
             Op* op = &clause->ops[clause->op_count];
             enum Err err = parse_op_build(tokens, &idx, token_count, op, prg, str_pool, &str_pool_off, str_pool_cap);
             if (err != E_OK) {
@@ -436,10 +437,10 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
 
         // Check for link keywords
         if (idx < token_count) {
-            if (strcmp(tokens[idx], "OR") == 0) {
+            if (string_eq_keyword(tokens[idx], &KW_OR)) {
                 clause->link = LINK_OR;
                 idx++;
-            } else if (strcmp(tokens[idx], "THEN") == 0) {
+            } else if (string_eq_keyword(tokens[idx], &KW_THEN)) {
                 clause->link = LINK_THEN;
                 idx++;
             }
@@ -449,41 +450,42 @@ enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Progra
     return E_OK;
 }
 
-static i32 find_or_add_name_build(Program* prg, const char* name)
+static i32 find_or_add_name_build(Program* prg, String name)
 {
     // Linear search for existing name
     for (i32 i = 0; i < prg->name_count; i++) {
-        if (strcmp(prg->names[i], name) == 0) {
+        if (string_eq_cstr(name, prg->names[i])) {
             return i;
         }
     }
 
     // Add new name if space available
     if (prg->name_count < 128) {
-        strcpy(prg->names[prg->name_count], name);
+        if (!string_copy_to_buffer(name, prg->names[prg->name_count], sizeof(prg->names[0])))
+            return -1; // Copy failed
         return prg->name_count++;
     }
 
     return -1; // No space
 }
 
-static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op, Program* prg,
+static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, Op* op, Program* prg,
     char* str_pool, size_t* str_pool_off, size_t str_pool_cap)
 {
     if (*idx >= token_count) {
         return E_PARSE;
     }
 
-    const char* cmd = tokens[*idx];
+    const String cmd_tok = tokens[*idx];
     (*idx)++;
 
     /************************************************************
      * SEARCH OPERATIONS
      ************************************************************/
-    if (strcmp(cmd, "find") == 0) {
+    if (string_eq_cstr(cmd_tok, "find")) {
         op->kind = OP_FIND;
 
-        if (*idx < token_count && strcmp(tokens[*idx], "to") == 0) {
+        if (*idx < token_count && string_eq_cstr(tokens[*idx], "to")) {
             (*idx)++;
             enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.find.to, prg);
             if (err != E_OK)
@@ -499,21 +501,21 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         // Parse needle
         if (*idx >= token_count)
             return E_PARSE;
-        const char* needle = tokens[*idx];
+        const String needle_tok = tokens[*idx];
         (*idx)++;
 
-        if (strlen(needle) == 0)
+        if (needle_tok.len == 0)
             return E_BAD_NEEDLE;
 
-        // Copy needle to string pool using String
-        enum Err err = parse_string_to_bytes(needle, &op->u.find.needle, str_pool, str_pool_off, str_pool_cap);
+        enum Err err = E_OK;
+        op->u.find.needle = parse_string_to_bytes(needle_tok, str_pool, str_pool_off, str_pool_cap, &err);
         if (err != E_OK)
             return err;
 
-    } else if (strcmp(cmd, "find:re") == 0) {
+    } else if (string_eq_cstr(cmd_tok, "find:re")) {
         op->kind = OP_FIND_RE;
 
-        if (*idx < token_count && strcmp(tokens[*idx], "to") == 0) {
+        if (*idx < token_count && string_eq_cstr(tokens[*idx], "to")) {
             (*idx)++;
             enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.findr.to, prg);
             if (err != E_OK)
@@ -526,18 +528,18 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         }
         if (*idx >= token_count)
             return E_PARSE;
-        const char* pat = tokens[*idx];
+        const String pat_tok = tokens[*idx];
         (*idx)++;
-        // Copy pattern to string pool using String
-        enum Err err = parse_string_to_bytes(pat, &op->u.findr.pattern, str_pool, str_pool_off, str_pool_cap);
+        enum Err err = E_OK;
+        op->u.findr.pattern = parse_string_to_bytes(pat_tok, str_pool, str_pool_off, str_pool_cap, &err);
         if (err != E_OK)
             return err;
         op->u.findr.prog = NULL;
 
-    } else if (strcmp(cmd, "find:bin") == 0) {
+    } else if (string_eq_cstr(cmd_tok, "find:bin")) {
         op->kind = OP_FIND_BIN;
 
-        if (*idx < token_count && strcmp(tokens[*idx], "to") == 0) {
+        if (*idx < token_count && string_eq_cstr(tokens[*idx], "to")) {
             (*idx)++;
             enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.findbin.to, prg);
             if (err != E_OK)
@@ -553,21 +555,21 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         // Parse hex string
         if (*idx >= token_count)
             return E_PARSE;
-        const char* hex_str = tokens[*idx];
+        const String hex_tok = tokens[*idx];
         (*idx)++;
 
-        if (strlen(hex_str) == 0)
+        if (hex_tok.len == 0)
             return E_BAD_NEEDLE;
 
-        // Parse hex string to bytes and copy to string pool
-        enum Err err = parse_hex_to_bytes(hex_str, &op->u.findbin.needle, str_pool, str_pool_off, str_pool_cap);
+        enum Err err = E_OK;
+        op->u.findbin.needle = parse_hex_to_bytes(hex_tok, str_pool, str_pool_off, str_pool_cap, &err);
         if (err != E_OK)
             return err;
 
         /************************************************************
          * MOVEMENT OPERATIONS
          ************************************************************/
-    } else if (strcmp(cmd, "skip") == 0) {
+    } else if (string_eq_cstr(cmd_tok, "skip")) {
         op->kind = OP_SKIP;
 
         if (*idx >= token_count)
@@ -580,37 +582,37 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         /************************************************************
          * EXTRACTION OPERATIONS
          ************************************************************/
-    } else if (strcmp(cmd, "take") == 0) {
+    } else if (string_eq_cstr(cmd_tok, "take")) {
         if (*idx >= token_count)
             return E_PARSE;
 
-        const char* next = tokens[*idx];
-        if (strcmp(next, "to") == 0) {
+        const String next_tok = tokens[*idx];
+        if (string_eq_cstr(next_tok, "to")) {
             op->kind = OP_TAKE_TO;
             (*idx)++;
             enum Err err = parse_loc_expr_build(tokens, idx, token_count, &op->u.take_to.to, prg);
             if (err != E_OK)
                 return err;
-        } else if (strcmp(next, "until:re") == 0) {
+        } else if (string_eq_cstr(next_tok, "until:re")) {
             op->kind = OP_TAKE_UNTIL_RE;
             (*idx)++;
 
             // Parse pattern
             if (*idx >= token_count)
                 return E_PARSE;
-            const char* pattern = tokens[*idx];
+            const String pattern_tok = tokens[*idx];
             (*idx)++;
 
-            if (strlen(pattern) == 0)
+            if (pattern_tok.len == 0)
                 return E_BAD_NEEDLE;
 
-            // Copy pattern to string pool using String
-            enum Err err = parse_string_to_bytes(pattern, &op->u.take_until_re.pattern, str_pool, str_pool_off, str_pool_cap);
+            enum Err err = E_OK;
+            op->u.take_until_re.pattern = parse_string_to_bytes(pattern_tok, str_pool, str_pool_off, str_pool_cap, &err);
             if (err != E_OK)
                 return err;
 
             // Parse "at" expression if present
-            if (*idx < token_count && strcmp(tokens[*idx], "at") == 0) {
+            if (*idx < token_count && string_eq_cstr(tokens[*idx], "at")) {
                 (*idx)++;
                 op->u.take_until_re.has_at = true;
                 enum Err err2 = parse_at_expr_build(tokens, idx, token_count, &op->u.take_until_re.at);
@@ -620,26 +622,26 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
                 op->u.take_until_re.has_at = false;
             }
             op->u.take_until_re.prog = NULL;
-        } else if (strcmp(next, "until:bin") == 0) {
+        } else if (string_eq_cstr(next_tok, "until:bin")) {
             op->kind = OP_TAKE_UNTIL_BIN;
             (*idx)++;
 
             // Parse hex string
             if (*idx >= token_count)
                 return E_PARSE;
-            const char* hex_str = tokens[*idx];
+            const String hex_tok = tokens[*idx];
             (*idx)++;
 
-            if (strlen(hex_str) == 0)
+            if (hex_tok.len == 0)
                 return E_BAD_NEEDLE;
 
-            // Parse hex string to bytes and copy to string pool
-            enum Err err = parse_hex_to_bytes(hex_str, &op->u.take_until_bin.needle, str_pool, str_pool_off, str_pool_cap);
+            enum Err err = E_OK;
+            op->u.take_until_bin.needle = parse_hex_to_bytes(hex_tok, str_pool, str_pool_off, str_pool_cap, &err);
             if (err != E_OK)
                 return err;
 
             // Parse "at" expression if present
-            if (*idx < token_count && strcmp(tokens[*idx], "at") == 0) {
+            if (*idx < token_count && string_eq_cstr(tokens[*idx], "at")) {
                 (*idx)++;
                 op->u.take_until_bin.has_at = true;
                 enum Err err2 = parse_at_expr_build(tokens, idx, token_count, &op->u.take_until_bin.at);
@@ -648,26 +650,26 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
             } else {
                 op->u.take_until_bin.has_at = false;
             }
-        } else if (strcmp(next, "until") == 0) {
+        } else if (string_eq_cstr(next_tok, "until")) {
             op->kind = OP_TAKE_UNTIL;
             (*idx)++;
 
             // Parse needle
             if (*idx >= token_count)
                 return E_PARSE;
-            const char* needle = tokens[*idx];
+            const String needle_tok = tokens[*idx];
             (*idx)++;
 
-            if (strlen(needle) == 0)
+            if (needle_tok.len == 0)
                 return E_BAD_NEEDLE;
 
-            // Copy needle to string pool using String
-            enum Err err = parse_string_to_bytes(needle, &op->u.take_until.needle, str_pool, str_pool_off, str_pool_cap);
+            enum Err err = E_OK;
+            op->u.take_until.needle = parse_string_to_bytes(needle_tok, str_pool, str_pool_off, str_pool_cap, &err);
             if (err != E_OK)
                 return err;
 
             // Parse "at" expression if present
-            if (*idx < token_count && strcmp(tokens[*idx], "at") == 0) {
+            if (*idx < token_count && string_eq_cstr(tokens[*idx], "at")) {
                 (*idx)++;
                 op->u.take_until.has_at = true;
                 enum Err err2 = parse_at_expr_build(tokens, idx, token_count, &op->u.take_until.at);
@@ -678,6 +680,11 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
             }
         } else {
             op->kind = OP_TAKE_LEN;
+            if (string_eq_cstr(next_tok, "len")) {
+                (*idx)++;
+                if (*idx >= token_count)
+                    return E_PARSE;
+            }
             enum Err err = parse_signed_number(tokens[*idx], &op->u.take_len.offset, &op->u.take_len.unit);
             if (err != E_OK)
                 return err;
@@ -687,23 +694,23 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         /************************************************************
          * CONTROL OPERATIONS
          ************************************************************/
-    } else if (strcmp(cmd, "label") == 0) {
+    } else if (string_eq_cstr(cmd_tok, "label")) {
         op->kind = OP_LABEL;
 
         if (*idx >= token_count)
             return E_PARSE;
-        const char* name = tokens[*idx];
+        String name_tok = tokens[*idx];
         (*idx)++;
 
-        if (!is_valid_label_name(name))
+        if (!is_valid_label_name(name_tok))
             return E_LABEL_FMT;
 
-        i32 name_idx = find_or_add_name_build(prg, name);
+        i32 name_idx = find_or_add_name_build(prg, name_tok);
         if (name_idx < 0)
             return E_OOM;
         op->u.label.name_idx = name_idx;
 
-    } else if (strcmp(cmd, "goto") == 0) {
+    } else if (string_eq_cstr(cmd_tok, "goto")) {
         op->kind = OP_GOTO;
 
         if (*idx >= token_count)
@@ -715,7 +722,7 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         /************************************************************
          * VIEW OPERATIONS
          ************************************************************/
-    } else if (strcmp(cmd, "view") == 0) {
+    } else if (string_eq_cstr(cmd_tok, "view")) {
         op->kind = OP_VIEWSET;
 
         if (*idx >= token_count)
@@ -730,15 +737,15 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         if (err != E_OK)
             return err;
 
-    } else if (strcmp(cmd, "clear") == 0) {
+    } else if (string_eq_cstr(cmd_tok, "clear")) {
         // Parse second token to determine what to clear
         if (*idx >= token_count)
             return E_PARSE;
 
-        const char* target = tokens[*idx];
+        String target_tok = tokens[*idx];
         (*idx)++;
 
-        if (strcmp(target, "view") == 0) {
+        if (string_eq_cstr(target_tok, "view")) {
             op->kind = OP_VIEWCLEAR;
             // No additional parsing needed
         } else {
@@ -749,34 +756,34 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
         /************************************************************
          * OUTPUT/UTILITY OPERATIONS
          ************************************************************/
-    } else if (strcmp(cmd, "print") == 0 || strcmp(cmd, "echo") == 0) {
+    } else if (string_eq_cstr(cmd_tok, "print") || string_eq_cstr(cmd_tok, "echo")) {
         op->kind = OP_PRINT;
 
         // Parse string
         if (*idx >= token_count)
             return E_PARSE;
-        const char* str = tokens[*idx];
+        const String str_tok = tokens[*idx];
         (*idx)++;
 
-        if (strlen(str) == 0)
+        if (str_tok.len == 0)
             return E_BAD_NEEDLE;
 
-        // Parse string to String
-        enum Err err = parse_string_to_bytes(str, &op->u.print.string, str_pool, str_pool_off, str_pool_cap);
+        enum Err err = E_OK;
+        op->u.print.string = parse_string_to_bytes(str_tok, str_pool, str_pool_off, str_pool_cap, &err);
         if (err != E_OK)
             return err;
 
-    } else if (strcmp(cmd, "fail") == 0) {
+    } else if (string_eq_cstr(cmd_tok, "fail")) {
         op->kind = OP_FAIL;
 
         // Parse message
         if (*idx >= token_count)
             return E_PARSE;
-        const char* message = tokens[*idx];
+        const String message_tok = tokens[*idx];
         (*idx)++;
 
-        // Parse message to String (empty is allowed, user's choice)
-        enum Err err = parse_string_to_bytes(message, &op->u.fail.message, str_pool, str_pool_off, str_pool_cap);
+        enum Err err = E_OK;
+        op->u.fail.message = parse_string_to_bytes(message_tok, str_pool, str_pool_off, str_pool_cap, &err);
         if (err != E_OK)
             return err;
 
@@ -787,7 +794,7 @@ static enum Err parse_op_build(char** tokens, i32* idx, i32 token_count, Op* op,
     return E_OK;
 }
 
-static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg)
+static enum Err parse_loc_expr_build(const String* tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg)
 {
     if (*idx >= token_count)
         return E_PARSE;
@@ -795,49 +802,58 @@ static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, L
     // Initialize defaults
     loc->name_idx = -1;
 
-    const char* token = tokens[*idx];
+    String token_tok = tokens[*idx];
+    const char* token = token_tok.bytes;
     (*idx)++;
 
     const char* offset_start = find_inline_offset_start(token);
+    String base_tok;
     if (offset_start) {
         // Parse base part
         char base_token[256];
         size_t base_len = (size_t)(offset_start - token);
         if (base_len >= sizeof(base_token))
             return E_PARSE;
-        strncpy(base_token, token, base_len);
-        base_token[base_len] = '\0';
+        // Create String for base part and copy to buffer
+        String base_str = { token, (i32)base_len };
+        if (!string_copy_to_buffer(base_str, base_token, sizeof(base_token)))
+            return E_PARSE;
 
         // Parse offset part
-        enum Err err = parse_signed_number(offset_start, &loc->offset, &loc->unit);
+        // Create String for offset part
+        String offset_str = { offset_start, (i32)strlen(offset_start) };
+        enum Err err = parse_signed_number(offset_str, &loc->offset, &loc->unit);
         if (err != E_OK)
             return err;
 
-        token = base_token;
+        // Create String token for base part
+        base_tok.bytes = base_token;
+        base_tok.len = (i32)base_len;
     } else {
-        // No offset - initialize to defaults
+        // No offset - use original token
+        base_tok = token_tok;
         loc->offset = 0;
         loc->unit = UNIT_BYTES; // default unit
     }
 
     // Parse base location
-    if (strcmp(token, "cursor") == 0) {
+    if (string_eq_cstr(base_tok, "cursor")) {
         loc->base = LOC_CURSOR;
-    } else if (strcmp(token, "BOF") == 0) {
+    } else if (string_eq_cstr(base_tok, "BOF")) {
         loc->base = LOC_BOF;
-    } else if (strcmp(token, "EOF") == 0) {
+    } else if (string_eq_cstr(base_tok, "EOF")) {
         loc->base = LOC_EOF;
-    } else if (strcmp(token, "match-start") == 0) {
+    } else if (string_eq_cstr(base_tok, "match-start")) {
         loc->base = LOC_MATCH_START;
-    } else if (strcmp(token, "match-end") == 0) {
+    } else if (string_eq_cstr(base_tok, "match-end")) {
         loc->base = LOC_MATCH_END;
-    } else if (strcmp(token, "line-start") == 0) {
+    } else if (string_eq_cstr(base_tok, "line-start")) {
         loc->base = LOC_LINE_START;
-    } else if (strcmp(token, "line-end") == 0) {
+    } else if (string_eq_cstr(base_tok, "line-end")) {
         loc->base = LOC_LINE_END;
-    } else if (is_valid_label_name(token)) {
+    } else if (is_valid_label_name(base_tok)) {
         loc->base = LOC_NAME;
-        i32 name_idx = find_or_add_name_build(prg, token);
+        i32 name_idx = find_or_add_name_build(prg, base_tok);
         if (name_idx < 0)
             return E_OOM;
         loc->name_idx = name_idx;
@@ -860,44 +876,53 @@ static enum Err parse_loc_expr_build(char** tokens, i32* idx, i32 token_count, L
     return E_OK;
 }
 
-static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, LocExpr* at)
+static enum Err parse_at_expr_build(const String* tokens, i32* idx, i32 token_count, LocExpr* at)
 {
     if (*idx >= token_count)
         return E_PARSE;
 
-    const char* token = tokens[*idx];
+    String token_tok = tokens[*idx];
+    const char* token = token_tok.bytes;
     (*idx)++;
 
     const char* offset_start = find_inline_offset_start(token);
+    String base_tok;
     if (offset_start) {
         // Parse base part
         char base_token[256];
         size_t base_len = (size_t)(offset_start - token);
         if (base_len >= sizeof(base_token))
             return E_PARSE;
-        strncpy(base_token, token, base_len);
-        base_token[base_len] = '\0';
+        // Create String for base part and copy to buffer
+        String base_str = { token, (i32)base_len };
+        if (!string_copy_to_buffer(base_str, base_token, sizeof(base_token)))
+            return E_PARSE;
 
         // Parse offset part
-        enum Err err = parse_signed_number(offset_start, &at->offset, &at->unit);
+        // Create String for offset part
+        String offset_str = { offset_start, (i32)strlen(offset_start) };
+        enum Err err = parse_signed_number(offset_str, &at->offset, &at->unit);
         if (err != E_OK)
             return err;
 
-        token = base_token;
+        // Create String token for base part
+        base_tok.bytes = base_token;
+        base_tok.len = (i32)base_len;
     } else {
-        // No offset - initialize to defaults
+        // No offset - use original token
+        base_tok = token_tok;
         at->offset = 0;
         at->unit = UNIT_BYTES; // default unit
     }
 
     // Parse base location
-    if (strcmp(token, "match-start") == 0) {
+    if (string_eq_cstr(base_tok, "match-start")) {
         at->base = LOC_MATCH_START;
-    } else if (strcmp(token, "match-end") == 0) {
+    } else if (string_eq_cstr(base_tok, "match-end")) {
         at->base = LOC_MATCH_END;
-    } else if (strcmp(token, "line-start") == 0) {
+    } else if (string_eq_cstr(base_tok, "line-start")) {
         at->base = LOC_LINE_START;
-    } else if (strcmp(token, "line-end") == 0) {
+    } else if (string_eq_cstr(base_tok, "line-end")) {
         at->base = LOC_LINE_END;
     } else {
         return E_PARSE;
@@ -921,12 +946,12 @@ static enum Err parse_at_expr_build(char** tokens, i32* idx, i32 token_count, Lo
     return E_OK;
 }
 
-static enum Err parse_unsigned_number(const char* token, i32* sign, u64* n, Unit* unit)
+static enum Err parse_unsigned_number(String token, i32* sign, u64* n, Unit* unit)
 {
-    if (!token || strlen(token) == 0)
+    if (token.len <= 0)
         return E_PARSE;
 
-    const char* p = token;
+    const char* p = token.bytes;
 
     // Parse sign
     if (sign) {
@@ -973,19 +998,20 @@ static enum Err parse_unsigned_number(const char* token, i32* sign, u64* n, Unit
         return E_PARSE;
     }
 
-    if (*p != '\0')
+    // Check if we consumed the entire token
+    if (p != token.bytes + token.len)
         return E_PARSE; // Extra characters
 
     *n = num;
     return E_OK;
 }
 
-static enum Err parse_signed_number(const char* token, i64* offset, Unit* unit)
+static enum Err parse_signed_number(String token, i64* offset, Unit* unit)
 {
-    if (!token || strlen(token) == 0)
+    if (token.len <= 0)
         return E_PARSE;
 
-    const char* p = token;
+    const char* p = token.bytes;
 
     // Parse sign
     i32 sign = 1;
@@ -1024,7 +1050,8 @@ static enum Err parse_signed_number(const char* token, i64* offset, Unit* unit)
         return E_PARSE;
     }
 
-    if (*p != '\0')
+    // Check if we consumed the entire token
+    if (p != token.bytes + token.len)
         return E_PARSE; // Extra characters
 
     // Convert to signed and apply sign
@@ -1034,190 +1061,7 @@ static enum Err parse_signed_number(const char* token, i64* offset, Unit* unit)
     return E_OK;
 }
 
-static bool is_valid_label_name(const char* name)
+static bool is_valid_label_name(String name)
 {
-    if (!name || strlen(name) == 0 || strlen(name) > 16) {
-        return false;
-    }
-
-    // First character must be uppercase
-    if (!isupper(name[0])) {
-        return false;
-    }
-
-    // Remaining characters can be uppercase, underscore, hyphen, or digit
-    for (const char* p = name + 1; *p; p++) {
-        if (!isupper(*p) && *p != '_' && *p != '-' && !isdigit(*p)) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-static int hex_value(char c)
-{
-    if (c >= '0' && c <= '9')
-        return c - '0';
-    if (c >= 'a' && c <= 'f')
-        return 10 + (c - 'a');
-    if (c >= 'A' && c <= 'F')
-        return 10 + (c - 'A');
-    return -1;
-}
-
-// Parse hex string like "DEADBEEF" or "DE AD BE EF" into bytes
-// Whitespace is ignored, case-insensitive
-static enum Err parse_hex_to_bytes(const char* hex_str, String* out_string, char* str_pool, size_t* str_pool_off, size_t str_pool_cap)
-{
-    // First pass: count hex digits (ignoring whitespace)
-    size_t hex_digit_count = 0;
-    for (const char* p = hex_str; *p; p++) {
-        if (isspace(*p)) {
-            continue;
-        }
-        if (hex_value(*p) < 0) {
-            return E_BAD_HEX; // Invalid hex character
-        }
-        hex_digit_count++;
-    }
-
-    // Must have even number of hex digits
-    if (hex_digit_count == 0 || (hex_digit_count % 2) != 0) {
-        return E_BAD_HEX;
-    }
-
-    size_t byte_count = hex_digit_count / 2;
-
-    // Check if we have space in the string pool
-    if (*str_pool_off + byte_count > str_pool_cap) {
-        return E_OOM;
-    }
-
-    // Second pass: parse hex digits into bytes
-    char* dst = str_pool + *str_pool_off;
-    size_t dst_pos = 0;
-    int pending_nibble = -1;
-
-    for (const char* p = hex_str; *p; p++) {
-        if (isspace(*p)) {
-            continue;
-        }
-
-        int nibble = hex_value(*p);
-        if (nibble < 0) {
-            return E_BAD_NEEDLE; // Should not happen (checked in first pass)
-        }
-
-        if (pending_nibble < 0) {
-            pending_nibble = nibble;
-        } else {
-            dst[dst_pos++] = (char)((pending_nibble << 4) | nibble);
-            pending_nibble = -1;
-        }
-    }
-
-    *str_pool_off += byte_count;
-
-    // Return String struct
-    out_string->bytes = dst;
-    out_string->len = (i32)byte_count;
-
-    return E_OK;
-}
-
-static enum Err parse_string_to_bytes(const char* str, String* out_string, char* str_pool, size_t* str_pool_off, size_t str_pool_cap)
-{
-    // Process escape sequences and calculate final length
-    size_t src_len = strlen(str);
-    size_t dst_len = 0;
-
-    // First pass: calculate the final length after processing escapes
-    for (size_t i = 0; i < src_len; i++) {
-        if (str[i] == '\\' && i + 1 < src_len) {
-            char esc = str[i + 1];
-            if (esc == 'n' || esc == 't' || esc == 'r' || esc == '0' || esc == '\\') {
-                dst_len++;
-                i++; // skip escape type
-                continue;
-            }
-            if (esc == 'x') {
-                if (i + 3 >= src_len)
-                    return E_PARSE;
-                int hi = hex_value(str[i + 2]);
-                int lo = hex_value(str[i + 3]);
-                if (hi < 0 || lo < 0)
-                    return E_PARSE;
-                dst_len++;
-                i += 3; // skip 'x' and two hex digits
-                continue;
-            }
-            // Unknown escape - treat as literal backslash
-            dst_len++;
-            continue;
-        }
-        dst_len++;
-    }
-
-    // Check if we have space in the string pool
-    if (*str_pool_off + dst_len > str_pool_cap)
-        return E_OOM;
-
-    // Second pass: process escapes and copy to pool
-    char* dst = str_pool + *str_pool_off;
-    size_t dst_pos = 0;
-
-    for (size_t i = 0; i < src_len; i++) {
-        if (str[i] == '\\' && i + 1 < src_len) {
-            char esc = str[i + 1];
-            if (esc == 'n') {
-                dst[dst_pos++] = '\n';
-                i++;
-                continue;
-            }
-            if (esc == 't') {
-                dst[dst_pos++] = '\t';
-                i++;
-                continue;
-            }
-            if (esc == 'r') {
-                dst[dst_pos++] = '\r';
-                i++;
-                continue;
-            }
-            if (esc == '0') {
-                dst[dst_pos++] = '\0';
-                i++;
-                continue;
-            }
-            if (esc == '\\') {
-                dst[dst_pos++] = '\\';
-                i++;
-                continue;
-            }
-            if (esc == 'x') {
-                if (i + 3 >= src_len)
-                    return E_PARSE;
-                int hi = hex_value(str[i + 2]);
-                int lo = hex_value(str[i + 3]);
-                if (hi < 0 || lo < 0)
-                    return E_PARSE;
-                dst[dst_pos++] = (char)((hi << 4) | lo);
-                i += 3;
-                continue;
-            }
-            // Unknown escape - treat as literal backslash
-            dst[dst_pos++] = '\\';
-            continue;
-        }
-        dst[dst_pos++] = str[i];
-    }
-
-    *str_pool_off += dst_len;
-
-    // Return String struct
-    out_string->bytes = dst;
-    out_string->len = (i32)dst_len;
-
-    return E_OK;
+    return string_is_valid_label(name);
 }

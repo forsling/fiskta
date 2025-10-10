@@ -1,94 +1,67 @@
 #pragma once
 
-#include <errno.h>
-#include <stdalign.h>
+#include "fiskta.h"
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
-#ifdef _WIN32
-#include <windows.h>
-#else
-#include <time.h>
-#endif
-
-// Arena allocator
 typedef struct {
     unsigned char* base;
-    size_t cap, off;
+    size_t cap;
+    size_t off;
 } Arena;
 
-static inline void arena_init(Arena* a, void* mem, size_t cap)
-{
-    a->base = (unsigned char*)mem;
-    a->cap = cap;
-    a->off = 0;
-}
+void arena_init(Arena* a, void* mem, size_t cap);
+void* arena_alloc(Arena* a, size_t n, size_t align);
+size_t safe_align(size_t x, size_t align);
+int add_overflow(size_t a, size_t b, size_t* out);
+void sleep_msec(int msec);
 
-static inline void* arena_alloc(Arena* a, size_t n, size_t align)
-{
-    size_t a0 = align ? align : alignof(max_align_t);
-    if (a0 == 0 || (a0 & (a0 - 1)) != 0)
-        return NULL; // require power-of-two alignment
+bool string_eq(String a, String b);
+bool string_eq_cstr(String s, const char* literal);
+char string_first(String s);
+String string_from_cstr(const char* s);
 
-    size_t p = a->off;
-    if (a0 > 1) {
-        size_t mask = a0 - 1;
-        size_t rem = p & mask;
-        if (rem) {
-            size_t add = a0 - rem;
-            if (SIZE_MAX - p < add)
-                return NULL; // overflow
-            p += add;
-        }
-    }
+String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum Err* err_out);
+String parse_hex_to_bytes(String hex_str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum Err* err_out);
 
-    if (p > a->cap)
-        return NULL;
-    if (n > a->cap - p) // capacity check without wrap
-        return NULL;
+// Parser-specific String helpers
+bool string_try_parse_unsigned(String s, u64* out, Unit* unit);
+bool string_try_parse_signed(String s, i64* out, Unit* unit);
+bool string_copy_to_buffer(String src, char* dst, size_t dst_cap);
+bool string_is_valid_label(String s);
+bool string_char_in_set(char c, const char* set);
 
-    void* ptr = a->base + p;
-    a->off = p + n;
-    return ptr;
-}
+// Token handling optimizations
+void convert_tokens_to_strings(char** tokens, i32 token_count, String* out);
+bool string_eq_keyword(String s, const String* keyword);
+i32 split_ops_string_optimized(const char* s, String* out, i32 max_tokens);
 
-// Safe alignment utility
-static inline size_t safe_align(size_t x, size_t align)
-{
-    if (align <= 1)
-        return x;
-    size_t rem = x % align;
-    if (rem == 0)
-        return x;
-    size_t add = align - rem;
-    if (SIZE_MAX - x < add)
-        return SIZE_MAX;
-    return x + add;
-}
-
-// Overflow-safe size addition
-// Returns 1 on overflow, 0 on success
-static inline int add_overflow(size_t a, size_t b, size_t* out)
-{
-    if (SIZE_MAX - a < b)
-        return 1;
-    *out = a + b;
-    return 0;
-}
-
-// Cross-platform sleep in milliseconds
-static inline void sleep_msec(int msec)
-{
-    if (msec <= 0)
-        return;
-
-#ifdef _WIN32
-    Sleep((DWORD)msec);
-#else
-    struct timespec req;
-    req.tv_sec = msec / 1000;
-    req.tv_nsec = (long)(msec % 1000) * 1000000L;
-    while (nanosleep(&req, &req) == -1 && errno == EINTR) {
-    }
-#endif
-}
+// Precomputed keyword Strings for fast comparison
+extern const String KW_THEN;
+extern const String KW_OR;
+extern const String KW_TO;
+extern const String KW_AT;
+extern const String KW_LEN;
+extern const String KW_FIND;
+extern const String KW_FIND_RE;
+extern const String KW_FIND_BIN;
+extern const String KW_SKIP;
+extern const String KW_TAKE;
+extern const String KW_UNTIL;
+extern const String KW_UNTIL_RE;
+extern const String KW_UNTIL_BIN;
+extern const String KW_LABEL;
+extern const String KW_GOTO;
+extern const String KW_VIEW;
+extern const String KW_CLEAR;
+extern const String KW_PRINT;
+extern const String KW_ECHO;
+extern const String KW_FAIL;
+extern const String KW_CURSOR;
+extern const String KW_BOF;
+extern const String KW_EOF;
+extern const String KW_MATCH_START;
+extern const String KW_MATCH_END;
+extern const String KW_LINE_START;
+extern const String KW_LINE_END;

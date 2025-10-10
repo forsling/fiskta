@@ -26,6 +26,7 @@ pub fn build(b: *std.Build) !void {
         "src",            "src/main.c",
         "src/parse.c",    "src/engine.c",
         "src/iosearch.c", "src/reprog.c",
+        "src/util.c",
         "-o",             "zig-out/bin/fiskta",
     });
 
@@ -112,6 +113,7 @@ fn createBuildStep(b: *std.Build, target_str: []const u8, linkage: std.builtin.L
         "src",            "src/main.c",
         "src/parse.c",    "src/engine.c",
         "src/iosearch.c", "src/reprog.c",
+        "src/util.c",
         "-o",             b.fmt("zig-out/bin/fiskta-{s}{s}", .{ output_name, ext }),
     });
 

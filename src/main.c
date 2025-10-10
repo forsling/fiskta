@@ -10,6 +10,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
+#include <stdalign.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -149,8 +150,8 @@ static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
 #endif
 
 enum Err engine_run(const Program*, const char*, FILE*);
-enum Err parse_preflight(i32 token_count, char** tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
-enum Err parse_build(i32 token_count, char** tokens, const char* in_path, Program* prg, const char** in_path_out,
+enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
+enum Err parse_build(i32 token_count, const String* tokens, const char* in_path, Program* prg, const char** in_path_out,
     Clause* clauses_buf, Op* ops_buf,
     char* str_pool, size_t str_pool_cap);
 enum Err io_open(File* io, const char* path,
@@ -801,6 +802,7 @@ int main(int argc, char** argv)
     i32 token_count = 0;
     char* splitv[MAX_TOKENS];
     char file_content_buf[MAX_NEEDLE_BYTES];
+    String tokens_view[MAX_TOKENS];
 
     if (command_file) {
         if (ops_index < argc) {
@@ -869,7 +871,7 @@ int main(int argc, char** argv)
         }
         tokens = argv + ops_index;
         if (token_count == 1 && strchr(tokens[0], ' ')) {
-            i32 n = split_ops_string(tokens[0], splitv, (i32)(sizeof splitv / sizeof splitv[0]));
+            i32 n = split_ops_string_optimized(tokens[0], tokens_view, MAX_TOKENS);
             if (n == -1) {
                 fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
                 return 2;
@@ -878,8 +880,9 @@ int main(int argc, char** argv)
                 fprintf(stderr, "fiskta: empty operations string\n");
                 return 2;
             }
-            tokens = splitv;
             token_count = n;
+            // tokens_view is already populated, skip the conversion step
+            goto skip_conversion;
         }
     }
 
@@ -887,9 +890,12 @@ int main(int argc, char** argv)
      * PHASE 1: PREFLIGHT PARSE
      * Analyze operations to determine memory requirements
      ************************************************************/
+    convert_tokens_to_strings(tokens, token_count, tokens_view);
+skip_conversion:
+
     ParsePlan plan = (ParsePlan) { 0 };
     const char* path = NULL;
-    enum Err e = parse_preflight(token_count, tokens, input_path, &plan, &path);
+    enum Err e = parse_preflight(token_count, tokens_view, input_path, &plan, &path);
     if (e != E_OK) {
         print_err(e, "parse preflight");
         return 2; // Exit code 2: Parse error
@@ -984,7 +990,7 @@ int main(int argc, char** argv)
      * Parse operations into executable program structure
      ************************************************************/
     Program prg = (Program) { 0 };
-    e = parse_build(token_count, tokens, input_path, &prg, &path,
+    e = parse_build(token_count, tokens_view, input_path, &prg, &path,
         clauses_buf, ops_buf, str_pool, str_pool_bytes);
     if (e != E_OK) {
         print_err(e, "parse build");
