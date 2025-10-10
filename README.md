@@ -1,11 +1,18 @@
 # (fi)nd (sk)ip (ta)ke
 
-**fiskta** is a cursor-oriented data extraction tool. Unlike traditional that rely primarily on pattern matching, fiskta is built around cursor
-  position and movement: find a pattern, skip around, capture some bytes, characters or lines. Think in terms of "where am I?" and "what do I do from here?" rather than "what pattern matches this line?"
+**fiskta** is a cursor-oriented data extraction tool. Unlike traditional tools that rely primarily on pattern matching, fiskta is built around cursor position and movement: find a pattern, skip around, capture some bytes, characters or lines. Think in terms of "where am I?" and "what do I do from here?" rather than "what pattern matches this line?"
 
 It may be a good fit when grep is insufficient but you don't want to deal with something like awk: Extract text between delimiters, navigate multi-line structures, and build conditional extractions step by step. No cryptic syntax, just relatively straightforward imperative operations.
 
-Zero dependencies beyond libc. Binaries under 100 KB. Memory use ranges from ~2 MB for simple operations to ~8 MB worst case.
+**Features:**
+- Works with bytes, lines, and UTF-8 characters
+- Flexible search that works with plain strings, regex or binary data (hex patterns)
+- Regular expressions with character classes, quantifiers, grouping, and anchors
+- Atomic clauses with rollback on failure
+- Views to restrict operations to file regions
+- Streaming mode for monitoring files
+- Small footprint: binaries 50-100 KB, memory use <8 MB (for standard builds)
+- Written with plain C with zero dependencies beyond libc
 
 ## What does it do?
 
