@@ -281,18 +281,27 @@ static int parse_time_option(const char* value, const char* opt_name, int* out)
     if (!value || !opt_name || !out)
         return 1;
 
-    // Parse with required suffix (except for 0): 100ms, 5s, 2m, 1h
+    // Parse: 0, 100ms, 5s, 2m, 1h (suffix required for non-zero values)
     char* end = NULL;
     long v = strtol(value, &end, 10);
     if (value[0] == '\0' || v < 0 || v > INT_MAX) {
-        fprintf(stderr, "fiskta: %s expects a non-negative integer with suffix (ms|s|m|h), or 0\n", opt_name);
+        fprintf(stderr, "fiskta: %s expects a non-negative integer with suffix (ms|s|m|h)\n", opt_name);
         return 1;
     }
 
-    // Special case: allow bare "0"
-    if (v == 0 && (!end || *end == '\0')) {
-        *out = 0;
-        return 0;
+    // Allow bare "0" or "0" with any valid suffix
+    if (v == 0) {
+        if (!end || *end == '\0'
+            || strcmp(end, "ms") == 0
+            || strcmp(end, "s") == 0
+            || strcmp(end, "m") == 0
+            || strcmp(end, "h") == 0) {
+            *out = 0;
+            return 0;
+        }
+        // Invalid suffix after 0
+        fprintf(stderr, "fiskta: %s invalid suffix '%s' (valid: ms, s, m, h)\n", opt_name, end);
+        return 1;
     }
 
     // For non-zero values, require suffix
@@ -525,7 +534,7 @@ static void print_usage(void)
     printf("  -i, --input <path>          Read input from path (default: stdin)\n");
     printf("  -c, --commands <string|file>  Provide operations as a single string or file path\n");
     printf("      --                      Treat subsequent arguments as operations\n");
-    printf("  -l, --loop <number><ms|s|m|h>   Re-run program on input with this delay (0=off)\n");
+    printf("  -l, --loop [<number><ms|s|m|h>] Re-run program on input with delay (default: no delay)\n");
     printf("  -t, --loop-timeout <number><ms|s|m|h>\n");
     printf("                              Stop looping after time value with no input growth\n");
     printf("  -w, --loop-view <policy>    View change policy: cursor (default) | delta | rescan\n");
@@ -627,6 +636,7 @@ int main(int argc, char** argv)
     const char* command_arg = NULL;
     const char* command_file = NULL;
     int loop_ms = 0;
+    bool loop_enabled = false;
     int idle_timeout_ms = -1;
     LoopViewPolicy loop_view_policy = LOOP_VIEW_CURSOR;
 
@@ -668,16 +678,21 @@ int main(int argc, char** argv)
             continue;
         }
         if (strcmp(arg, "-l") == 0 || strcmp(arg, "--loop") == 0) {
-            if (argi + 1 >= argc) {
-                fprintf(stderr, "fiskta: --loop requires a value\n");
-                return 2;
+            loop_enabled = true;
+            // Check if next arg looks like a time value (starts with digit)
+            if (argi + 1 < argc && isdigit((unsigned char)argv[argi + 1][0])) {
+                if (parse_time_option(argv[argi + 1], "--loop", &loop_ms) != 0)
+                    return 2;
+                argi += 2;
+            } else {
+                // No value provided, default to 0ms
+                loop_ms = 0;
+                argi++;
             }
-            if (parse_time_option(argv[argi + 1], "--loop", &loop_ms) != 0)
-                return 2;
-            argi += 2;
             continue;
         }
         if (strncmp(arg, "--loop=", 7) == 0) {
+            loop_enabled = true;
             if (parse_time_option(arg + 7, "--loop", &loop_ms) != 0)
                 return 2;
             argi++;
@@ -699,7 +714,7 @@ int main(int argc, char** argv)
             argi++;
             continue;
         }
-        if (strcmp(arg, "--loop-view") == 0) {
+        if (strcmp(arg, "-w") == 0 || strcmp(arg, "--loop-view") == 0) {
             if (argi + 1 >= argc) {
                 fprintf(stderr, "fiskta: --loop-view requires a value\n");
                 return 2;
@@ -1032,7 +1047,6 @@ int main(int argc, char** argv)
     for (i32 i = 0; i < MAX_LABELS; i++)
         saved_vm.label_pos[i] = -1;
     bool have_saved_vm = false;
-    const int loop_enabled = (loop_ms > 0);
     if (!loop_enabled)
         idle_timeout_ms = -1;
 
