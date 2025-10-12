@@ -2,7 +2,7 @@
 VERSION ?= $(shell cat VERSION 2>/dev/null || echo "dev")
 
 CC = cc
-CFLAGS = -std=c11 -O3 -Wall -Wextra -Wconversion -Wshadow
+CFLAGS = -std=c11 -O3 -Wall -Wextra -Wconversion -Wshadow -Wcast-qual -Wpointer-arith -Wbad-function-cast -Wundef
 CPPFLAGS = -DFISKTA_VERSION=\"$(VERSION)\" -D_POSIX_C_SOURCE=199309L
 TARGET = fiskta
 SRCDIR = src

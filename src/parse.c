@@ -428,7 +428,6 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
                     }
                 }
                 skip_one_token(&idx, token_count);
-            // NOLINTNEXTLINE(bugprone-branch-clone)
             } else if (keyword_eq(cmd_tok, &kw_skip)) {
                 skip_optional_token(&idx, token_count);
             } else if (keyword_eq(cmd_tok, &kw_take)) {

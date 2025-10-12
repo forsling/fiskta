@@ -219,10 +219,10 @@ static size_t align_or_die(size_t x, size_t align)
 #endif
 
 typedef enum {
-    LOOP_VIEW_DELTA,
-    LOOP_VIEW_RESCAN,
-    LOOP_VIEW_CURSOR
-} LoopViewPolicy;
+    LOOP_MODE_FOLLOW,    // --follow, -f: only new data (delta)
+    LOOP_MODE_MONITOR,   // --monitor, -m: restart from BOF (rescan)
+    LOOP_MODE_CONTINUE   // --continue, -c: resume from cursor (default)
+} LoopMode;
 
 enum {
     MAX_TOKENS = 1024,
@@ -237,14 +237,14 @@ enum {
     MAX_RE_CLASSES = MAX_NEEDLE_BYTES
 };
 
-static uint64_t now_millis(void)
+static u64 now_millis(void)
 {
 #ifdef _WIN32
-    return (uint64_t)GetTickCount64();
+    return (u64)GetTickCount64();
 #else
     struct timespec ts;
     timespec_get(&ts, TIME_UTC);
-    return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
+    return (u64)ts.tv_sec * 1000ULL + (u64)ts.tv_nsec / 1000000ULL;
 #endif
 }
 
@@ -265,26 +265,6 @@ static void refresh_file_size(File* io)
     // else: leave io->size as-is (your iosearch layer should track growth)
 }
 
-static int parse_loop_view_option(const char* value, LoopViewPolicy* out)
-{
-    if (!value || !out) {
-        return 1;
-    }
-    if (strcmp(value, "delta") == 0) {
-        *out = LOOP_VIEW_DELTA;
-        return 0;
-    }
-    if (strcmp(value, "rescan") == 0) {
-        *out = LOOP_VIEW_RESCAN;
-        return 0;
-    }
-    if (strcmp(value, "cursor") == 0) {
-        *out = LOOP_VIEW_CURSOR;
-        return 0;
-    }
-    fprintf(stderr, "fiskta: --loop-view expects one of: delta, rescan, cursor\n");
-    return 1;
-}
 
 static int parse_time_option(const char* value, const char* opt_name, int* out)
 {
@@ -344,7 +324,7 @@ static int parse_time_option(const char* value, const char* opt_name, int* out)
     return 0;
 }
 
-static int parse_loop_timeout_option(const char* value, int* out)
+static int parse_until_idle_option(const char* value, int* out)
 {
     if (!value || !out) {
         return 1;
@@ -353,7 +333,7 @@ static int parse_loop_timeout_option(const char* value, int* out)
         *out = -1;
         return 0;
     }
-    return parse_time_option(value, "--loop-timeout", out);
+    return parse_time_option(value, "--until-idle", out);
 }
 
 static int run_program_once(const Program* prg, File* io, VM* vm,
@@ -543,28 +523,30 @@ static void print_usage(void)
     printf("  On Success: emits staged output, commits labels, updates cursor and last-match.\n");
     printf("\n");
     printf("EXIT CODES:\n");
-    printf("  0               Success (at least one clause succeeded)\n");
+    printf("  0               Success (includes normal --until-idle timeout)\n");
     printf("  1               I/O error (file not found, permission denied, etc.)\n");
     printf("  2               Parse error (invalid syntax, unknown operation)\n");
     printf("  3               Regex error (invalid regex pattern)\n");
     printf("  4               Resource limit (program too large, out of memory)\n");
+    printf("  5               Execution timeout (--for time limit elapsed)\n");
     printf("  10+             All clauses failed (exit code = 10 + index of last failed clause)\n");
     printf("\n");
     printf("OPTIONS:\n");
     printf("  -i, --input <path>          Read input from path (default: stdin)\n");
-    printf("  -c, --commands <string|file>  Provide operations as a single string or file path\n");
+    printf("      --ops <string|file>      Provide operations as a string or file path\n");
     printf("      --                      Treat subsequent arguments as operations\n");
-    printf("  -l, --loop [<number><ms|s|m|h>] Re-run fiskta program on input with optional delay\n");
-    printf("  -k, --ignore-loop-failures  Continue looping on iteration failure\n");
-    printf("  -t, --loop-timeout <number><ms|s|m|h>\n");
-    printf("                              Stop looping after time value with no input growth\n");
-    printf("  -w, --loop-view <policy>    View change policy: cursor (default) | delta | rescan\n");
-    printf("                                cursor:  Continue from last cursor position\n");
-    printf("                                delta:   Only process new data since last run\n");
-    printf("                                rescan:  Re-scan entire file each iteration\n");
+    printf("Timing:\n");
+    printf("      --for <time>             Stop after wall-clock time (works in single-run or loop mode)\n");
+    printf("  -k, --ignore-failures       Continue after clause failures (exit codes 10+ suppressed)\n");
     printf("  -h, --help                  Show this help message\n");
     printf("      --examples              Show comprehensive usage examples\n");
     printf("  -v, --version               Show version information\n");
+    printf("Iterative modes (optional):\n");
+    printf("      --every <time>           Interval between iterations (default 0 = tight loop)\n");
+    printf("      --monitor, -m            Re-scan entire file each iteration\n");
+    printf("      --continue, -c           Resume from last cursor position (default)\n");
+    printf("      --follow, -f             Only process new data since last iteration\n");
+    printf("      --until-idle <time>      Stop when input has not grown for specified duration\n");
     printf("\n");
 }
 
@@ -612,8 +594,8 @@ static void print_examples(void)
     printf("  # After view has been set, all operations are clampted to bounds\n");
     printf("  fiskta --input config.txt find \"[database]\" label START find \"[\" label END view START END ...\n");
     printf("\n");
-    printf("  # Extract all occurrences (loop)\n");
-    printf("  fiskta -i contacts.txt --loop 1ms find:re \"[A-Za-z0-9._%%+-]+@[A-Za-z0-9.-]+\" take to match-end print \"\\n\" \n");
+    printf("  # Extract all occurrences (repeating mode)\n");
+    printf("  fiskta -i contacts.txt --every 1ms find:re \"[A-Za-z0-9._%%+-]+@[A-Za-z0-9.-]+\" take to match-end print \"\\n\" \n");
     printf("\n");
     printf("  # Extract with regex until\n");
     printf("  fiskta --input data.txt take until:re \"\\\\d+\" at match-end\n");
@@ -633,14 +615,20 @@ static void print_examples(void)
     printf("         OR find:bin \"ac0a3c\" print \"Type 2\" OR find:bin \"FFD8FFE0\" print \"Type 3\"\n");
     printf("\n");
     printf("STREAMING AND MONITORING:\n");
-    printf("  # Process data in chunks (default cursor mode - maintain cursor position across iterations)\n");
-    printf("  fiskta --loop 100ms --loop-view cursor --input data.txt take 1000b\n");
+    printf("  # Process data in chunks (default continue mode - maintain cursor position)\n");
+    printf("  fiskta --every 100ms --input data.txt take 1000b\n");
     printf("\n");
-    printf("  # Monitor log file for errors (delta mode - only process new data)\n");
-    printf("  fiskta --loop 1s --loop-view delta --input service.log find \"ERROR\" take to line-end\n");
+    printf("  # Monitor log file for errors (follow mode - only process new data)\n");
+    printf("  fiskta --every 1s --follow --input service.log find \"ERROR\" take to line-end\n");
     printf("\n");
-    printf("  # Monitor changing file content (rescan mode - re-scan entire file each time)\n");
-    printf("  fiskta --loop 2m --loop-view rescan --input status.txt find \"READY\"\n");
+    printf("  # Monitor changing file content (monitor mode - re-scan entire file)\n");
+    printf("  fiskta --every 2m --monitor --input status.txt find \"READY\"\n");
+    printf("\n");
+    printf("  # Monitor with timeout (stop after 10 seconds)\n");
+    printf("  fiskta --every 500ms --for 10s --input growing.log find \"COMPLETE\"\n");
+    printf("\n");
+    printf("  # Monitor with idle timeout (stop after 5s with no new data)\n");
+    printf("  fiskta --every 100ms --until-idle 5s --input data.txt take to EOF\n");
     printf("\n");
     printf("  # Process stdin\n");
     printf("  echo \"Hello world\" | fiskta find \"world\" take to match-end\n");
@@ -663,7 +651,8 @@ int main(int argc, char** argv)
     bool loop_enabled = false;
     bool ignore_loop_failures = false;
     int idle_timeout_ms = -1;
-    LoopViewPolicy loop_view_policy = LOOP_VIEW_CURSOR;
+    int exec_timeout_ms = -1;
+    LoopMode loop_mode = LOOP_MODE_CONTINUE;  // Default to cursor mode
 
     int argi = 1;
     while (argi < argc) {
@@ -702,77 +691,92 @@ int main(int argc, char** argv)
             argi++;
             continue;
         }
-        if (strcmp(arg, "-l") == 0 || strcmp(arg, "--loop") == 0) {
+        if (strcmp(arg, "--every") == 0) {
             loop_enabled = true;
-            // Check if next arg looks like a time value (starts with digit)
-            if (argi + 1 < argc && isdigit((unsigned char)argv[argi + 1][0])) {
-                if (parse_time_option(argv[argi + 1], "--loop", &loop_ms) != 0) {
-                    return 2;
-                }
-                argi += 2;
-            } else {
-                // No value provided, default to 0ms
-                loop_ms = 0;
-                argi++;
-            }
-            continue;
-        }
-        if (strncmp(arg, "--loop=", 7) == 0) {
-            loop_enabled = true;
-            if (parse_time_option(arg + 7, "--loop", &loop_ms) != 0) {
-                return 2;
-            }
-            argi++;
-            continue;
-        }
-        if (strcmp(arg, "-t") == 0 || strcmp(arg, "--loop-timeout") == 0) {
             if (argi + 1 >= argc) {
-                fprintf(stderr, "fiskta: --loop-timeout requires a value\n");
+                fprintf(stderr, "fiskta: --every requires a time value\n");
                 return 2;
             }
-            if (parse_loop_timeout_option(argv[argi + 1], &idle_timeout_ms) != 0) {
+            if (parse_time_option(argv[argi + 1], "--every", &loop_ms) != 0) {
                 return 2;
             }
             argi += 2;
             continue;
         }
-        if (strncmp(arg, "--loop-timeout=", 15) == 0) {
-            if (parse_loop_timeout_option(arg + 15, &idle_timeout_ms) != 0) {
+        if (strncmp(arg, "--every=", 8) == 0) {
+            loop_enabled = true;
+            if (parse_time_option(arg + 8, "--every", &loop_ms) != 0) {
                 return 2;
             }
             argi++;
             continue;
         }
-        if (strcmp(arg, "-w") == 0 || strcmp(arg, "--loop-view") == 0) {
+        if (strcmp(arg, "--until-idle") == 0) {
             if (argi + 1 >= argc) {
-                fprintf(stderr, "fiskta: --loop-view requires a value\n");
+                fprintf(stderr, "fiskta: --until-idle requires a value\n");
                 return 2;
             }
-            if (parse_loop_view_option(argv[argi + 1], &loop_view_policy) != 0) {
+            if (parse_until_idle_option(argv[argi + 1], &idle_timeout_ms) != 0) {
                 return 2;
             }
             argi += 2;
             continue;
         }
-        if (strncmp(arg, "--loop-view=", 12) == 0) {
-            if (parse_loop_view_option(arg + 12, &loop_view_policy) != 0) {
+        if (strncmp(arg, "--until-idle=", 13) == 0) {
+            if (parse_until_idle_option(arg + 13, &idle_timeout_ms) != 0) {
                 return 2;
             }
             argi++;
             continue;
         }
-        if (strcmp(arg, "-k") == 0 || strcmp(arg, "--ignore-loop-failures") == 0) {
+        if (strcmp(arg, "--for") == 0) {
+            if (argi + 1 >= argc) {
+                fprintf(stderr, "fiskta: --for requires a value\n");
+                return 2;
+            }
+            if (parse_time_option(argv[argi + 1], "--for", &exec_timeout_ms) != 0) {
+                return 2;
+            }
+            argi += 2;
+            continue;
+        }
+        if (strncmp(arg, "--for=", 6) == 0) {
+            if (parse_time_option(arg + 6, "--for", &exec_timeout_ms) != 0) {
+                return 2;
+            }
+            argi++;
+            continue;
+        }
+        if (strcmp(arg, "-m") == 0 || strcmp(arg, "--monitor") == 0) {
+            loop_mode = LOOP_MODE_MONITOR;
+            loop_enabled = true;
+            argi++;
+            continue;
+        }
+        if (strcmp(arg, "-c") == 0 || strcmp(arg, "--continue") == 0) {
+            loop_mode = LOOP_MODE_CONTINUE;
+            loop_enabled = true;
+            argi++;
+            continue;
+        }
+        if (strcmp(arg, "-f") == 0 || strcmp(arg, "--follow") == 0) {
+            loop_mode = LOOP_MODE_FOLLOW;
+            loop_enabled = true;
+            argi++;
+            continue;
+        }
+        if (strcmp(arg, "-k") == 0 || strcmp(arg, "--ignore-failures") == 0) {
             ignore_loop_failures = true;
             argi++;
             continue;
         }
-        if (strcmp(arg, "-c") == 0 || strcmp(arg, "--commands") == 0) {
+        if (strcmp(arg, "--ops") == 0) {
             if (command_arg || command_file) {
-                fprintf(stderr, "fiskta: --commands specified multiple times\n");
+                fprintf(stderr, "fiskta: --ops specified multiple times\n");
                 return 2;
             }
             if (argi + 1 >= argc) {
-                fprintf(stderr, "fiskta: --commands requires a string\n");
+                fprintf(stderr, "fiskta: --ops requires a string\n");
                 return 2;
             }
             const char* value = argv[argi + 1];
@@ -786,16 +790,16 @@ int main(int argc, char** argv)
             argi += 2;
             continue;
         }
-        if (strncmp(arg, "--commands=", 11) == 0) {
+        if (strncmp(arg, "--ops=", 6) == 0) {
             if (command_arg || command_file) {
-                fprintf(stderr, "fiskta: --commands specified multiple times\n");
+                fprintf(stderr, "fiskta: --ops specified multiple times\n");
                 return 2;
             }
-            if (arg[11] == '\0') {
-                fprintf(stderr, "fiskta: --commands requires a string\n");
+            if (arg[6] == '\0') {
+                fprintf(stderr, "fiskta: --ops requires a string\n");
                 return 2;
             }
-            const char* value = arg + 11;
+            const char* value = arg + 6;
             FILE* test = fopen(value, "rb");
             if (test) {
                 fclose(test);
@@ -828,18 +832,18 @@ int main(int argc, char** argv)
 
     if (command_file) {
         if (ops_index < argc) {
-            fprintf(stderr, "fiskta: --commands cannot be combined with positional operations\n");
+            fprintf(stderr, "fiskta: --ops cannot be combined with positional operations\n");
             return 2;
         }
         FILE* cf = fopen(command_file, "rb");
         if (!cf) {
-            fprintf(stderr, "fiskta: unable to open commands file %s\n", command_file);
+            fprintf(stderr, "fiskta: unable to open ops file %s\n", command_file);
             return 2;
         }
         size_t total = fread(file_content_buf, 1, sizeof(file_content_buf) - 1, cf);
         if (ferror(cf)) {
             fclose(cf);
-            fprintf(stderr, "fiskta: error reading commands file %s\n", command_file);
+            fprintf(stderr, "fiskta: error reading ops file %s\n", command_file);
             return 2;
         }
         if (!feof(cf)) {
@@ -850,7 +854,7 @@ int main(int argc, char** argv)
         fclose(cf);
         file_content_buf[total] = '\0';
         if (total == 0) {
-            fprintf(stderr, "fiskta: empty commands file\n");
+            fprintf(stderr, "fiskta: empty ops file\n");
             return 2;
         }
         for (size_t i = 0; i < total; ++i) {
@@ -864,14 +868,14 @@ int main(int argc, char** argv)
             return 2;
         }
         if (n <= 0) {
-            fprintf(stderr, "fiskta: empty command string\n");
+            fprintf(stderr, "fiskta: empty ops string\n");
             return 2;
         }
         tokens = splitv;
         token_count = n;
     } else if (command_arg) {
         if (ops_index < argc) {
-            fprintf(stderr, "fiskta: --commands cannot be combined with positional operations\n");
+            fprintf(stderr, "fiskta: --ops cannot be combined with positional operations\n");
             return 2;
         }
         i32 n = split_ops_string(command_arg, splitv, (i32)(sizeof splitv / sizeof splitv[0]));
@@ -880,7 +884,7 @@ int main(int argc, char** argv)
             return 2;
         }
         if (n <= 0) {
-            fprintf(stderr, "fiskta: empty command string\n");
+            fprintf(stderr, "fiskta: empty ops string\n");
             return 2;
         }
         tokens = splitv;
@@ -904,18 +908,20 @@ int main(int argc, char** argv)
                 return 2;
             }
             token_count = n;
-            // tokens_view is already populated, skip the conversion step
-            goto skip_conversion;
+            // tokens_view already populated by split_ops_string_optimized
+            tokens = NULL;  // Mark that we don't need conversion
         }
+    }
+
+    // Convert tokens to String views if not already done
+    if (tokens != NULL) {
+        convert_tokens_to_strings(tokens, token_count, tokens_view);
     }
 
     /************************************************************
      * PHASE 1: PREFLIGHT PARSE
      * Analyze operations to determine memory requirements
-     ************************************************************/
-    convert_tokens_to_strings(tokens, token_count, tokens_view);
-skip_conversion:
-
+     *************************************************************/
     ParsePlan plan = (ParsePlan) { 0 };
     const char* path = NULL;
     enum Err e = parse_preflight(token_count, tokens_view, input_path, &plan, &path);
@@ -1081,12 +1087,19 @@ skip_conversion:
      * Run operations with optional looping for streaming
      *****************************************************/
     int exit_code = 0;
+    enum {
+        EXIT_REASON_NORMAL = 0,
+        EXIT_REASON_EXEC_TIMEOUT = 5
+    };
+    int exit_reason = EXIT_REASON_NORMAL;
+    int last_ok = 1;              // Track last iteration's ok value (default success)
 
     // Single execution mode (no looping)
     refresh_file_size(&io);
     i64 data_start = 0;
     i64 last_size = io_size(&io);
-    uint64_t last_change_ms = now_millis();
+    u64 start_ms = now_millis();
+    u64 last_change_ms = start_ms;
     VM saved_vm;
     memset(&saved_vm, 0, sizeof(saved_vm));
     for (i32 i = 0; i < MAX_LABELS; i++) {
@@ -1099,26 +1112,34 @@ skip_conversion:
 
     for (;;) {
         refresh_file_size(&io);
-        i64 window_end = io_size(&io);
-        uint64_t now_ms = now_millis();
-        if (window_end != last_size) {
-            last_size = window_end;
+        i64 data_end = io_size(&io);
+        u64 now_ms = now_millis();
+
+        // Check execution timeout (works in both loop and non-loop modes)
+        if (exec_timeout_ms >= 0 && (now_ms - start_ms) >= (u64)exec_timeout_ms) {
+            exit_reason = EXIT_REASON_EXEC_TIMEOUT;
+            break;
+        }
+
+        if (data_end != last_size) {
+            last_size = data_end;
             last_change_ms = now_ms;
         }
-        if (window_start > window_end) {
-            window_start = window_end;
+        if (data_start > data_end) {
+            data_start = data_end;
         }
 
-        i64 effective_start = window_start;
-        if (loop_view_policy == LOOP_VIEW_RESCAN) {
+        i64 effective_start = data_start;
+        if (loop_mode == LOOP_MODE_MONITOR) {
             effective_start = 0;
         }
-        else if (loop_view_policy == LOOP_VIEW_CURSOR && have_saved_vm) {
-            effective_start = clamp64(saved_vm.cursor, 0, window_end);
+        else if (loop_mode == LOOP_MODE_CONTINUE && have_saved_vm) {
+            effective_start = clamp64(saved_vm.cursor, 0, data_end);
         }
 
-        if (loop_enabled && loop_view_policy == LOOP_VIEW_DELTA && effective_start >= window_end) {
-            if (idle_timeout_ms >= 0 && (now_ms - last_change_ms) >= (uint64_t)idle_timeout_ms) {
+        if (loop_enabled && loop_mode == LOOP_MODE_FOLLOW && effective_start >= data_end) {
+            if (idle_timeout_ms >= 0 && (now_ms - last_change_ms) >= (u64)idle_timeout_ms) {
+                // Idle timeout is considered normal exit (success) since it's the expected behavior
                 break;
             }
             sleep_msec(loop_ms);
@@ -1127,9 +1148,13 @@ skip_conversion:
 
         enum Err last_err = E_OK;
         i64 prev_cursor = have_saved_vm ? saved_vm.cursor : effective_start;
-        VM* vm_ptr = (loop_view_policy == LOOP_VIEW_CURSOR) ? &saved_vm : NULL;
+        VM* vm_ptr = (loop_mode == LOOP_MODE_CONTINUE) ? &saved_vm : NULL;
         int ok = run_program_once(&prg, &io, vm_ptr, clause_ranges, clause_labels, &last_err,
             effective_start, data_end);
+
+        // Save last iteration result for exit code determination
+        last_ok = ok;
+
         // Handle exit codes
         if (ok > 0) {
             // Success - at least one clause succeeded
@@ -1140,10 +1165,16 @@ skip_conversion:
             goto cleanup;
         } else {
             i32 failed_clause = (-ok) - 2;
-            // If looping with ignore-failures, continue to next iteration
-            if (loop_enabled && ignore_loop_failures) {
-                // Continue looping despite failure
+            if (ignore_loop_failures) {
+                if (!loop_enabled) {
+                    // Non-iterative usage: exit silently with success
+                    exit_code = 0;
+                    goto cleanup;
+                }
+                // Iterative mode: suppress clause failure and keep looping
+                last_ok = 1;
             } else {
+                // Normal error handling: print error and exit with 10+N code
                 fprintf(stderr, "fiskta: clause %d failed (%s)\n", failed_clause, err_str(last_err));
                 exit_code = 10 + failed_clause;
                 goto cleanup;
@@ -1156,20 +1187,25 @@ skip_conversion:
             break;
         }
 
-        if (loop_view_policy == LOOP_VIEW_CURSOR) {
+        if (loop_mode == LOOP_MODE_CONTINUE) {
             have_saved_vm = true;
             data_start = clamp64(saved_vm.cursor, 0, data_end);
             if (saved_vm.cursor != prev_cursor) {
                 last_change_ms = now_ms;
             }
-        } else if (loop_view_policy == LOOP_VIEW_DELTA) {
+        } else if (loop_mode == LOOP_MODE_FOLLOW) {
             data_start = data_end;
         } else {
             data_start = 0;
         }
 
         now_ms = now_millis();
-        if (idle_timeout_ms >= 0 && (now_ms - last_change_ms) >= (uint64_t)idle_timeout_ms) {
+        if (idle_timeout_ms >= 0 && (now_ms - last_change_ms) >= (u64)idle_timeout_ms) {
+            // Idle timeout is considered normal exit (success) since it's the expected behavior
+            break;
+        }
+        if (exec_timeout_ms >= 0 && (now_ms - start_ms) >= (u64)exec_timeout_ms) {
+            exit_reason = EXIT_REASON_EXEC_TIMEOUT;
             break;
         }
 
@@ -1179,5 +1215,30 @@ skip_conversion:
 cleanup:
     io_close(&io);
     free(block);
-    return exit_code;
+
+    // Exit code priority:
+    // 1. If we have a non-zero exit_code set during execution (goto cleanup from error), use it
+    // 2. Otherwise, determine exit code from last iteration + timeout state
+    if (exit_code != 0) {
+        return exit_code;
+    }
+
+    // Compute exit code from last iteration
+    int last_iter_code = 0;
+    if (last_ok > 0) {
+        last_iter_code = 0;  // Success
+    } else if (last_ok == 0) {
+        last_iter_code = 1;  // I/O error
+    } else {
+        i32 failed_clause = (-last_ok) - 2;
+        last_iter_code = 10 + failed_clause;  // Clause failure
+    }
+
+    // If we have an execution timeout (--for), use exit code 5 unless last iteration failed
+    if (exit_reason == EXIT_REASON_EXEC_TIMEOUT) {
+        return exit_reason;  // Timeout takes priority once triggered
+    }
+
+    // Normal exit or --until-idle timeout: use last iteration's result
+    return last_iter_code;
 }

@@ -10,32 +10,30 @@ It may be a good fit when grep is insufficient but you don't want to deal with s
 - Regular expressions with character classes, quantifiers, grouping, and anchors
 - Atomic clauses with rollback on failure
 - Views to restrict operations to file regions
-- Looping mode for continuous operation like monitoring streams or changing files.
+- Continue mode for continuous operation like monitoring streams or changing files
 - Small footprint: binaries ~50-100 KB, memory use <8 MB (for standard builds)
 - Written with plain C with zero dependencies beyond libc
 
 ## What does it do?
 
-Extract first 10 bytes:
 ```bash
-$ echo 'GET /api/users HTTP/1.1' | fiskta take 10b
-GET /api
+# Extract first 10 bytes:
+$ fiskta --input somefile.dat take 10b
 ```
 
-Extract lines from a file:
 ```bash
-$ fiskta --input report.txt skip 5l take 3l
-# (skips first 5 lines, takes next 3)
+# Take 10 characters from the 6th line
+$ fiskta --input report.txt skip 5l take 10c
 ```
 
-Find a pattern and take the rest of the line:
 ```bash
+# Find a pattern and take the rest of the line:
 $ echo 'ERROR: connection failed' | fiskta find "ERROR:" take to line-end
 ERROR: connection failed
 ```
 Try multiple patterns—first match wins:
 ```bash
-$ echo 'WARNING: disk full' | fiskta find "ERROR:" OR find "WARNING:" take to line-end
+$ echo 'WARNING: disk full' | fiskta find "ERROR:" take to line-end OR find "WARNING:" take to line-end
 WARNING: disk full
 ```
 
@@ -148,17 +146,17 @@ Evaluation is strictly left-to-right (no operator precedence).
 - `-i, --input <path>` - Read from file instead of stdin
 
 **Command Modes:**
-- `-c, --commands <string|file>` - Provide operations as a string or file path
+- `--ops <string|file>` - Provide operations as a string or file path
 - `--` - Treat remaining args as operations
 
 **Looping & Streaming:**
-- `-l, --loop [<time>]` - Re-run program with delay (optional time with suffix: `ms`, `s`, `m`, `h`; default: no delay)
-- `-k, --ignore-loop-failures` - Continue looping on iteration failure
-- `-t, --loop-timeout <time>` - Stop after time with no input growth (requires suffix: `ms`, `s`, `m`, `h`)
-- `-w, --loop-view <policy>` - Which view of the file to process on each loop:
-  - `cursor` - continue from last cursor position (default)
-  - `delta` - only new data since last run
-  - `rescan` - re-scan entire file each time
+- `-m, --monitor` - Re-run operations from BOF each iteration
+- `-c, --continue` - Resume from last cursor position (default behavior)
+- `-f, --follow` - Process only new data appended since the previous iteration
+- `--every <time>` - Delay between loop iterations (`ms`, `s`, `m`, `h`; default `0` for a tight loop)
+- `--for <time>` - Stop after total wall-clock time elapses
+- `--until-idle <time>` - Stop once the input stops growing for the given duration (`0` exits immediately on idle)
+- `-k, --ignore-failures` - Keep looping after clause failures (suppresses exit codes `>=10`)
 
 **Examples:**
 ```bash
@@ -166,10 +164,10 @@ Evaluation is strictly left-to-right (no operator precedence).
 fiskta find "ERROR" take to line-end < log.txt
 
 # Operations as string
-fiskta -c 'find "ERROR" take to line-end' --input log.txt
+fiskta --ops 'find "ERROR" take to line-end' --input log.txt
 
-# Tail-like behavior
-fiskta --loop 1s --loop-timeout 0 --input service.log find "ERROR" take to line-end
+# Tail/follow behavior with 1s cadence
+fiskta --follow --every 1s --until-idle 0 --input service.log find "ERROR" take to line-end
 ```
 
 ## Installation
@@ -422,46 +420,45 @@ find "user=" skip 5b take until " " OR fail "Could not extract username\n"
 
 Supports the same escape sequences as `print`.
 
-## Streaming and Looping
+## Streaming Modes
 
-fiskta can monitor a file and repeatedly execute your program as new data arrives, useful for tailing log files or processing streams.
+fiskta can loop over your operations as files grow or change.
 
-### Loop Mode
+### Shared Loop Options
 
-Enable with `--loop` or `--loop <time>` to re-run your program at regular intervals. The time value is optional and requires a suffix: `ms` (milliseconds), `s` (seconds), `m` (minutes), `h` (hours). If no time is specified, it defaults to no delay (continuous looping):
+- `--every <time>` — wait between iterations (`ms`, `s`, `m`, `h`; default `0` for a tight loop)
+- `--for <time>` — stop after the total run time hits the limit (also works for a single execution)
+- `--until-idle <time>` — stop once the input stops growing for the given period (`0` exits immediately on idle)
+- `-k, --ignore-failures` — keep looping even if clauses fail (suppresses exit codes `>=10`)
 
-```bash
-fiskta --loop 1s --input service.log find "ERROR" take to line-end  # Loop every second
-fiskta --loop --input service.log find "ERROR" take to line-end     # Loop continuously (no delay)
-```
+Specifying `--every` alone enables looping in *continue* mode. Adding a mode flag lets you pick how the next iteration determines its starting point.
 
-### Loop View
+### Continue Mode (default / `-c`, `--continue`)
 
-Control which view of the file is processed on each iteration with `--loop-view`:
-
-**`cursor`** (default) - Continue from last cursor position:
-- Maintains cursor state across iterations
-- Can use labels and goto across iterations
-- Most flexible, preserves program state
-
-**`delta`** - Only process new data since last run:
-- Efficient for monitoring growing files
-- Each iteration only sees newly appended data
-- Good for log tailing
-
-**`rescan`** - Re-scan entire file each iteration:
-- Useful when file content changes (not just grows)
-- Processes entire file every time
-
-### Loop Timeout
-
-Stop looping after a period of no file growth:
+Resumes from the previous cursor location, preserving labels and view state between runs.
 
 ```bash
-fiskta --loop 1s --loop-timeout 5s --input log.txt find "ERROR"
+fiskta --every 200ms --input metrics.log \
+    find "latency=" take until " " print "\n"
 ```
 
-This will loop every second, but stop after 5 seconds of no input growth (file size unchanged). Use `--loop-timeout 0` to wait forever.
+### Follow Mode (`-f`, `--follow`)
+
+Processes only the new data appended since the previous iteration—ideal for tailing logs.
+
+```bash
+fiskta --follow --every 1s --until-idle 0 --input service.log \
+    find "WARNING:" take to line-end
+```
+
+### Monitor Mode (`-m`, `--monitor`)
+
+Re-scans the entire file each time. Use it when the file content mutates instead of only growing.
+
+```bash
+fiskta --monitor --every 5m --input status.txt \
+    find "STATE=READY" take to line-end
+```
 
 ## Exit Codes
 
@@ -532,7 +529,7 @@ view BOF EOF          # back to full file
 
 **Extract from specific section:**
 ```bash
-fiskta --loop --input config.ini \
+fiskta --continue --input config.ini \
     find "[database]" skip to line-end label S \
     find "[" label E \
     view S E \
@@ -602,7 +599,7 @@ fiskta --input data.xml find "<tag>" skip 5b take until "<"
 Problem: Extract all email addresses
 
 ```bash
-fiskta --loop --input contacts.txt \
+fiskta --continue --input contacts.txt \
     find:re "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+" take to match-end print "\n"
 ```
 
@@ -611,7 +608,7 @@ fiskta --loop --input contacts.txt \
 Problem: Extract all config values from the `[database]` section only
 
 ```bash
-fiskta --loop --input config.ini \
+fiskta --continue --input config.ini \
     find "[database]" skip to line-end \
     view cursor cursor+1000b \
     find "=" skip -1l take to line-end
@@ -634,7 +631,7 @@ fiskta --input image.bin \
 fiskta --input archive.dat find:bin "504B0304" take to match-end
 
 # Find all JPEG markers in a file
-fiskta --loop --input photo.jpg \
+fiskta --continue --input photo.jpg \
     find:bin "FFD8" OR find:bin "FFE0" OR find:bin "FFE1" \
     take to match-end \
     print "\n"
@@ -684,5 +681,3 @@ Digit          = "0" | "1" | "2" | "3" | "4" | "5"
                | "6" | "7" | "8" | "9" .
 ShellString    = shell-quoted non-empty byte string .
 ```
-
-

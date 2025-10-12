@@ -176,7 +176,7 @@ END_SECTION_B
     crlf_boundary.extend(b"C" * 1000)  # Final content
     write(FIX / "crlf-boundary.txt", crlf_boundary)
 
-    # 25) commands file for CLI tests
+    # 25) ops file for CLI tests
     write(FIX / "commands_take_plus_2b.txt", b"take +2b\n")
 
     # 26) binary-patterns.bin - File with various binary patterns for find:bin tests
@@ -2357,21 +2357,41 @@ def tests():
              tokens=["--version"], input_file=None,
              expect=dict(stdout=VERSION_LINE, exit=0)),
 
-        dict(id="cli-005-commands-file",
+        dict(id="cli-005-ops-file",
              tokens=[], input_file="overlap.txt",
-             extra_args=["-c", str(FIX / "commands_take_plus_2b.txt")],
+             extra_args=["--ops", str(FIX / "commands_take_plus_2b.txt")],
              expect=dict(stdout="ab", exit=0)),
 
 
         dict(id="loop-001-basic",
              tokens=["take","+2b"], input_file="overlap.txt",
-             extra_args=["--loop","1ms","--loop-timeout","0"],
+             extra_args=["--every","1ms","--until-idle","0"],
              expect=dict(stdout="ab", exit=0)),
 
-        dict(id="loop-002-rescan",
+        dict(id="loop-010-follow-idle-empty",
+             tokens=["take","0b"], input_file="empty.txt",
+             extra_args=["--follow","--until-idle","0"],
+             expect=dict(stdout="", exit=0)),
+
+        dict(id="loop-011-ignore-failures-monitor",
+             tokens=["find","MISSING"], input_file="empty.txt",
+             extra_args=["--monitor","--until-idle","0","--ignore-failures"],
+             expect=dict(stdout="", exit=0)),
+
+        dict(id="loop-012-naked-every-continue",
              tokens=["take","+1b"], input_file="overlap.txt",
-             extra_args=["--loop","1ms","--loop-timeout","2ms","--loop-view","rescan"],
-             expect=dict(stdout_startswith="aa", exit=0)),
+             extra_args=["--every","0","--until-idle","0"],
+             expect=dict(stdout="a", exit=0)),
+
+        dict(id="loop-013-clause-failure-exits",
+             tokens=["find","MISSING"], input_file="overlap.txt",
+             extra_args=["--continue"],
+             expect=dict(stdout="", exit=10)),
+
+        dict(id="loop-014-for-timeout",
+             tokens=["take","+1b"], input_file="overlap.txt",
+             extra_args=["--for","0"],
+             expect=dict(stdout="", exit=5)),
 
         # ---------- Stage-only execution tests ----------
         dict(id="stage-001-basic-staging",

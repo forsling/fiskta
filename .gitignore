@@ -6,6 +6,7 @@ tests/__pycache__/
 
 .zig-cache
 zig-out/
+.cache/
 
 # Build artifacts
 build/
