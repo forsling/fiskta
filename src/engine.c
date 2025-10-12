@@ -200,7 +200,7 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     VM vm = { 0 };
     vm.cursor = 0;
     vm.last_match.valid = false;
-    for (i32 i = 0; i < 128; i++) {
+    for (i32 i = 0; i < MAX_LABELS; i++) {
         vm.label_pos[i] = -1;
     }
 

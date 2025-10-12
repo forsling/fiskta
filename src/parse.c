@@ -596,7 +596,7 @@ static i32 find_or_add_label(Program* prg, String name)
     }
 
     // Add new name if space available
-    if (prg->name_count < 128) {
+    if (prg->name_count < MAX_LABELS) {
         if (!string_copy_to_buffer(name, prg->names[prg->name_count], sizeof(prg->names[0]))) {
             return -1; // Copy failed
         }
