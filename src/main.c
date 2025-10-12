@@ -245,6 +245,18 @@ typedef struct {
 // Sentinel: means "no saved VM yet"
 #define VM_CURSOR_UNSET ((i64)-1)
 
+typedef enum {
+    ITER_OK,
+    ITER_PROGRAM_FAIL,
+    ITER_IO_ERROR
+} IterStatus;
+
+typedef struct {
+    IterStatus status;
+    enum Err last_err;
+    i32 emitted_ranges;
+} IterResult;
+
 typedef struct {
     bool enabled;
     LoopMode mode;
@@ -253,21 +265,20 @@ typedef struct {
     i64 baseline;     // FOLLOW: last processed end; CONTINUE: unused; MONITOR: 0
     i64 last_size;    // last observed file size
     VM vm;            // CONTINUE state (vm.cursor == VM_CURSOR_UNSET => none)
-    int last_iter_rc; // >0 ok, 0 I/O error, <0 clause failed
-    enum Err last_err;
+    IterResult last_result;
     int exit_code;
     int exit_reason;  // 0 normal, 5 exec timeout
-} LoopCtx;
+} LoopState;
 
 static int parse_time_option(const char* value, const char* opt_name, int* out);
 static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int argc, char** argv, Operations* out);
 static int parse_until_idle_option(const char* value, int* out);
 
 // Loop context helper functions
-static void loop_init(LoopCtx* L, const CliOptions* opt, File* io);
-static void loop_compute_window(LoopCtx* L, File* io, i64* lo, i64* hi);
-static bool loop_should_wait_or_stop(LoopCtx* L, bool no_new_data, int* out_exit_reason);
-static void loop_commit(LoopCtx* L, i64 data_hi, int ok, enum Err err, bool ignore_fail);
+static void loop_init(LoopState* state, const CliOptions* opt, File* io);
+static void loop_compute_window(LoopState* state, File* io, i64* lo, i64* hi);
+static bool loop_should_wait_or_stop(LoopState* state, bool no_new_data, int* out_exit_reason);
+static void loop_commit(LoopState* state, i64 data_hi, IterResult result, bool ignore_fail);
 
 static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_index, int* exit_code_out)
 {
@@ -714,45 +725,52 @@ static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int 
 }
 
 // Initialize loop context with default values
-static void loop_init(LoopCtx* L, const CliOptions* opt, File* io)
+static void loop_init(LoopState* state, const CliOptions* opt, File* io)
 {
-    if (!L || !opt) return;
+    if (!state || !opt) return;
 
-    memset(L, 0, sizeof *L);
-    L->enabled = opt->loop_enabled;
-    L->mode = opt->loop_mode;
-    L->loop_ms = opt->loop_ms;
-    L->idle_timeout_ms = opt->idle_timeout_ms;
-    L->exec_timeout_ms = opt->exec_timeout_ms;
-    L->t0_ms = L->last_activity_ms = now_millis();
+    memset(state, 0, sizeof *state);
+    state->enabled = opt->loop_enabled;
+    state->mode = opt->loop_mode;
+    state->loop_ms = opt->loop_ms;
+    state->idle_timeout_ms = opt->idle_timeout_ms;
+    state->exec_timeout_ms = opt->exec_timeout_ms;
+    state->t0_ms = state->last_activity_ms = now_millis();
+    state->exit_code = 0;
+    state->exit_reason = 0;
+    state->last_result = (IterResult) {
+        .status = ITER_OK,
+        .last_err = E_OK,
+        .emitted_ranges = 0
+    };
 
     refresh_file_size(io);
-    L->last_size = io_size(io);
+    state->last_size = io_size(io);
 
-    L->vm.cursor = VM_CURSOR_UNSET; // replaces have_saved_vm
-    for (i32 i = 0; i < MAX_LABELS; i++) L->vm.label_pos[i] = -1;
+    state->vm.cursor = VM_CURSOR_UNSET; // replaces have_saved_vm
+    for (i32 i = 0; i < MAX_LABELS; i++) state->vm.label_pos[i] = -1;
 
     // FOLLOW: tail semantics—start at EOF
-    L->baseline = (L->enabled && L->mode == LOOP_MODE_FOLLOW) ? L->last_size : 0;
+    state->baseline = (state->enabled && state->mode == LOOP_MODE_FOLLOW) ? state->last_size : 0;
 }
 
 // Compute the scan window for this iteration
-static void loop_compute_window(LoopCtx* L, File* io, i64* lo, i64* hi)
+static void loop_compute_window(LoopState* state, File* io, i64* lo, i64* hi)
 {
     refresh_file_size(io);
     i64 size = io_size(io);
-    if (size != L->last_size) {
-        L->last_size = size;
-        L->last_activity_ms = now_millis(); // data arrived/truncated
+    if (size != state->last_size) {
+        state->last_size = size;
+        state->last_activity_ms = now_millis(); // data arrived/truncated
     }
     *hi = size;
 
-    switch (L->mode) {
+    switch (state->mode) {
         case LOOP_MODE_MONITOR: *lo = 0; break;
-        case LOOP_MODE_FOLLOW:  *lo = L->baseline; break;
+        case LOOP_MODE_FOLLOW:  *lo = state->baseline; break;
         case LOOP_MODE_CONTINUE:
-            if (L->vm.cursor != VM_CURSOR_UNSET)
-                *lo = clamp64(L->vm.cursor, 0, size);
+            if (state->vm.cursor != VM_CURSOR_UNSET)
+                *lo = clamp64(state->vm.cursor, 0, size);
             else
                 *lo = 0;
             break;
@@ -762,72 +780,73 @@ static void loop_compute_window(LoopCtx* L, File* io, i64* lo, i64* hi)
 }
 
 // Determine if we should wait or stop
-static bool loop_should_wait_or_stop(LoopCtx* L, bool no_new_data, int* out_exit_reason)
+static bool loop_should_wait_or_stop(LoopState* state, bool no_new_data, int* out_exit_reason)
 {
     if (out_exit_reason) {
         *out_exit_reason = 0; // default: normal stop
     }
     u64 now = now_millis();
-    if (L->exec_timeout_ms >= 0 && now - L->t0_ms >= (u64)L->exec_timeout_ms) {
+    if (state->exec_timeout_ms >= 0 && now - state->t0_ms >= (u64)state->exec_timeout_ms) {
         if (out_exit_reason) {
             *out_exit_reason = 5; // EXEC TIMEOUT
         }
         return false; // stop
     }
-    if (!L->enabled) return false; // one-shot
+    if (!state->enabled) return false; // one-shot
 
     if (no_new_data) {
-        if (L->idle_timeout_ms >= 0 && now - L->last_activity_ms >= (u64)L->idle_timeout_ms) {
+        if (state->idle_timeout_ms >= 0 && now - state->last_activity_ms >= (u64)state->idle_timeout_ms) {
             if (out_exit_reason) {
                 *out_exit_reason = 0; // normal (idle)
             }
             return false; // stop
         }
-        sleep_msec(L->loop_ms);
+        sleep_msec(state->loop_ms);
         return true; // wait & continue
     }
     return false; // have work, go execute
 }
 
 // Apply results back to state
-static void loop_commit(LoopCtx* L, i64 data_hi, int ok, enum Err err, bool ignore_fail)
+static void loop_commit(LoopState* state, i64 data_hi, IterResult result, bool ignore_fail)
 {
-    L->last_iter_rc = ok;
-    L->last_err = err;
+    state->last_result = result;
 
-    if (ok > 0) {
+    switch (result.status) {
+    case ITER_OK:
         // success: mark activity and bump baselines
-        L->last_activity_ms = now_millis();
-        if (L->mode == LOOP_MODE_CONTINUE) {
-            if (L->vm.cursor != VM_CURSOR_UNSET) {
+        state->last_activity_ms = now_millis();
+        if (state->mode == LOOP_MODE_CONTINUE) {
+            if (state->vm.cursor != VM_CURSOR_UNSET) {
                 // baseline becomes new cursor for next pass
-                L->baseline = clamp64(L->vm.cursor, 0, data_hi);
+                state->baseline = clamp64(state->vm.cursor, 0, data_hi);
             }
-        } else if (L->mode == LOOP_MODE_FOLLOW) {
-            L->baseline = data_hi; // tail at EOF
+        } else if (state->mode == LOOP_MODE_FOLLOW) {
+            state->baseline = data_hi; // tail at EOF
         } else { /* MONITOR: stays 0 */ }
-    } else if (ok < 0) {
-        if (ignore_fail && L->enabled) {
+        state->exit_code = 0;
+        break;
+    case ITER_PROGRAM_FAIL:
+        if (ignore_fail && state->enabled) {
             // treat as success to keep looping
-            L->last_iter_rc = 1;
+            state->last_result.status = ITER_OK;
+            state->last_result.last_err = E_OK;
+            state->last_result.emitted_ranges = 0;
+            state->exit_code = 0;
         } else {
-            int failed_clause = (-ok) - 2;
-            L->exit_code = 10 + failed_clause;
+            state->exit_code = FISKTA_EXIT_PROGRAM_FAIL; // program failed (no clause succeeded)
         }
-    } else { // ok == 0 => I/O error
-        L->exit_code = 1;
+        break;
+    case ITER_IO_ERROR:
+        state->exit_code = 1;
+        break;
     }
 }
 
-static int execute_program_iteration(const Program* prg, File* io, VM* vm,
+static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm,
     Range* clause_ranges, LabelWrite* clause_labels,
-    enum Err* last_err_out,
     i64 data_lo, i64 data_hi)
 {
-    if (last_err_out) {
-        *last_err_out = E_OK;
-    }
-
     io_reset_full(io);
 
     VM local_vm;
@@ -852,9 +871,14 @@ static int execute_program_iteration(const Program* prg, File* io, VM* vm,
     vm_exec->view.hi = hi;
     vm_exec->last_match.valid = false;
 
-    i32 ok = 0;
+    bool any_success = false;
     enum Err last_err = E_OK;
-    i32 last_failed_clause = -1;
+    IterResult iter_result = {
+        .status = ITER_OK,
+        .last_err = E_OK,
+        .emitted_ranges = 0
+    };
+
     StagedResult result;
 
     for (i32 ci = 0; ci < prg->clause_count; ++ci) {
@@ -880,6 +904,7 @@ static int execute_program_iteration(const Program* prg, File* io, VM* vm,
                 if (e != E_OK) {
                     break;
                 }
+                iter_result.emitted_ranges++;
             }
             if (e == E_OK) {
                 // Commit staged VM state now that I/O succeeded
@@ -887,11 +912,11 @@ static int execute_program_iteration(const Program* prg, File* io, VM* vm,
                 vm_exec->cursor = result.staged_vm.cursor;
                 vm_exec->last_match = result.staged_vm.last_match;
                 vm_exec->view = result.staged_vm.view;
+                any_success = true;
             }
         }
 
         if (e == E_OK) {
-            ok++;
             if (prg->clauses[ci].link == LINK_OR) {
                 // Skip remaining alternatives in this OR-chain once one succeeds
                 while (ci + 1 < prg->clause_count && prg->clauses[ci].link == LINK_OR) {
@@ -900,17 +925,25 @@ static int execute_program_iteration(const Program* prg, File* io, VM* vm,
             }
         } else {
             last_err = e;
-            last_failed_clause = ci;
+            if (e == E_IO) {
+                iter_result.status = ITER_IO_ERROR;
+                iter_result.last_err = E_IO;
+                break;
+            }
         }
     }
 
-    if (last_err_out) {
-        *last_err_out = last_err;
+    if (iter_result.status == ITER_IO_ERROR) {
+        return iter_result;
     }
-    if (ok == 0 && last_failed_clause >= 0) {
-        return -2 - last_failed_clause;
+    if (any_success) {
+        iter_result.status = ITER_OK;
+        iter_result.last_err = E_OK;
+    } else {
+        iter_result.status = ITER_PROGRAM_FAIL;
+        iter_result.last_err = (last_err != E_OK) ? last_err : E_FAIL_OP;
     }
-    return ok;
+    return iter_result;
 }
 
 int main(int argc, char** argv)
@@ -1109,61 +1142,60 @@ int main(int argc, char** argv)
      * PHASE 7: EXECUTE PROGRAM
      * Run operations with optional looping for streaming
      *****************************************************/
-    LoopCtx L;
-    loop_init(&L, &cli_opts, &io);
+    LoopState loop_state;
+    loop_init(&loop_state, &cli_opts, &io);
 
     for (;;) {
         // Handle --for timeout even if no iteration has executed yet
         int reason = 0;
-        (void)loop_should_wait_or_stop(&L, /*no_new_data=*/false, &reason);
+        (void)loop_should_wait_or_stop(&loop_state, /*no_new_data=*/false, &reason);
         if (reason == 5) {
-            L.exit_reason = reason;
+            loop_state.exit_reason = reason;
             break;
         }
 
         i64 lo, hi;
-        loop_compute_window(&L, &io, &lo, &hi);
+        loop_compute_window(&loop_state, &io, &lo, &hi);
 
         // FOLLOW/CONTINUE: nothing new? maybe wait/stop
-        if (L.enabled && L.idle_timeout_ms != 0 &&
-            (L.mode == LOOP_MODE_FOLLOW || L.mode == LOOP_MODE_CONTINUE) && lo >= hi) {
+        if (loop_state.enabled && loop_state.idle_timeout_ms != 0 &&
+            (loop_state.mode == LOOP_MODE_FOLLOW || loop_state.mode == LOOP_MODE_CONTINUE) && lo >= hi) {
             reason = 0;
-            if (loop_should_wait_or_stop(&L, /*no_new_data=*/true, &reason)) {
+            if (loop_should_wait_or_stop(&loop_state, /*no_new_data=*/true, &reason)) {
                 continue; // just slept; try again
             }
-            L.exit_reason = reason; // 0 => idle stop, 5 => exec timeout
+            loop_state.exit_reason = reason; // 0 => idle stop, 5 => exec timeout
             break;
         }
 
         // CONTINUE passes saved VM; other modes run with ephemeral VM
-        enum Err last_err = E_OK;
-        VM* vm_ptr = (L.mode == LOOP_MODE_CONTINUE) ? &L.vm : NULL;
-        int ok = execute_program_iteration(&prg, &io, vm_ptr,
-                                           clause_ranges, clause_labels,
-                                           &last_err, lo, hi);
+        VM* vm_ptr = (loop_state.mode == LOOP_MODE_CONTINUE) ? &loop_state.vm : NULL;
+        IterResult iteration = execute_program_iteration(&prg, &io, vm_ptr,
+                                                         clause_ranges, clause_labels,
+                                                         lo, hi);
 
-        loop_commit(&L, hi, ok, last_err, ignore_loop_failures);
+        loop_commit(&loop_state, hi, iteration, ignore_loop_failures);
         fflush(stdout);
 
-        if (!L.enabled || L.exit_code) {
+        if (!loop_state.enabled || loop_state.exit_code) {
             break;
         }
 
         // Special case: --until-idle 0 => stop after a single iteration (all modes).
-        if (L.idle_timeout_ms == 0) {
-            L.exit_reason = 0; // normal stop
+        if (loop_state.idle_timeout_ms == 0) {
+            loop_state.exit_reason = 0; // normal stop
             break;
         }
 
         // Throttle non-FOLLOW modes between passes; FOLLOW sleeps only when there's no new data.
-        if (L.mode != LOOP_MODE_FOLLOW) {
-            if (L.loop_ms > 0) {
-                sleep_msec(L.loop_ms);
+        if (loop_state.mode != LOOP_MODE_FOLLOW) {
+            if (loop_state.loop_ms > 0) {
+                sleep_msec(loop_state.loop_ms);
             }
             // still honor --for (exec timeout)
             reason = 0;
-            (void)loop_should_wait_or_stop(&L, /*no_new_data=*/false, &reason); // only checks exec timeout here
-            if ((L.exit_reason = reason) != 0) {
+            (void)loop_should_wait_or_stop(&loop_state, /*no_new_data=*/false, &reason); // only checks exec timeout here
+            if ((loop_state.exit_reason = reason) != 0) {
                 break;
             }
         }
@@ -1172,11 +1204,14 @@ int main(int argc, char** argv)
     io_close(&io);
     free(block);
 
-    if (L.exit_code) return L.exit_code;
-    if (L.exit_reason == 5) return 5; // --for timeout
+    if (loop_state.exit_code) return loop_state.exit_code;
+    if (loop_state.exit_reason == 5) return 5; // --for timeout
 
-    // Otherwise last iteration result:
-    if (L.last_iter_rc > 0) return 0;
-    if (L.last_iter_rc == 0) return 1;
-    return 10 + ((-L.last_iter_rc) - 2);
+    // Otherwise evaluate last iteration outcome
+    switch (loop_state.last_result.status) {
+    case ITER_OK: return 0;
+    case ITER_IO_ERROR: return 1;
+    case ITER_PROGRAM_FAIL: return FISKTA_EXIT_PROGRAM_FAIL;
+    default: return 1;
+    }
 }

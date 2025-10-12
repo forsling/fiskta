@@ -156,7 +156,7 @@ Evaluation is strictly left-to-right (no operator precedence).
 - `--every <time>` - Delay between loop iterations (`ms`, `s`, `m`, `h`; default `0` for a tight loop)
 - `--for <time>` - Stop after total wall-clock time elapses
 - `--until-idle <time>` - Stop once the input stops growing for the given duration (`0` exits immediately on idle)
-- `-k, --ignore-failures` - Keep looping after clause failures (suppresses exit codes `>=10`)
+- `-k, --ignore-failures` - Keep looping even if clause pipelines fail (suppresses program-failure exits)
 
 **Examples:**
 ```bash
@@ -429,7 +429,7 @@ fiskta can loop over your operations as files grow or change.
 - `--every <time>` — wait between iterations (`ms`, `s`, `m`, `h`; default `0` for a tight loop)
 - `--for <time>` — stop after the total run time hits the limit (also works for a single execution)
 - `--until-idle <time>` — stop once the input stops growing for the given period (`0` exits immediately on idle)
-- `-k, --ignore-failures` — keep looping even if clauses fail (suppresses exit codes `>=10`)
+- `-k, --ignore-failures` — keep looping even if clauses fail (suppresses program-failure exit)
 
 Specifying `--every` alone enables looping in *continue* mode. Adding a mode flag lets you pick how the next iteration determines its starting point.
 
@@ -475,10 +475,10 @@ fiskta uses exit codes to indicate success, failure, and the type of error encou
   - Invalid regex pattern
 - **4**: Resource limit
   - Program too large, out of memory during startup
-- **10+**: All clauses failed (exit code = 10 + index of last failed clause)
-  - Only returned when no clauses succeeded
-  - The number indicates which clause failed last
-  - Program execution continues through failures (with THEN/OR logic)
+- **5**: Loop timeout (`--for`)
+- **9**: Program failure (no clause pipeline succeeded in the final iteration)
+  - Returned when every clause in the last iteration failed
+  - Suppressed by `--ignore-failures` while looping
 
 ## Views and Scoping
 
