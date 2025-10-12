@@ -29,22 +29,19 @@ static inline i64 view_clamp(const View* v, const File* io, i64 x) { return clam
 // Apply delta with clamping to prevent overflow past clamp edges
 static inline void apply_delta_with_clamp(i64* base, i64 delta, const View* v, const File* io, ClampPolicy cp)
 {
-    i64 lo = 0;
-    i64 hi = io_size(io);
-    if (cp == CLAMP_VIEW) {
-        lo = view_bof(v);
-        hi = view_eof(v, io);
-    }
-    if (delta >= 0) {
-        if (*base > hi - delta) {
-            *base = hi - delta;
-        }
+    i64 lo = (cp == CLAMP_VIEW) ? view_bof(v) : 0;
+    i64 hi = (cp == CLAMP_VIEW) ? view_eof(v, io) : io_size(io);
+    i64 tgt;
+    if ((delta > 0) && (*base > INT64_MAX - delta)) {
+        tgt = INT64_MAX;
+    } else if ((delta < 0) && (*base < INT64_MIN - delta)) {
+        tgt = INT64_MIN;
     } else {
-        if (*base < lo - delta) {
-            *base = lo - delta;
-        }
+        tgt = *base + delta;
     }
-    *base += delta;
+    if (tgt < lo) tgt = lo;
+    if (tgt > hi) tgt = hi;
+    *base = tgt;
 }
 
 void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap)
