@@ -113,11 +113,12 @@ enum Err io_open(File* io, const char* path,
             fclose(io->f);
             return E_IO;
         }
-        io->size = ftello(io->f);
-        if (io->size < 0) {
+        off_t sz = ftello(io->f);
+        if (sz < 0) {
             fclose(io->f);
             return E_IO;
         }
+        io->size = (i64)sz;
         if (fseek(io->f, 0, SEEK_SET) != 0) {
             fclose(io->f);
             return E_IO;
@@ -418,11 +419,8 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
     if (nlen == 0) {
         return E_BAD_NEEDLE;
     }
-    if (win_lo >= win_hi || win_lo < 0 || win_hi > io->size) {
-        return E_NO_MATCH;
-    }
 
-    // Clamp window to file bounds
+    // Clamp window to file bounds (be permissive; callers may pass slightly OOB)
     win_lo = clamp64(win_lo, 0, io->size);
     win_hi = clamp64(win_hi, 0, io->size);
 
@@ -567,6 +565,9 @@ enum Err io_char_start(File* io, i64 pos, i64* out)
         return E_IO;
     }
     size_t n = fread(io->buf, 1, (size_t)(hi - lo), io->f);
+    if (n == 0 && ferror(io->f)) {
+        return E_IO;
+    }
 
     // Scan backward from pos-1 to lo for a non-cont byte
     i64 rel = (i64)n - 1;
@@ -1068,11 +1069,12 @@ enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
                     *ms = min_start;
                     *me = pos;
                     return E_OK;
-                }                     best_ms = min_start;
+                } else {
+                    best_ms = min_start;
                     best_me = pos;
                     curr.n = 0;
                     have_min = 0;
-
+                }
             }
         }
 

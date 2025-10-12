@@ -271,7 +271,6 @@ typedef struct ParsePlan {
     i32 re_ins_estimate;
     i32 re_classes_estimate;
     i32 re_ins_estimate_max;
-    i32 max_name_count;
 } ParsePlan;
 
 enum Err engine_run(const Program* prg, const char* in_path, FILE* out);
