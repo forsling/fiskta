@@ -359,7 +359,7 @@ static int parse_loop_timeout_option(const char* value, int* out)
 static int run_program_once(const Program* prg, File* io, VM* vm,
     Range* clause_ranges, LabelWrite* clause_labels,
     enum Err* last_err_out,
-    i64 window_lo, i64 window_hi)
+    i64 data_lo, i64 data_hi)
 {
     if (last_err_out) {
         *last_err_out = E_OK;
@@ -376,8 +376,8 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
         }
     }
 
-    i64 lo = clamp64(window_lo, 0, io_size(io));
-    i64 hi = clamp64(window_hi, 0, io_size(io));
+    i64 lo = clamp64(data_lo, 0, io_size(io));
+    i64 hi = clamp64(data_hi, 0, io_size(io));
     if (vm_exec->cursor < lo) {
         vm_exec->cursor = lo;
     }
@@ -1084,7 +1084,7 @@ skip_conversion:
 
     // Single execution mode (no looping)
     refresh_file_size(&io);
-    i64 window_start = 0;
+    i64 data_start = 0;
     i64 last_size = io_size(&io);
     uint64_t last_change_ms = now_millis();
     VM saved_vm;
@@ -1129,7 +1129,7 @@ skip_conversion:
         i64 prev_cursor = have_saved_vm ? saved_vm.cursor : effective_start;
         VM* vm_ptr = (loop_view_policy == LOOP_VIEW_CURSOR) ? &saved_vm : NULL;
         int ok = run_program_once(&prg, &io, vm_ptr, clause_ranges, clause_labels, &last_err,
-            effective_start, window_end);
+            effective_start, data_end);
         // Handle exit codes
         if (ok > 0) {
             // Success - at least one clause succeeded
@@ -1158,14 +1158,14 @@ skip_conversion:
 
         if (loop_view_policy == LOOP_VIEW_CURSOR) {
             have_saved_vm = true;
-            window_start = clamp64(saved_vm.cursor, 0, window_end);
+            data_start = clamp64(saved_vm.cursor, 0, data_end);
             if (saved_vm.cursor != prev_cursor) {
                 last_change_ms = now_ms;
             }
         } else if (loop_view_policy == LOOP_VIEW_DELTA) {
-            window_start = window_end;
+            data_start = data_end;
         } else {
-            window_start = 0;
+            data_start = 0;
         }
 
         now_ms = now_millis();
