@@ -32,7 +32,8 @@ typedef struct ReProg {
     int nclasses;
 } ReProg;
 
-// Compile pattern into preallocated pools; advances *ins_used / *cls_used
+// Compile pattern into preallocated pools; appends instructions/classes to the pools.
+// Starts at offsets *ins_used / *cls_used and ADVANCES them on success.
 enum Err re_compile_into(String pattern,
     ReProg* out,
     ReInst* ins_base, int ins_cap, int* ins_used,

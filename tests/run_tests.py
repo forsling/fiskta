@@ -1792,10 +1792,10 @@ def tests():
              tokens=["find:re","(cat|dog)|(bird|fish)","take","+4b"], input_file="-", stdin=b"I have a bird",
              expect=dict(stdout="bird", exit=0)),
 
-        # Empty group (should not match)
+        # Empty group (should match as epsilon)
         dict(id="regex-092-empty-group",
              tokens=["find:re","()","take","+1b"], input_file="-", stdin=b"abc",
-             expect=dict(stdout="", exit=10)),
+             expect=dict(stdout="a", exit=0)),
 
         # Grouping with escape sequences
         dict(id="regex-093-grouping-with-escapes",

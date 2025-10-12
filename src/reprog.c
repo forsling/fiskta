@@ -185,6 +185,7 @@ static enum Err parse_class(ReB* b, String pat, int* i_inout, int* out_cls_idx)
     // Apply negation if needed
     if (negated) {
         ReClass negated_cls;
+        cls_clear(&negated_cls);
         for (int v = 0; v < 256; ++v) {
             cls_set(&negated_cls, (unsigned char)v);
         }
@@ -516,7 +517,7 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
         ak = A_CHAR;
     }
 
-    // --- NEW: grouping atom '(' ... ')' with nested alternation ---
+    // --- Grouping atom '(' ... ')' with nested alternation ---
     if (pat.bytes[i - 1] == '(') {
         int j = i;
         int depth = 1;
@@ -547,20 +548,13 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
 
         int inner_lo = i;
         int inner_len = j - inner_lo;
-        char q = pat.bytes[j + 1]; // quantifier char (if present)
+        char q = (j + 1 < pat.len) ? pat.bytes[j + 1] : 0; // quantifier char (if present)
 
-        // Handle empty group
+        // Handle empty group: epsilon (no-op)
         if (inner_len == 0) {
-            // Empty group: compile a dead epsilon (never proceeds)
-            int dead_pc;
-            enum Err e2 = emit_inst(b, RI_JMP, 0, 0, 0, -1, &dead_pc);
-            if (e2 != E_OK) {
-                return e2;
-            }
-            b->ins[dead_pc].x = dead_pc;
-            i = j + 1;
+            i = (q ? j + 2 : j + 1);
             *i_inout = i;
-            return E_OK;
+            return E_OK; // epsilon contributes nothing
         }
 
         enum Err e;
@@ -645,8 +639,8 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
         return E_OK;
     }
 
-    // Look for quantifier
-    char q = pat.bytes[i];
+    // Look for quantifier (bounded)
+    char q = (i < pat.len) ? pat.bytes[i] : 0;
     int min_count = 1;
     int max_count = 1; // default for single atom
     int is_quantified = 0;
@@ -930,10 +924,18 @@ enum Err re_compile_into(String pattern,
 {
     ReB b = { 0 };
     b.out = out;
-    b.ins = ins_base;
-    b.ins_cap = ins_cap;
-    b.cls = cls_base;
-    b.cls_cap = cls_cap;
+    // Start writing at current pool offsets
+    int ins_start = (ins_used && *ins_used >= 0) ? *ins_used : 0;
+    int cls_start = (cls_used && *cls_used >= 0) ? *cls_used : 0;
+    if (ins_start > ins_cap || cls_start > cls_cap) {
+        return E_OOM;
+    }
+    b.ins = ins_base + ins_start;
+    b.ins_cap = ins_cap - ins_start;
+    b.cls = cls_base + cls_start;
+    b.cls_cap = cls_cap - cls_start;
+    b.nins = 0;
+    b.ncls = 0;
 
     if (!pattern.bytes || pattern.len == 0) {
         return E_BAD_NEEDLE;
@@ -987,7 +989,7 @@ enum Err re_compile_into(String pattern,
     out->classes = b.cls;
     out->nclasses = b.ncls;
 
-    *ins_used = b.nins;
-    *cls_used = b.ncls;
+    if (ins_used) *ins_used = ins_start + b.nins;
+    if (cls_used) *cls_used = cls_start + b.ncls;
     return E_OK;
 }

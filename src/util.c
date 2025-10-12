@@ -125,7 +125,7 @@ char string_first(String s)
 {
     if (!s.bytes || s.len <= 0) {
         return '\0';
-}
+    }
     return s.bytes[0];
 }
 
