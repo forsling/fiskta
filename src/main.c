@@ -21,143 +21,6 @@
 #define FISKTA_VERSION "dev"
 #endif
 
-// Quote-aware ops-string splitter for CLI usage
-// Note: one-shot scratch; tokens invalidated after next call
-static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
-{
-    static char buf[4096];
-    size_t boff = 0;
-    i32 ntok = 0;
-
-    enum { S_WS,
-        S_TOKEN,
-        S_SQ,
-        S_DQ } st
-        = S_WS;
-    const char* p = s;
-
-    while (*p) {
-        unsigned char c = (unsigned char)*p;
-        if (st == S_WS) {
-            if (c == ' ' || c == '\t') {
-                p++;
-                continue;
-            }
-            if (c == '\'' || c == '"') {
-                if (ntok >= max_tokens) {
-                    return -1;
-                }
-                if (boff >= sizeof buf) {
-                    return -1;
-                }
-                out[ntok] = &buf[boff];
-                st = (c == '\'') ? S_SQ : S_DQ;
-                p++;
-                continue;
-            }
-            // start token, reprocess this char in S_TOKEN
-            if (ntok >= max_tokens) {
-                return -1;
-            }
-            if (boff >= sizeof buf) {
-                return -1;
-            }
-            out[ntok] = &buf[boff];
-            st = S_TOKEN;
-            continue;
-        }
-        if (st == S_TOKEN) {
-            if (c == ' ' || c == '\t') {
-                if (boff >= sizeof buf) {
-                    return -1; // NUL safety
-                }
-                buf[boff++] = '\0';
-                ntok++;
-                st = S_WS;
-                p++;
-                continue;
-            }
-            if (c == '\'') {
-                st = S_SQ;
-                p++;
-                continue;
-            }
-            if (c == '"') {
-                st = S_DQ;
-                p++;
-                continue;
-            }
-            if (c == '\\' && p[1]) {
-                unsigned char next = (unsigned char)p[1];
-                if (next == ' ' || next == '\t' || next == '\\' || next == '\'' || next == '"') {
-                    if (boff >= sizeof buf) {
-                        return -1;
-                    }
-                    buf[boff++] = (char)next;
-                    p += 2;
-                    continue;
-                }
-            }
-            if (boff >= sizeof buf) {
-                return -1;
-            }
-            buf[boff++] = (char)c;
-            p++;
-            continue;
-        }
-        if (st == S_SQ) {
-            if (c == '\'') {
-                st = S_TOKEN;
-                p++;
-                continue;
-            }
-            if (boff >= sizeof buf) {
-                return -1;
-            }
-            buf[boff++] = (char)c;
-            p++;
-            continue;
-        }
-        if (st == S_DQ) {
-            if (c == '"') {
-                st = S_TOKEN;
-                p++;
-                continue;
-            }
-            if (c == '\\' && p[1]) {
-                unsigned char esc = (unsigned char)p[1];
-                if (esc == '"' || esc == '\\') {
-                    if (boff >= sizeof buf) {
-                        return -1;
-                    }
-                    buf[boff++] = (char)esc;
-                    p += 2;
-                    continue;
-                }
-            }
-            if (boff >= sizeof buf) {
-                return -1;
-            }
-            buf[boff++] = (char)c;
-            p++;
-            continue;
-        }
-    }
-
-    if (st == S_TOKEN || st == S_SQ || st == S_DQ) {
-        if (boff >= sizeof buf) {
-            return -1;
-        }
-        buf[boff++] = '\0';
-        if (ntok < max_tokens) {
-            ntok++;
-        } else {
-            return -1;
-        }
-    }
-    return ntok;
-}
-
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
@@ -620,7 +483,6 @@ static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int 
     }
 
     // Static buffers for operations loading
-    static char* splitv[MAX_TOKENS];
     static char file_content_buf[MAX_NEEDLE_BYTES];
     static String tokens_view[MAX_TOKENS];
 
@@ -666,7 +528,7 @@ static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int 
             }
         }
 
-        i32 n = split_ops_string(file_content_buf, splitv, (i32)(sizeof splitv / sizeof splitv[0]));
+        i32 n = tokenize_ops_string(file_content_buf, tokens_view, MAX_TOKENS);
         if (n == -1) {
             fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
             return 2;
@@ -678,8 +540,7 @@ static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int 
 
         out->tokens = tokens_view;
         out->token_count = n;
-        out->tokens_need_conversion = true;
-        convert_tokens_to_strings(splitv, n, tokens_view);
+        out->tokens_need_conversion = false;
 
     } else if (command_arg) {
         // Load operations from --ops string
@@ -688,7 +549,7 @@ static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int 
             return 2;
         }
 
-        i32 n = split_ops_string(command_arg, splitv, (i32)(sizeof splitv / sizeof splitv[0]));
+        i32 n = tokenize_ops_string(command_arg, tokens_view, MAX_TOKENS);
         if (n == -1) {
             fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
             return 2;
@@ -700,8 +561,7 @@ static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int 
 
         out->tokens = tokens_view;
         out->token_count = n;
-        out->tokens_need_conversion = true;
-        convert_tokens_to_strings(splitv, n, tokens_view);
+        out->tokens_need_conversion = false;
 
     } else {
         // Load operations from positional arguments
