@@ -258,9 +258,9 @@ def tests():
              tokens=["take","+3b","THEN","take","+2b"], input_file="overlap.txt",
              expect=dict(stdout="abcde", exit=0)),
 
-        dict(id="gram-002-no-signed-skip",
+        dict(id="gram-002-signed-skip",
              tokens=["skip","-5b"], input_file="overlap.txt",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="", exit=0)),
 
         dict(id="gram-003-empty-needle-invalid",
              tokens=["find",""], input_file="small.txt",
@@ -304,7 +304,7 @@ def tests():
 
         dict(id="error-007-negative-skip-beyond-bof",
              tokens=["skip","-1000b"], input_file="small.txt",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="", exit=0)),
 
         dict(id="error-008-invalid-regex",
              tokens=["find:re","[unclosed"], input_file="small.txt",

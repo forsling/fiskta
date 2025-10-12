@@ -438,11 +438,7 @@ static enum Err skip_op(
 
     if (op->u.skip.unit == UNIT_BYTES) {
         i64 cur = view_clamp(c_view, io, *c_cursor);
-        if (op->u.skip.n > (u64)INT64_MAX) {
-            cur = view_eof(c_view, io);
-        } else {
-            apply_byte_saturation(&cur, (i64)op->u.skip.n, c_view, io, CLAMP_VIEW);
-        }
+        apply_byte_saturation(&cur, op->u.skip.offset, c_view, io, CLAMP_VIEW);
         *c_cursor = cur;
     } else if (op->u.skip.unit == UNIT_LINES) {
         // Skip by lines
@@ -457,25 +453,19 @@ static enum Err skip_op(
             current_line_start = view_bof(c_view);
         }
 
-        if (op->u.skip.n > (u64)INT_MAX) {
-            return E_PARSE;
-        }
         err = io_step_lines_from(io, current_line_start,
-            (i32)op->u.skip.n, c_cursor);
+            (i32)op->u.skip.offset, c_cursor);
         if (err != E_OK) {
             return err;
         }
         *c_cursor = view_clamp(c_view, io, *c_cursor);
     } else { // UNIT_CHARS
-        if (op->u.skip.n > INT_MAX) {
-            return E_PARSE;
-        }
         i64 char_start;
         enum Err err = io_char_start(io, *c_cursor, &char_start);
         if (err != E_OK) {
             return err;
         }
-        err = io_step_chars_from(io, char_start, (i32)op->u.skip.n, c_cursor);
+        err = io_step_chars_from(io, char_start, (i32)op->u.skip.offset, c_cursor);
         if (err != E_OK) {
             return err;
         }
@@ -608,9 +598,6 @@ static enum Err take_len_op(
             start = clamp64(start, view_bof(c_view), end);
         }
     } else { // UNIT_CHARS
-        if (op->u.take_len.offset > INT_MAX || op->u.take_len.offset < -INT_MAX) {
-            return E_PARSE;
-        }
         i64 cstart;
         enum Err err = io_char_start(io, *c_cursor, &cstart);
         if (err != E_OK) {

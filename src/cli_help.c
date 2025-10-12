@@ -197,4 +197,3 @@ void print_examples(void)
     printf("  echo \"Hello world\" | fiskta find \"world\" take to match-end\n");
     printf("\n");
 }
-

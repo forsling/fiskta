@@ -39,6 +39,7 @@ static const char* find_inline_offset_start(const char* s)
     return NULL;
 }
 
+
 static const String kw_then = { "THEN", 4 };
 static const String kw_or = { "OR", 2 };
 static const String kw_to = { "to", 2 };
@@ -79,6 +80,29 @@ static enum Err parse_unsigned_number(String token, i32* sign, u64* n, Unit* uni
 static enum Err parse_signed_number(String token, i64* offset, Unit* unit);
 static i32 find_or_add_name_build(Program* prg, String name);
 static bool is_valid_label_name(String name);
+
+// Helper function to check if a location expression contains a valid label name
+static bool check_location_expr_for_label(const String* token)
+{
+    const char* offset_start = find_inline_offset_start(token->bytes);
+    if (offset_start) {
+        // Extract base part
+        char base[256];
+        size_t base_len = (size_t)(offset_start - token->bytes);
+        if (base_len >= sizeof(base)) {
+            return false;
+        }
+        memcpy(base, token->bytes, base_len);
+        base[base_len] = '\0';
+
+        String base_str = { base, (i32)base_len };
+        return is_valid_label_name(base_str);
+    } else {
+        // No offset - check the whole token
+        return is_valid_label_name(*token);
+    }
+}
+
 enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_path, ParsePlan* plan, const char** in_path_out)
 {
     memset(plan, 0, sizeof(*plan));
@@ -107,6 +131,10 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                 if (idx < token_count && keyword_eq(tokens[idx], &kw_to)) {
                     idx++;
                     if (idx < token_count) {
+                        // Check if this location expression contains a valid label name
+                        if (check_location_expr_for_label(&tokens[idx])) {
+                            plan->max_name_count++;
+                        }
                         idx++;
                     }
                     if (idx < token_count) {
@@ -126,6 +154,10 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                 if (idx < token_count && keyword_eq(tokens[idx], &kw_to)) {
                     idx++;
                     if (idx < token_count) {
+                        // Check if this location expression contains a valid label name
+                        if (check_location_expr_for_label(&tokens[idx])) {
+                            plan->max_name_count++;
+                        }
                         idx++;
                     }
                     if (idx < token_count) {
@@ -166,6 +198,10 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                 if (idx < token_count && keyword_eq(tokens[idx], &kw_to)) {
                     idx++;
                     if (idx < token_count) {
+                        // Check if this location expression contains a valid label name
+                        if (check_location_expr_for_label(&tokens[idx])) {
+                            plan->max_name_count++;
+                        }
                         idx++;
                     }
                     if (idx < token_count) {
@@ -198,6 +234,10 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                         plan->sum_take_ops++;
                         idx++;
                         if (idx < token_count) {
+                            // Check if this location expression contains a valid label name
+                            if (check_location_expr_for_label(&tokens[idx])) {
+                                plan->max_name_count++;
+                            }
                             idx++;
                         }
                         if (idx < token_count) {
@@ -311,11 +351,19 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                 plan->sum_label_ops++;
                 idx++;
                 if (idx < token_count) {
+                    // Check if this is a valid label name
+                    if (is_valid_label_name(tokens[idx])) {
+                        plan->max_name_count++;
+                    }
                     idx++;
                 }
             } else if (keyword_eq(cmd_tok, &kw_goto)) {
                 idx++;
                 if (idx < token_count) {
+                    // Check if this location expression contains a valid label name
+                    if (check_location_expr_for_label(&tokens[idx])) {
+                        plan->max_name_count++;
+                    }
                     idx++;
                 }
                 if (idx < token_count) {
@@ -327,6 +375,10 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
             } else if (keyword_eq(cmd_tok, &kw_view)) {
                 idx++;
                 if (idx < token_count) {
+                    // Check if this location expression contains a valid label name
+                    if (check_location_expr_for_label(&tokens[idx])) {
+                        plan->max_name_count++;
+                    }
                     idx++;
                 }
                 if (idx < token_count) {
@@ -336,6 +388,10 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                     }
                 }
                 if (idx < token_count) {
+                    // Check if this location expression contains a valid label name
+                    if (check_location_expr_for_label(&tokens[idx])) {
+                        plan->max_name_count++;
+                    }
                     idx++;
                 }
                 if (idx < token_count) {
@@ -665,7 +721,7 @@ static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, 
         if (*idx >= token_count) {
             return E_PARSE;
         }
-        enum Err err = parse_unsigned_number(tokens[*idx], NULL, &op->u.skip.n, &op->u.skip.unit);
+        enum Err err = parse_signed_number(tokens[*idx], &op->u.skip.offset, &op->u.skip.unit);
         if (err != E_OK) {
             return err;
         }
@@ -1140,6 +1196,11 @@ static enum Err parse_unsigned_number(String token, i32* sign, u64* n, Unit* uni
         return E_PARSE; // Extra characters
     }
 
+    // Validate character unit limits
+    if (*unit == UNIT_CHARS && num > INT_MAX) {
+        return E_PARSE; // Character count exceeds INT_MAX
+    }
+
     *n = num;
     return E_OK;
 }
@@ -1194,6 +1255,11 @@ static enum Err parse_signed_number(String token, i64* offset, Unit* unit)
     // Check if we consumed the entire token
     if (p != token.bytes + token.len) {
         return E_PARSE; // Extra characters
+    }
+
+    // Validate character unit limits
+    if (*unit == UNIT_CHARS && num > INT_MAX) {
+        return E_PARSE; // Character count exceeds INT_MAX
     }
 
     // Convert to signed and apply sign
