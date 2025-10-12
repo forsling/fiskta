@@ -76,7 +76,6 @@ static enum Err parse_op_build(const String* tokens, i32* idx, i32 token_count, 
     char* str_pool, size_t* str_pool_off, size_t str_pool_cap);
 static enum Err parse_loc_expr_build(const String* tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg);
 static enum Err parse_at_expr_build(const String* tokens, i32* idx, i32 token_count, LocExpr* at);
-static enum Err parse_unsigned_number(String token, i32* sign, u64* n, Unit* unit);
 static enum Err parse_signed_number(String token, i64* offset, Unit* unit);
 static i32 find_or_add_name_build(Program* prg, String name);
 static bool is_valid_label_name(String name);
@@ -1136,74 +1135,6 @@ static enum Err parse_at_expr_build(const String* tokens, i32* idx, i32 token_co
     return E_OK;
 }
 
-static enum Err parse_unsigned_number(String token, i32* sign, u64* n, Unit* unit)
-{
-    if (token.len <= 0) {
-        return E_PARSE;
-    }
-
-    const char* p = token.bytes;
-
-    // Parse sign
-    if (sign) {
-        if (*p == '+') {
-            *sign = 1;
-            p++;
-        } else if (*p == '-') {
-            *sign = -1;
-            p++;
-        } else {
-            *sign = 1; // Default positive
-        }
-    } else {
-        // For skip, no sign allowed
-        if (*p == '+' || *p == '-') {
-            return E_PARSE;
-        }
-    }
-
-    // Parse number
-    if (!isdigit(*p)) {
-        return E_PARSE;
-    }
-
-    u64 num = 0;
-    while (isdigit(*p)) {
-        u64 new_num = num * 10 + (u64)(*p - '0');
-        if (new_num < num) {
-            return E_PARSE; // Overflow
-        }
-        num = new_num;
-        p++;
-    }
-
-    // Parse unit
-    if (*p == 'b') {
-        *unit = UNIT_BYTES;
-        p++;
-    } else if (*p == 'l') {
-        *unit = UNIT_LINES;
-        p++;
-    } else if (*p == 'c') {
-        *unit = UNIT_CHARS;
-        p++;
-    } else {
-        return E_PARSE;
-    }
-
-    // Check if we consumed the entire token
-    if (p != token.bytes + token.len) {
-        return E_PARSE; // Extra characters
-    }
-
-    // Validate character unit limits
-    if (*unit == UNIT_CHARS && num > INT_MAX) {
-        return E_PARSE; // Character count exceeds INT_MAX
-    }
-
-    *n = num;
-    return E_OK;
-}
 
 static enum Err parse_signed_number(String token, i64* offset, Unit* unit)
 {
