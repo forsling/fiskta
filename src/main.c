@@ -236,7 +236,14 @@ typedef struct {
     LoopMode loop_mode;
 } CliOptions;
 
+typedef struct {
+    String* tokens;
+    i32 token_count;
+    bool tokens_need_conversion;
+} Operations;
+
 static int parse_time_option(const char* value, const char* opt_name, int* out);
+static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int argc, char** argv, Operations* out);
 static int parse_until_idle_option(const char* value, int* out);
 
 static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_index, int* exit_code_out)
@@ -555,6 +562,134 @@ static int parse_until_idle_option(const char* value, int* out)
     return parse_time_option(value, "--until-idle", out);
 }
 
+// Load operations from CLI options (--ops string, --ops-file, or positional args)
+// Returns exit code on error, 0 on success
+static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int argc, char** argv, Operations* out)
+{
+    if (!opts || !out) {
+        return 2;
+    }
+
+    // Static buffers for operations loading
+    static char* splitv[MAX_TOKENS];
+    static char file_content_buf[MAX_NEEDLE_BYTES];
+    static String tokens_view[MAX_TOKENS];
+
+    const char* command_file = opts->ops_file;
+    const char* command_arg = opts->ops_arg;
+
+    if (command_file) {
+        // Load operations from file
+        if (ops_index < argc) {
+            fprintf(stderr, "fiskta: --ops cannot be combined with positional operations\n");
+            return 2;
+        }
+
+        FILE* cf = fopen(command_file, "rb");
+        if (!cf) {
+            fprintf(stderr, "fiskta: unable to open ops file %s\n", command_file);
+            return 2;
+        }
+
+        size_t total = fread(file_content_buf, 1, sizeof(file_content_buf) - 1, cf);
+        if (ferror(cf)) {
+            fclose(cf);
+            fprintf(stderr, "fiskta: error reading ops file %s\n", command_file);
+            return 2;
+        }
+        if (!feof(cf)) {
+            fclose(cf);
+            fprintf(stderr, "fiskta: operations file too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
+            return 2;
+        }
+        fclose(cf);
+
+        file_content_buf[total] = '\0';
+        if (total == 0) {
+            fprintf(stderr, "fiskta: empty ops file\n");
+            return 2;
+        }
+
+        // Replace newlines with spaces
+        for (size_t i = 0; i < total; ++i) {
+            if (file_content_buf[i] == '\n' || file_content_buf[i] == '\r') {
+                file_content_buf[i] = ' ';
+            }
+        }
+
+        i32 n = split_ops_string(file_content_buf, splitv, (i32)(sizeof splitv / sizeof splitv[0]));
+        if (n == -1) {
+            fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
+            return 2;
+        }
+        if (n <= 0) {
+            fprintf(stderr, "fiskta: empty ops string\n");
+            return 2;
+        }
+
+        out->tokens = tokens_view;
+        out->token_count = n;
+        out->tokens_need_conversion = true;
+        convert_tokens_to_strings(splitv, n, tokens_view);
+
+    } else if (command_arg) {
+        // Load operations from --ops string
+        if (ops_index < argc) {
+            fprintf(stderr, "fiskta: --ops cannot be combined with positional operations\n");
+            return 2;
+        }
+
+        i32 n = split_ops_string(command_arg, splitv, (i32)(sizeof splitv / sizeof splitv[0]));
+        if (n == -1) {
+            fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
+            return 2;
+        }
+        if (n <= 0) {
+            fprintf(stderr, "fiskta: empty ops string\n");
+            return 2;
+        }
+
+        out->tokens = tokens_view;
+        out->token_count = n;
+        out->tokens_need_conversion = true;
+        convert_tokens_to_strings(splitv, n, tokens_view);
+
+    } else {
+        // Load operations from positional arguments
+        i32 token_count = (i32)(argc - ops_index);
+        if (token_count <= 0) {
+            fprintf(stderr, "fiskta: missing operations\n");
+            fprintf(stderr, "Try 'fiskta --help' for more information.\n");
+            return 2;
+        }
+
+        char** tokens = argv + ops_index;
+        if (token_count == 1 && strchr(tokens[0], ' ')) {
+            // Single token with spaces - use optimized tokenizer
+            i32 n = tokenize_ops_string(tokens[0], tokens_view, MAX_TOKENS);
+            if (n == -1) {
+                fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
+                return 2;
+            }
+            if (n <= 0) {
+                fprintf(stderr, "fiskta: empty operations string\n");
+                return 2;
+            }
+            out->tokens = tokens_view;
+            out->token_count = n;
+            out->tokens_need_conversion = false; // Already converted
+        } else {
+            // Multiple tokens or single token without spaces
+            out->tokens = tokens_view;
+            out->token_count = token_count;
+            out->tokens_need_conversion = true;
+            convert_tokens_to_strings(tokens, token_count, tokens_view);
+        }
+    }
+
+    return 0; // Success
+}
+
 static int execute_program_iteration(const Program* prg, File* io, VM* vm,
     Range* clause_ranges, LabelWrite* clause_labels,
     enum Err* last_err_out,
@@ -666,8 +801,6 @@ int main(int argc, char** argv)
     }
 
     const char* input_path = cli_opts.input_path;
-    const char* command_arg = cli_opts.ops_arg;
-    const char* command_file = cli_opts.ops_file;
     int loop_ms = cli_opts.loop_ms;
     bool loop_enabled = cli_opts.loop_enabled;
     bool ignore_loop_failures = cli_opts.ignore_loop_failures;
@@ -678,98 +811,10 @@ int main(int argc, char** argv)
     /**************************
      * OPERATION TOKEN PARSING
      **************************/
-    char** tokens = NULL;
-    i32 token_count = 0;
-    char* splitv[MAX_TOKENS];
-    char file_content_buf[MAX_NEEDLE_BYTES];
-    String tokens_view[MAX_TOKENS];
-
-    if (command_file) {
-        if (ops_index < argc) {
-            fprintf(stderr, "fiskta: --ops cannot be combined with positional operations\n");
-            return 2;
-        }
-        FILE* cf = fopen(command_file, "rb");
-        if (!cf) {
-            fprintf(stderr, "fiskta: unable to open ops file %s\n", command_file);
-            return 2;
-        }
-        size_t total = fread(file_content_buf, 1, sizeof(file_content_buf) - 1, cf);
-        if (ferror(cf)) {
-            fclose(cf);
-            fprintf(stderr, "fiskta: error reading ops file %s\n", command_file);
-            return 2;
-        }
-        if (!feof(cf)) {
-            fclose(cf);
-            fprintf(stderr, "fiskta: operations file too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
-            return 2;
-        }
-        fclose(cf);
-        file_content_buf[total] = '\0';
-        if (total == 0) {
-            fprintf(stderr, "fiskta: empty ops file\n");
-            return 2;
-        }
-        for (size_t i = 0; i < total; ++i) {
-            if (file_content_buf[i] == '\n' || file_content_buf[i] == '\r') {
-                file_content_buf[i] = ' ';
-            }
-        }
-        i32 n = split_ops_string(file_content_buf, splitv, (i32)(sizeof splitv / sizeof splitv[0]));
-        if (n == -1) {
-            fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
-            return 2;
-        }
-        if (n <= 0) {
-            fprintf(stderr, "fiskta: empty ops string\n");
-            return 2;
-        }
-        tokens = splitv;
-        token_count = n;
-    } else if (command_arg) {
-        if (ops_index < argc) {
-            fprintf(stderr, "fiskta: --ops cannot be combined with positional operations\n");
-            return 2;
-        }
-        i32 n = split_ops_string(command_arg, splitv, (i32)(sizeof splitv / sizeof splitv[0]));
-        if (n == -1) {
-            fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
-            return 2;
-        }
-        if (n <= 0) {
-            fprintf(stderr, "fiskta: empty ops string\n");
-            return 2;
-        }
-        tokens = splitv;
-        token_count = n;
-    } else {
-        token_count = (i32)(argc - ops_index);
-        if (token_count <= 0) {
-            fprintf(stderr, "fiskta: missing operations\n");
-            fprintf(stderr, "Try 'fiskta --help' for more information.\n");
-            return 2;
-        }
-        tokens = argv + ops_index;
-        if (token_count == 1 && strchr(tokens[0], ' ')) {
-            i32 n = tokenize_ops_string(tokens[0], tokens_view, MAX_TOKENS);
-            if (n == -1) {
-                fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
-                return 2;
-            }
-            if (n <= 0) {
-                fprintf(stderr, "fiskta: empty operations string\n");
-                return 2;
-            }
-            token_count = n;
-            // tokens_view already populated by tokenize_ops_string
-            tokens = NULL; // Mark that we don't need conversion
-        }
-    }
-
-    // Convert tokens to String views if not already done
-    if (tokens != NULL) {
-        convert_tokens_to_strings(tokens, token_count, tokens_view);
+    Operations ops;
+    int ops_result = load_ops_from_cli_options(&cli_opts, ops_index, argc, argv, &ops);
+    if (ops_result != 0) {
+        return ops_result;
     }
 
     /************************************************************
@@ -778,7 +823,7 @@ int main(int argc, char** argv)
      *************************************************************/
     ParsePlan plan = (ParsePlan) { 0 };
     const char* path = NULL;
-    enum Err e = parse_preflight(token_count, tokens_view, input_path, &plan, &path);
+    enum Err e = parse_preflight(ops.token_count, ops.tokens, input_path, &plan, &path);
     if (e != E_OK) {
         print_err(e, "parse preflight");
         return 2; // Exit code 2: Parse error
@@ -874,7 +919,7 @@ int main(int argc, char** argv)
      * Parse operations into executable program structure
      ************************************************************/
     Program prg = (Program) { 0 };
-    e = parse_build(token_count, tokens_view, input_path, &prg, &path,
+    e = parse_build(ops.token_count, ops.tokens, input_path, &prg, &path,
         clauses_buf, ops_buf, str_pool, str_pool_bytes);
     if (e != E_OK) {
         print_err(e, "parse build");
