@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #endif
 
+#include "cli_help.h"
 #include "fiskta.h"
 #include "iosearch.h"
 #include "reprog.h"
@@ -224,11 +225,6 @@ typedef enum {
     LOOP_MODE_CONTINUE   // --continue, -c: resume from cursor (default)
 } LoopMode;
 
-static void print_usage(void);
-static void print_examples(void);
-static int parse_time_option(const char* value, const char* opt_name, int* out);
-static int parse_until_idle_option(const char* value, int* out);
-
 typedef struct {
     const char* input_path;
     const char* ops_arg;
@@ -240,6 +236,9 @@ typedef struct {
     int exec_timeout_ms;
     LoopMode loop_mode;
 } CliOptions;
+
+static int parse_time_option(const char* value, const char* opt_name, int* out);
+static int parse_until_idle_option(const char* value, int* out);
 
 static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_index, int* exit_code_out)
 {
@@ -486,10 +485,9 @@ static void refresh_file_size(File* io)
     int fd = fileno(io->f);
     struct stat st;
     if (fd >= 0 && fstat(fd, &st) == 0 && S_ISREG(st.st_mode)) {
-        // regular file: we can ask for size without disturbing FILE* position
+        // Regular file: we can refresh size without disturbing FILE* position
         io->size = (i64)st.st_size;
     }
-    // else: leave io->size as-is (your iosearch layer should track growth)
 }
 
 
@@ -499,7 +497,6 @@ static int parse_time_option(const char* value, const char* opt_name, int* out)
         return 1;
     }
 
-    // Parse: 0, 100ms, 5s, 2m, 1h (suffix required for non-zero values)
     char* end = NULL;
     long v = strtol(value, &end, 10);
     if (value[0] == '\0' || v < 0 || v > INT_MAX) {
@@ -507,7 +504,6 @@ static int parse_time_option(const char* value, const char* opt_name, int* out)
         return 1;
     }
 
-    // Allow bare "0" or "0" with any valid suffix
     if (v == 0) {
         if (!end || *end == '\0'
             || strcmp(end, "ms") == 0
@@ -517,12 +513,10 @@ static int parse_time_option(const char* value, const char* opt_name, int* out)
             *out = 0;
             return 0;
         }
-        // Invalid suffix after 0
         fprintf(stderr, "fiskta: %s invalid suffix '%s' (valid: ms, s, m, h)\n", opt_name, end);
         return 1;
     }
 
-    // For non-zero values, require suffix
     if (!end || *end == '\0') {
         fprintf(stderr, "fiskta: %s requires a suffix (ms|s|m|h) for non-zero values\n", opt_name);
         return 1;
@@ -563,7 +557,7 @@ static int parse_until_idle_option(const char* value, int* out)
     return parse_time_option(value, "--until-idle", out);
 }
 
-static int run_program_once(const Program* prg, File* io, VM* vm,
+static int execute_program_iteration(const Program* prg, File* io, VM* vm,
     Range* clause_ranges, LabelWrite* clause_labels,
     enum Err* last_err_out,
     i64 data_lo, i64 data_hi)
@@ -611,7 +605,7 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
         enum Err e = stage_clause(&prg->clauses[ci], io, vm_exec,
             r_tmp, rc, lw_tmp, lc, &result);
         if (e == E_OK) {
-            // Commit staged ranges to output
+            // Commit staged ranges to stdout / file as appropriate
             for (i32 i = 0; i < result.range_count; i++) {
                 if (result.ranges[i].kind == RANGE_FILE) {
                     e = io_emit(io, result.ranges[i].file.start, result.ranges[i].file.end, stdout);
@@ -626,7 +620,7 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
                 }
             }
             if (e == E_OK) {
-                // Commit staged VM state
+                // Commit staged VM state now that I/O succeeded
                 commit_labels(vm_exec, result.label_writes, result.label_count);
                 vm_exec->cursor = result.staged_vm.cursor;
                 vm_exec->last_match = result.staged_vm.last_match;
@@ -634,232 +628,28 @@ static int run_program_once(const Program* prg, File* io, VM* vm,
             }
         }
 
-        // Handle links - the clause's link tells us what to do next
         if (e == E_OK) {
             ok++;
-            // Success: check this clause's link
             if (prg->clauses[ci].link == LINK_OR) {
-                // This clause succeeded and links with OR
-                // Skip all remaining clauses in the OR chain
+                // Skip remaining alternatives in this OR-chain once one succeeds
                 while (ci + 1 < prg->clause_count && prg->clauses[ci].link == LINK_OR) {
-                    ci++; // Skip the OR alternative
+                    ci++;
                 }
             }
-            // For LINK_THEN or LINK_NONE: just continue to next clause
         } else {
             last_err = e;
             last_failed_clause = ci;
-            // For LINK_OR, LINK_THEN, or LINK_NONE: continue to next clause
         }
     }
 
     if (last_err_out) {
         *last_err_out = last_err;
     }
-    // Determine return value for exit code calculation:
-    // - Positive: number of successful clauses
-    // - -2 - N: All clauses failed, last failure at clause (N + 2)
     if (ok == 0 && last_failed_clause >= 0) {
-        return -2 - last_failed_clause; // All clauses failed
+        return -2 - last_failed_clause;
     }
-    return ok; // Success (at least one clause succeeded)
+    return ok;
 
-}
-
-static void print_usage(void)
-{
-    printf("(fi)nd (sk)ip (ta)ke v%s\n", FISKTA_VERSION);
-    printf("\n");
-    printf("USAGE:\n");
-    printf("  fiskta [options] <operations>\n");
-    printf("  (use --input <path> to select input; defaults to stdin)\n");
-    printf("\n");
-    printf("OPERATIONS:\n");
-    printf("  take <n><unit>              Extract n units from current position\n");
-    printf("  skip <n><unit>              Move cursor n units (no output); negative moves backward\n");
-    printf("  find [to <location>] <string>\n");
-    printf("                              Search towards location (default: EOF)\n");
-    printf("                              for <string>, move cursor to closest match\n");
-    printf("  find:re [to <location>] <regex>  Regex enabled find\n");
-    printf("  find:bin [to <location>] <hex-string>\n");
-    printf("                              Find binary pattern (hex: DEADBEEF or DE AD BE EF)\n");
-    printf("                              Case-insensitive, whitespace ignored\n");
-    printf("  take to <location>          Order-normalized: emits [min(cursor,L), max(cursor,L));\n");
-    printf("                              cursor moves to the high end\n");
-    printf("  take until <string> [at match-start|match-end|line-start|line-end]\n");
-    printf("                              Search forward, extract to specified position\n");
-    printf("                              Default: match-start (excludes pattern)\n");
-    printf("                              match-end includes; line-* relative to match\n");
-    printf("  take until:re <regex> [at match-start|match-end|line-start|line-end]\n");
-    printf("                              Same as take until but with regex pattern support\n");
-    printf("  take until:bin <hex-string> [at match-start|match-end|line-start|line-end]\n");
-    printf("                              Same as take until but with binary pattern (hex format)\n");
-    printf("  label <name>                Mark current position with label\n");
-    printf("  goto <location>             Jump to labeled position\n");
-    printf("  view <L1> <L2>              Limit all ops to [min(L1,L2), max(L1,L2))\n");
-    printf("  clear view                  Clear view; return to full file\n");
-    printf("  print <string>              Emit literal bytes (alias: echo)\n");
-    printf("                              Supports escape sequences: \\n \\t \\r \\0 \\\\ \\xHH\n");
-    printf("                              Participates in clause atomicity\n");
-    printf("  fail <message>              Write message to stderr and fail clause\n");
-    printf("                              Message written immediately (not staged)\n");
-    printf("                              Useful with OR for error messages\n");
-    printf("\n");
-    printf("UNITS:\n");
-    printf("  b                           Bytes\n");
-    printf("  l                           Lines\n");
-    printf("  c                           UTF-8 code points\n");
-    printf("\n");
-    printf("LABELS:\n");
-    printf("  NAME                        Uppercase, <16 chars, [A-Z0-9_-], starts with letter\n");
-    printf("\n");
-    printf("LOCATIONS:\n");
-    printf("  cursor                      Current cursor position\n");
-    printf("  BOF                         Beginning of file\n");
-    printf("  EOF                         End of file\n");
-    printf("  match-start                 Start of last match\n");
-    printf("  match-end                   End of last match\n");
-    printf("  line-start                  Start of current line\n");
-    printf("  line-end                    End of current line\n");
-    printf("  <label>                     Named label position\n");
-    printf("  Note: line-start/line-end are relative to the cursor here; in \"at\" (for\n");
-    printf("  \"take until\") they're relative to the last match.\n");
-    printf("\n");
-    printf("OFFSETS:\n");
-    printf("  <location> +<n><unit>       n units after location\n");
-    printf("  <location> -<n><unit>       n units before location\n");
-    printf("                              (inline offsets like BOF+100b are allowed)\n");
-    printf("\n");
-    printf("REGEX SYNTAX:\n");
-    printf("  Character Classes: \\d (digits), \\D (non-digits), \\w (word), \\W (non-word),\n");
-    printf("                     \\s (space), \\S (non-space), [a-z], [^0-9]\n");
-    printf("  Quantifiers: * (0+), + (1+), ? (0-1), {n} (exactly n), {n,m} (n to m)\n");
-    printf("  Grouping: ( ... ) (group subpatterns), (a|b)+ (quantified groups)\n");
-    printf("  Anchors: ^ (line start), $ (line end)\n");
-    printf("  Alternation: | (OR)\n");
-    printf("  Escape: \\n, \\t, \\r, \\f, \\v, \\0\n");
-    printf("  Special: . (any char except newline)\n");
-    printf("\n");
-    printf("CLAUSES AND LOGICAL OPERATORS:\n");
-    printf("  Operations are grouped into clauses connected by logical operators:\n");
-    printf("    THEN    Sequential execution (always runs next clause)\n");
-    printf("    OR      First success wins (short-circuits on success)\n");
-    printf("\n");
-    printf("  Within a clause: all ops must succeed or the clause fails atomically.\n");
-    printf("  On Failure: clause rolls back (no output or state changes).\n");
-    printf("  On Success: emits staged output, commits labels, updates cursor and last-match.\n");
-    printf("\n");
-    printf("EXIT CODES:\n");
-    printf("  0               Success (includes normal --until-idle timeout)\n");
-    printf("  1               I/O error (file not found, permission denied, etc.)\n");
-    printf("  2               Parse error (invalid syntax, unknown operation)\n");
-    printf("  3               Regex error (invalid regex pattern)\n");
-    printf("  4               Resource limit (program too large, out of memory)\n");
-    printf("  5               Execution timeout (--for time limit elapsed)\n");
-    printf("  10+             All clauses failed (exit code = 10 + index of last failed clause)\n");
-    printf("\n");
-    printf("OPTIONS:\n");
-    printf("  -i, --input <path>          Read input from path (default: stdin)\n");
-    printf("      --ops <string|file>      Provide operations as a string or file path\n");
-    printf("      --                      Treat subsequent arguments as operations\n");
-    printf("Timing:\n");
-    printf("      --for <time>             Stop after wall-clock time (works in single-run or loop mode)\n");
-    printf("  -k, --ignore-failures       Continue after clause failures (exit codes 10+ suppressed)\n");
-    printf("  -h, --help                  Show this help message\n");
-    printf("      --examples              Show comprehensive usage examples\n");
-    printf("  -v, --version               Show version information\n");
-    printf("Iterative modes (optional):\n");
-    printf("      --every <time>           Interval between iterations (default 0 = tight loop)\n");
-    printf("      --monitor, -m            Re-scan entire file each iteration\n");
-    printf("      --continue, -c           Resume from last cursor position (default)\n");
-    printf("      --follow, -f             Only process new data since last iteration\n");
-    printf("      --until-idle <time>      Stop when input has not grown for specified duration\n");
-    printf("\n");
-}
-
-static void print_examples(void)
-{
-    printf("(fi)nd (sk)ip (ta)ke v%s\n", FISKTA_VERSION);
-    printf("\n");
-    printf("COMPREHENSIVE EXAMPLES:\n");
-    printf("\n");
-    printf("BASIC EXTRACTION:\n");
-    printf("  # Take first 10 bytes\n");
-    printf("  fiskta --input file.txt take 10b\n");
-    printf("\n");
-    printf("  # Take lines 2-4\n");
-    printf("  fiskta --input file.txt skip 1l take 3l\n");
-    printf("\n");
-    printf("  # Take 20 utf-8 characters from a specific line\n");
-    printf("  fiskta -i file.txt skip 12l take 20c\n");
-    printf("\n");
-    printf("SEARCH AND EXTRACT:\n");
-    printf("  # Find pattern and take rest of line\n");
-    printf("  fiskta --input logs.txt find \"ERROR:\" take to line-end\n");
-    printf("\n");
-    printf("  # Find with regex and take context (5 lines surrounding match)\n");
-    printf("  fiskta --input logs.txt find:re \"^WARN\" take -2l take 3l\n");
-    printf("\n");
-    printf("  # Extract between delimiters\n");
-    printf("  fiskta --input config.txt find \"[\" skip 1b take until \"]\"\n");
-    printf("\n");
-    printf("CONDITIONAL EXTRACTION:\n");
-    printf("  # Extract only if pattern found\n");
-    printf("  fiskta --input auth.log find \"login success\" find \"user=\" skip 5b take until \" \"\n");
-    printf("\n");
-    printf("  # Try multiple patterns (OR)\n");
-    printf("  fiskta --input logs.txt find \"ERROR:\" take to line-end OR find \"WARN:\" take to line-end\n");
-    printf("\n");
-    printf("  # Fail with error message if pattern not found\n");
-    printf("  fiskta --input config.txt find \"database\" OR fail \"Config missing database section\\n\"\n");
-    printf("\n");
-    printf("  # Sequential operations (THEN)\n");
-    printf("  fiskta --input data.txt find \"header\" THEN take 5l THEN find \"footer\"\n");
-    printf("\n");
-    printf("ADVANCED PATTERNS:\n");
-    printf("  # Extract clamped to specific section\n");
-    printf("  # After view has been set, all operations are clampted to bounds\n");
-    printf("  fiskta --input config.txt find \"[database]\" label START find \"[\" label END view START END ...\n");
-    printf("\n");
-    printf("  # Extract all occurrences (repeating mode)\n");
-    printf("  fiskta -i contacts.txt --every 1ms find:re \"[A-Za-z0-9._%%+-]+@[A-Za-z0-9.-]+\" take to match-end print \"\\n\" \n");
-    printf("\n");
-    printf("  # Extract with regex until\n");
-    printf("  fiskta --input data.txt take until:re \"\\\\d+\" at match-end\n");
-    printf("\n");
-    printf("  # Extract until binary pattern\n");
-    printf("  fiskta --input data.bin take until:bin \"DEADBEEF\" at match-end\n");
-    printf("\n");
-    printf("BINARY DATA:\n");
-    printf("  # Extract binary data at a specific location in file\n");
-    printf("  fiskta --input image.bin find:bin \"AD D3 B4 02\" take 82b\n");
-    printf("\n");
-    printf("  # Detect PNG file header\n");
-    printf("  fiskta --input image.bin find:bin \"89 50 4E 47 0D 0A 1A 0A\" or fail \"Not a PNG file\"\n");
-    printf("\n");
-    printf("  # Detect file type by magic number\n");
-    printf("  fiskta --i mystery.dat find:bin \"504B0304\" print \"Type 1\" OR find:bin \"ac0a3c\" print \"Type 2\" \\ \n");
-    printf("         OR find:bin \"ac0a3c\" print \"Type 2\" OR find:bin \"FFD8FFE0\" print \"Type 3\"\n");
-    printf("\n");
-    printf("STREAMING AND MONITORING:\n");
-    printf("  # Process data in chunks (default continue mode - maintain cursor position)\n");
-    printf("  fiskta --every 100ms --input data.txt take 1000b\n");
-    printf("\n");
-    printf("  # Monitor log file for errors (follow mode - only process new data)\n");
-    printf("  fiskta --every 1s --follow --input service.log find \"ERROR\" take to line-end\n");
-    printf("\n");
-    printf("  # Monitor changing file content (monitor mode - re-scan entire file)\n");
-    printf("  fiskta --every 2m --monitor --input status.txt find \"READY\"\n");
-    printf("\n");
-    printf("  # Monitor with timeout (stop after 10 seconds)\n");
-    printf("  fiskta --every 500ms --for 10s --input growing.log find \"COMPLETE\"\n");
-    printf("\n");
-    printf("  # Monitor with idle timeout (stop after 5s with no new data)\n");
-    printf("  fiskta --every 100ms --until-idle 5s --input data.txt take to EOF\n");
-    printf("\n");
-    printf("  # Process stdin\n");
-    printf("  echo \"Hello world\" | fiskta find \"world\" take to match-end\n");
-    printf("\n");
 }
 
 int main(int argc, char** argv)
@@ -1216,7 +1006,7 @@ int main(int argc, char** argv)
         enum Err last_err = E_OK;
         i64 prev_cursor = have_saved_vm ? saved_vm.cursor : effective_start;
         VM* vm_ptr = (loop_mode == LOOP_MODE_CONTINUE) ? &saved_vm : NULL;
-        int ok = run_program_once(&prg, &io, vm_ptr, clause_ranges, clause_labels, &last_err,
+        int ok = execute_program_iteration(&prg, &io, vm_ptr, clause_ranges, clause_labels, &last_err,
             effective_start, data_end);
 
         // Save last iteration result for exit code determination
