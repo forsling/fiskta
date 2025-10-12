@@ -224,6 +224,233 @@ typedef enum {
     LOOP_MODE_CONTINUE   // --continue, -c: resume from cursor (default)
 } LoopMode;
 
+static void print_usage(void);
+static void print_examples(void);
+static int parse_time_option(const char* value, const char* opt_name, int* out);
+static int parse_until_idle_option(const char* value, int* out);
+
+typedef struct {
+    const char* input_path;
+    const char* ops_arg;
+    const char* ops_file;
+    int loop_ms;
+    bool loop_enabled;
+    bool ignore_loop_failures;
+    int idle_timeout_ms;
+    int exec_timeout_ms;
+    LoopMode loop_mode;
+} CliOptions;
+
+static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_index, int* exit_code_out)
+{
+    if (!out || !ops_index || !exit_code_out) {
+        return false;
+    }
+
+    CliOptions opt = {
+        .input_path = "-",
+        .ops_arg = NULL,
+        .ops_file = NULL,
+        .loop_ms = 0,
+        .loop_enabled = false,
+        .ignore_loop_failures = false,
+        .idle_timeout_ms = -1,
+        .exec_timeout_ms = -1,
+        .loop_mode = LOOP_MODE_CONTINUE
+    };
+
+    *exit_code_out = -1;
+
+    int argi = 1;
+    while (argi < argc) {
+        const char* arg = argv[argi];
+        if (strcmp(arg, "--") == 0) {
+            argi++;
+            break;
+        }
+        if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
+            print_usage();
+            *exit_code_out = 0;
+            return false;
+        }
+        if (strcmp(arg, "--examples") == 0) {
+            print_examples();
+            *exit_code_out = 0;
+            return false;
+        }
+        if (strcmp(arg, "-v") == 0 || strcmp(arg, "--version") == 0) {
+            printf("fiskta - (fi)nd (sk)ip (ta)ke v%s\n", FISKTA_VERSION);
+            *exit_code_out = 0;
+            return false;
+        }
+        if (strcmp(arg, "-i") == 0 || strcmp(arg, "--input") == 0) {
+            if (argi + 1 >= argc) {
+                fprintf(stderr, "fiskta: --input requires a path\n");
+                *exit_code_out = 2;
+                return false;
+            }
+            opt.input_path = argv[argi + 1];
+            argi += 2;
+            continue;
+        }
+        if (strncmp(arg, "--input=", 8) == 0) {
+            if (arg[8] == '\0') {
+                fprintf(stderr, "fiskta: --input requires a path\n");
+                *exit_code_out = 2;
+                return false;
+            }
+            opt.input_path = arg + 8;
+            argi++;
+            continue;
+        }
+        if (strcmp(arg, "--every") == 0) {
+            opt.loop_enabled = true;
+            if (argi + 1 >= argc) {
+                fprintf(stderr, "fiskta: --every requires a time value\n");
+                *exit_code_out = 2;
+                return false;
+            }
+            if (parse_time_option(argv[argi + 1], "--every", &opt.loop_ms) != 0) {
+                *exit_code_out = 2;
+                return false;
+            }
+            argi += 2;
+            continue;
+        }
+        if (strncmp(arg, "--every=", 8) == 0) {
+            opt.loop_enabled = true;
+            if (parse_time_option(arg + 8, "--every", &opt.loop_ms) != 0) {
+                *exit_code_out = 2;
+                return false;
+            }
+            argi++;
+            continue;
+        }
+        if (strcmp(arg, "--until-idle") == 0) {
+            if (argi + 1 >= argc) {
+                fprintf(stderr, "fiskta: --until-idle requires a value\n");
+                *exit_code_out = 2;
+                return false;
+            }
+            if (parse_until_idle_option(argv[argi + 1], &opt.idle_timeout_ms) != 0) {
+                *exit_code_out = 2;
+                return false;
+            }
+            argi += 2;
+            continue;
+        }
+        if (strncmp(arg, "--until-idle=", 13) == 0) {
+            if (parse_until_idle_option(arg + 13, &opt.idle_timeout_ms) != 0) {
+                *exit_code_out = 2;
+                return false;
+            }
+            argi++;
+            continue;
+        }
+        if (strcmp(arg, "--for") == 0) {
+            if (argi + 1 >= argc) {
+                fprintf(stderr, "fiskta: --for requires a value\n");
+                *exit_code_out = 2;
+                return false;
+            }
+            if (parse_time_option(argv[argi + 1], "--for", &opt.exec_timeout_ms) != 0) {
+                *exit_code_out = 2;
+                return false;
+            }
+            argi += 2;
+            continue;
+        }
+        if (strncmp(arg, "--for=", 6) == 0) {
+            if (parse_time_option(arg + 6, "--for", &opt.exec_timeout_ms) != 0) {
+                *exit_code_out = 2;
+                return false;
+            }
+            argi++;
+            continue;
+        }
+        if (strcmp(arg, "-m") == 0 || strcmp(arg, "--monitor") == 0) {
+            opt.loop_mode = LOOP_MODE_MONITOR;
+            opt.loop_enabled = true;
+            argi++;
+            continue;
+        }
+        if (strcmp(arg, "-c") == 0 || strcmp(arg, "--continue") == 0) {
+            opt.loop_mode = LOOP_MODE_CONTINUE;
+            opt.loop_enabled = true;
+            argi++;
+            continue;
+        }
+        if (strcmp(arg, "-f") == 0 || strcmp(arg, "--follow") == 0) {
+            opt.loop_mode = LOOP_MODE_FOLLOW;
+            opt.loop_enabled = true;
+            argi++;
+            continue;
+        }
+        if (strcmp(arg, "-k") == 0 || strcmp(arg, "--ignore-failures") == 0) {
+            opt.ignore_loop_failures = true;
+            argi++;
+            continue;
+        }
+        if (strcmp(arg, "--ops") == 0) {
+            if (opt.ops_arg || opt.ops_file) {
+                fprintf(stderr, "fiskta: --ops specified multiple times\n");
+                *exit_code_out = 2;
+                return false;
+            }
+            if (argi + 1 >= argc) {
+                fprintf(stderr, "fiskta: --ops requires a string\n");
+                *exit_code_out = 2;
+                return false;
+            }
+            const char* value = argv[argi + 1];
+            FILE* test = fopen(value, "rb");
+            if (test) {
+                fclose(test);
+                opt.ops_file = value;
+            } else {
+                opt.ops_arg = value;
+            }
+            argi += 2;
+            continue;
+        }
+        if (strncmp(arg, "--ops=", 6) == 0) {
+            if (opt.ops_arg || opt.ops_file) {
+                fprintf(stderr, "fiskta: --ops specified multiple times\n");
+                *exit_code_out = 2;
+                return false;
+            }
+            if (arg[6] == '\0') {
+                fprintf(stderr, "fiskta: --ops requires a string\n");
+                *exit_code_out = 2;
+                return false;
+            }
+            const char* value = arg + 6;
+            FILE* test = fopen(value, "rb");
+            if (test) {
+                fclose(test);
+                opt.ops_file = value;
+            } else {
+                opt.ops_arg = value;
+            }
+            argi++;
+            continue;
+        }
+        if (arg[0] == '-') {
+            if (arg[1] == '\0' || isdigit((unsigned char)arg[1])) {
+                break;
+            }
+            fprintf(stderr, "fiskta: unknown option %s\n", arg);
+            *exit_code_out = 2;
+            return false;
+        }
+        break;
+    }
+
+    *out = opt;
+    *ops_index = argi;
+    return true;
+}
+
 enum {
     MAX_TOKENS = 1024,
     MAX_OPS = 2048,
@@ -644,186 +871,26 @@ int main(int argc, char** argv)
     /***********************
      * CLI ARGUMENT PARSING
      ***********************/
-    const char* input_path = "-";
-    const char* command_arg = NULL;
-    const char* command_file = NULL;
-    int loop_ms = 0;
-    bool loop_enabled = false;
-    bool ignore_loop_failures = false;
-    int idle_timeout_ms = -1;
-    int exec_timeout_ms = -1;
-    LoopMode loop_mode = LOOP_MODE_CONTINUE;  // Default to cursor mode
-
-    int argi = 1;
-    while (argi < argc) {
-        const char* arg = argv[argi];
-        if (strcmp(arg, "--") == 0) {
-            argi++;
-            break;
-        }
-        if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
-            print_usage();
-            return 0;
-        }
-        if (strcmp(arg, "--examples") == 0) {
-            print_examples();
-            return 0;
-        }
-        if (strcmp(arg, "-v") == 0 || strcmp(arg, "--version") == 0) {
-            printf("fiskta - (fi)nd (sk)ip (ta)ke v%s\n", FISKTA_VERSION);
-            return 0;
-        }
-        if (strcmp(arg, "-i") == 0 || strcmp(arg, "--input") == 0) {
-            if (argi + 1 >= argc) {
-                fprintf(stderr, "fiskta: --input requires a path\n");
-                return 2;
-            }
-            input_path = argv[argi + 1];
-            argi += 2;
-            continue;
-        }
-        if (strncmp(arg, "--input=", 8) == 0) {
-            if (arg[8] == '\0') {
-                fprintf(stderr, "fiskta: --input requires a path\n");
-                return 2;
-            }
-            input_path = arg + 8;
-            argi++;
-            continue;
-        }
-        if (strcmp(arg, "--every") == 0) {
-            loop_enabled = true;
-            if (argi + 1 >= argc) {
-                fprintf(stderr, "fiskta: --every requires a time value\n");
-                return 2;
-            }
-            if (parse_time_option(argv[argi + 1], "--every", &loop_ms) != 0) {
-                return 2;
-            }
-            argi += 2;
-            continue;
-        }
-        if (strncmp(arg, "--every=", 8) == 0) {
-            loop_enabled = true;
-            if (parse_time_option(arg + 8, "--every", &loop_ms) != 0) {
-                return 2;
-            }
-            argi++;
-            continue;
-        }
-        if (strcmp(arg, "--until-idle") == 0) {
-            if (argi + 1 >= argc) {
-                fprintf(stderr, "fiskta: --until-idle requires a value\n");
-                return 2;
-            }
-            if (parse_until_idle_option(argv[argi + 1], &idle_timeout_ms) != 0) {
-                return 2;
-            }
-            argi += 2;
-            continue;
-        }
-        if (strncmp(arg, "--until-idle=", 13) == 0) {
-            if (parse_until_idle_option(arg + 13, &idle_timeout_ms) != 0) {
-                return 2;
-            }
-            argi++;
-            continue;
-        }
-        if (strcmp(arg, "--for") == 0) {
-            if (argi + 1 >= argc) {
-                fprintf(stderr, "fiskta: --for requires a value\n");
-                return 2;
-            }
-            if (parse_time_option(argv[argi + 1], "--for", &exec_timeout_ms) != 0) {
-                return 2;
-            }
-            argi += 2;
-            continue;
-        }
-        if (strncmp(arg, "--for=", 6) == 0) {
-            if (parse_time_option(arg + 6, "--for", &exec_timeout_ms) != 0) {
-                return 2;
-            }
-            argi++;
-            continue;
-        }
-        if (strcmp(arg, "-m") == 0 || strcmp(arg, "--monitor") == 0) {
-            loop_mode = LOOP_MODE_MONITOR;
-            loop_enabled = true;
-            argi++;
-            continue;
-        }
-        if (strcmp(arg, "-c") == 0 || strcmp(arg, "--continue") == 0) {
-            loop_mode = LOOP_MODE_CONTINUE;
-            loop_enabled = true;
-            argi++;
-            continue;
-        }
-        if (strcmp(arg, "-f") == 0 || strcmp(arg, "--follow") == 0) {
-            loop_mode = LOOP_MODE_FOLLOW;
-            loop_enabled = true;
-            argi++;
-            continue;
-        }
-        if (strcmp(arg, "-k") == 0 || strcmp(arg, "--ignore-failures") == 0) {
-            ignore_loop_failures = true;
-            argi++;
-            continue;
-        }
-        if (strcmp(arg, "--ops") == 0) {
-            if (command_arg || command_file) {
-                fprintf(stderr, "fiskta: --ops specified multiple times\n");
-                return 2;
-            }
-            if (argi + 1 >= argc) {
-                fprintf(stderr, "fiskta: --ops requires a string\n");
-                return 2;
-            }
-            const char* value = argv[argi + 1];
-            FILE* test = fopen(value, "rb");
-            if (test) {
-                fclose(test);
-                command_file = value;
-            } else {
-                command_arg = value;
-            }
-            argi += 2;
-            continue;
-        }
-        if (strncmp(arg, "--ops=", 6) == 0) {
-            if (command_arg || command_file) {
-                fprintf(stderr, "fiskta: --ops specified multiple times\n");
-                return 2;
-            }
-            if (arg[6] == '\0') {
-                fprintf(stderr, "fiskta: --ops requires a string\n");
-                return 2;
-            }
-            const char* value = arg + 6;
-            FILE* test = fopen(value, "rb");
-            if (test) {
-                fclose(test);
-                command_file = value;
-            } else {
-                command_arg = value;
-            }
-            argi++;
-            continue;
-        }
-        if (arg[0] == '-') {
-            if (arg[1] == '\0' || isdigit((unsigned char)arg[1])) {
-                break;
-            }
-            fprintf(stderr, "fiskta: unknown option %s\n", arg);
-            return 2;
-        }
-        break;
+    CliOptions cli_opts;
+    int ops_index = 0;
+    int parse_exit = -1;
+    if (!parse_cli_args(argc, argv, &cli_opts, &ops_index, &parse_exit)) {
+        return (parse_exit >= 0) ? parse_exit : 0;
     }
+
+    const char* input_path = cli_opts.input_path;
+    const char* command_arg = cli_opts.ops_arg;
+    const char* command_file = cli_opts.ops_file;
+    int loop_ms = cli_opts.loop_ms;
+    bool loop_enabled = cli_opts.loop_enabled;
+    bool ignore_loop_failures = cli_opts.ignore_loop_failures;
+    int idle_timeout_ms = cli_opts.idle_timeout_ms;
+    int exec_timeout_ms = cli_opts.exec_timeout_ms;
+    LoopMode loop_mode = cli_opts.loop_mode;
 
     /**************************
      * OPERATION TOKEN PARSING
      **************************/
-    int ops_index = argi;
     char** tokens = NULL;
     i32 token_count = 0;
     char* splitv[MAX_TOKENS];
