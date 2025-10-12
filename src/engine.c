@@ -21,8 +21,6 @@
 #endif
 #endif
 
-
-
 // View helpers
 static inline i64 view_bof(const View* v) { return (v && v->active) ? v->lo : 0; }
 static inline i64 view_eof(const View* v, const File* io) { return (v && v->active) ? v->hi : io_size(io); }
@@ -84,7 +82,6 @@ static enum Err resolve_location(
     const Match* staged_match, i64 staged_cursor,
     const LabelWrite* staged_labels, i32 staged_label_count,
     const View* c_view, ClampPolicy clamp, i64* out);
-
 
 enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
 {
@@ -328,7 +325,7 @@ static enum Err view_clear_op(
 {
     if (!c_view) {
         return E_OK;
-}
+    }
 
     c_view->active = false;
     c_view->lo = 0;
@@ -520,7 +517,7 @@ static enum Err viewset_op(
     }
 
     i64 lo = a < b ? a : b;
-   i64 hi = a < b ? b : a;
+    i64 hi = a < b ? b : a;
 
     // Stage view activation
     c_view->active = true;
@@ -1003,8 +1000,7 @@ static enum Err resolve_location(
      ******************/
     if (clamp == CLAMP_VIEW) {
         *out = view_clamp(c_view, io, base);
-    }
-    else if (clamp == CLAMP_FILE) {
+    } else if (clamp == CLAMP_FILE) {
         *out = clamp64(base, 0, io_size(io));
     } else {
         *out = base;

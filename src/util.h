@@ -35,4 +35,3 @@ bool string_char_in_set(char c, const char* set);
 // Token handling optimizations
 void convert_tokens_to_strings(char** tokens, i32 token_count, String* out);
 i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens);
-

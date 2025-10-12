@@ -104,7 +104,8 @@ static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
             buf[boff++] = (char)c;
             p++;
             continue;
-        } if (st == S_SQ) {
+        }
+        if (st == S_SQ) {
             if (c == '\'') {
                 st = S_TOKEN;
                 p++;
@@ -150,8 +151,7 @@ static i32 split_ops_string(const char* s, char** out, i32 max_tokens)
         buf[boff++] = '\0';
         if (ntok < max_tokens) {
             ntok++;
-        }
-        else {
+        } else {
             return -1;
         }
     }
@@ -195,8 +195,7 @@ static void print_err(enum Err e, const char* msg)
 {
     if (msg) {
         fprintf(stderr, "fiskta: %s (%s)\n", msg, err_str(e));
-    }
-    else {
+    } else {
         fprintf(stderr, "fiskta: %s\n", err_str(e));
     }
 }
@@ -220,9 +219,9 @@ static size_t align_or_die(size_t x, size_t align)
 #endif
 
 typedef enum {
-    LOOP_MODE_FOLLOW,    // --follow, -f: only new data (delta)
-    LOOP_MODE_MONITOR,   // --monitor, -m: restart from BOF (rescan)
-    LOOP_MODE_CONTINUE   // --continue, -c: resume from cursor (default)
+    LOOP_MODE_FOLLOW, // --follow, -f: only new data (delta)
+    LOOP_MODE_MONITOR, // --monitor, -m: restart from BOF (rescan)
+    LOOP_MODE_CONTINUE // --continue, -c: resume from cursor (default)
 } LoopMode;
 
 typedef struct {
@@ -490,7 +489,6 @@ static void refresh_file_size(File* io)
     }
 }
 
-
 static int parse_time_option(const char* value, const char* opt_name, int* out)
 {
     if (!value || !opt_name || !out) {
@@ -649,7 +647,6 @@ static int execute_program_iteration(const Program* prg, File* io, VM* vm,
         return -2 - last_failed_clause;
     }
     return ok;
-
 }
 
 int main(int argc, char** argv)
@@ -766,7 +763,7 @@ int main(int argc, char** argv)
             }
             token_count = n;
             // tokens_view already populated by tokenize_ops_string
-            tokens = NULL;  // Mark that we don't need conversion
+            tokens = NULL; // Mark that we don't need conversion
         }
     }
 
@@ -949,7 +946,7 @@ int main(int argc, char** argv)
         EXIT_REASON_EXEC_TIMEOUT = 5
     };
     int exit_reason = EXIT_REASON_NORMAL;
-    int last_ok = 1;              // Track last iteration's ok value (default success)
+    int last_ok = 1; // Track last iteration's ok value (default success)
 
     // Single execution mode (no looping)
     refresh_file_size(&io);
@@ -989,8 +986,7 @@ int main(int argc, char** argv)
         i64 effective_start = data_start;
         if (loop_mode == LOOP_MODE_MONITOR) {
             effective_start = 0;
-        }
-        else if (loop_mode == LOOP_MODE_CONTINUE && have_saved_vm) {
+        } else if (loop_mode == LOOP_MODE_CONTINUE && have_saved_vm) {
             effective_start = clamp64(saved_vm.cursor, 0, data_end);
         }
 
@@ -1083,17 +1079,17 @@ cleanup:
     // Compute exit code from last iteration
     int last_iter_code = 0;
     if (last_ok > 0) {
-        last_iter_code = 0;  // Success
+        last_iter_code = 0; // Success
     } else if (last_ok == 0) {
-        last_iter_code = 1;  // I/O error
+        last_iter_code = 1; // I/O error
     } else {
         i32 failed_clause = (-last_ok) - 2;
-        last_iter_code = 10 + failed_clause;  // Clause failure
+        last_iter_code = 10 + failed_clause; // Clause failure
     }
 
     // If we have an execution timeout (--for), use exit code 5 unless last iteration failed
     if (exit_reason == EXIT_REASON_EXEC_TIMEOUT) {
-        return exit_reason;  // Timeout takes priority once triggered
+        return exit_reason; // Timeout takes priority once triggered
     }
 
     // Normal exit or --until-idle timeout: use last iteration's result

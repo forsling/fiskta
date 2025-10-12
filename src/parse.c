@@ -38,7 +38,6 @@ static const char* find_inline_offset_start(const char* s)
     return NULL;
 }
 
-
 static const String kw_then = { "THEN", 4 };
 static const String kw_or = { "OR", 2 };
 static const String kw_to = { "to", 2 };
@@ -1139,7 +1138,6 @@ static enum Err parse_at_expr(const String* tokens, i32* idx, i32 token_count, L
 
     return E_OK;
 }
-
 
 static enum Err parse_offset(String token, i64* offset, Unit* unit)
 {

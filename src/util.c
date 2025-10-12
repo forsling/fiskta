@@ -496,14 +496,12 @@ bool string_try_parse_signed(String s, i64* out, Unit* unit)
     return true;
 }
 
-
 void convert_tokens_to_strings(char** tokens, i32 token_count, String* out)
 {
     for (i32 i = 0; i < token_count; i++) {
         out[i] = string_from_cstr(tokens[i]);
     }
 }
-
 
 i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens)
 {

@@ -472,72 +472,71 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
     }
 
     // Backward search: scan blocks backwards
-        i64 best_ms = -1;
-        i64 best_me = -1;
+    i64 best_ms = -1;
+    i64 best_me = -1;
 
-        // Calculate overlap (enough to catch boundary-spanning matches)
-        size_t overlap = nlen > 0 ? nlen - 1 : 0;
-        if (overlap > OVERLAP_MAX) {
-            overlap = OVERLAP_MAX;
+    // Calculate overlap (enough to catch boundary-spanning matches)
+    size_t overlap = nlen > 0 ? nlen - 1 : 0;
+    if (overlap > OVERLAP_MAX) {
+        overlap = OVERLAP_MAX;
+    }
+
+    // Scan backwards in blocks
+    for (i64 pos = win_hi; pos > win_lo; pos -= (i64)(BK_BLK - overlap)) {
+        i64 block_hi = pos;
+        i64 block_lo = block_hi - BK_BLK;
+        if (block_lo < win_lo) {
+            block_lo = win_lo;
         }
 
-        // Scan backwards in blocks
-        for (i64 pos = win_hi; pos > win_lo; pos -= (i64)(BK_BLK - overlap)) {
-            i64 block_hi = pos;
-            i64 block_lo = block_hi - BK_BLK;
-            if (block_lo < win_lo) {
-                block_lo = win_lo;
-            }
+        i64 block_size = block_hi - block_lo;
+        if (block_size <= 0) {
+            break;
+        }
 
-            i64 block_size = block_hi - block_lo;
-            if (block_size <= 0) {
+        if (fseeko(io->f, block_lo, SEEK_SET) != 0) {
+            return E_IO;
+        }
+
+        size_t n = fread(io->buf, 1, (size_t)block_size, io->f);
+        if (n == 0) {
+            break;
+        }
+
+        // Find all matches in this block
+        i64 search_pos = 0;
+        while (search_pos < (i64)n) {
+            i64 local_ms;
+            i64 local_me;
+            enum Err err = bmh_search_forward(io->buf + search_pos, (size_t)((i64)n - search_pos),
+                needle, nlen, &local_ms, &local_me);
+            if (err != E_OK) {
                 break;
             }
 
-            if (fseeko(io->f, block_lo, SEEK_SET) != 0) {
-                return E_IO;
-            }
+            i64 global_ms = block_lo + search_pos + local_ms;
+            i64 global_me = block_lo + search_pos + local_me;
 
-            size_t n = fread(io->buf, 1, (size_t)block_size, io->f);
-            if (n == 0) {
-                break;
-            }
-
-            // Find all matches in this block
-            i64 search_pos = 0;
-            while (search_pos < (i64)n) {
-                i64 local_ms;
-                i64 local_me;
-                enum Err err = bmh_search_forward(io->buf + search_pos, (size_t)((i64)n - search_pos),
-                    needle, nlen, &local_ms, &local_me);
-                if (err != E_OK) {
-                    break;
+            // Check if match is within our window
+            if (global_ms >= win_lo && global_me <= win_hi) {
+                // Keep the rightmost match (largest ms)
+                if (global_ms > best_ms) {
+                    best_ms = global_ms;
+                    best_me = global_me;
                 }
-
-                i64 global_ms = block_lo + search_pos + local_ms;
-                i64 global_me = block_lo + search_pos + local_me;
-
-                // Check if match is within our window
-                if (global_ms >= win_lo && global_me <= win_hi) {
-                    // Keep the rightmost match (largest ms)
-                    if (global_ms > best_ms) {
-                        best_ms = global_ms;
-                        best_me = global_me;
-                    }
-                }
-
-                search_pos += local_ms + 1; // Move past this match
             }
+
+            search_pos += local_ms + 1; // Move past this match
         }
+    }
 
-        if (best_ms >= 0) {
-            *ms = best_ms;
-            *me = best_me;
-            return E_OK;
-        }
+    if (best_ms >= 0) {
+        *ms = best_ms;
+        *me = best_me;
+        return E_OK;
+    }
 
-        return E_NO_MATCH;
-
+    return E_NO_MATCH;
 }
 
 /*****************************
@@ -649,23 +648,22 @@ enum Err io_step_chars(File* io, i64 start, i32 delta, i64* out)
     }
 
     // backward
-        i32 steps = -delta;
-        for (i32 i = 0; i < steps; ++i) {
-            if (cur <= 0) {
-                *out = 0;
-                return E_OK;
-            }
-            i64 start_char;
-            // snap to the start of the char immediately before cur
-            enum Err e = io_prev_char_start(io, cur - 1, &start_char);
-            if (e != E_OK) {
-                return e;
-            }
-            cur = start_char;
+    i32 steps = -delta;
+    for (i32 i = 0; i < steps; ++i) {
+        if (cur <= 0) {
+            *out = 0;
+            return E_OK;
         }
-        *out = cur;
-        return E_OK;
-
+        i64 start_char;
+        // snap to the start of the char immediately before cur
+        enum Err e = io_prev_char_start(io, cur - 1, &start_char);
+        if (e != E_OK) {
+            return e;
+        }
+        cur = start_char;
+    }
+    *out = cur;
+    return E_OK;
 }
 
 /****************
@@ -1005,15 +1003,13 @@ enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
         unsigned char next2 = 0;
         if (pos + 1 < block_hi) {
             next1 = io->buf[pos + 1 - block_lo];
-        }
-        else if (pos + 1 == block_hi && tails >= 1) {
+        } else if (pos + 1 == block_hi && tails >= 1) {
             next1 = tail1;
         }
 
         if (pos + 2 < block_hi) {
             next2 = io->buf[pos + 2 - block_lo];
-        }
-        else if (pos + 2 == block_hi && tails >= 1) {
+        } else if (pos + 2 == block_hi && tails >= 1) {
             next2 = tail1;
         } else if (pos + 2 == block_hi + 1 && tails >= 2) {
             next2 = tail2;

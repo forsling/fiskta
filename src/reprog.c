@@ -227,12 +227,11 @@ static enum Err compile_alt_sequence(ReB* b, String pat, int len)
         }
         if (pat.bytes[j] == '(') {
             ++depth;
-        }
-        else if (pat.bytes[j] == ')') {
+        } else if (pat.bytes[j] == ')') {
             --depth;
         } else if (pat.bytes[j] == '|' && depth == 0) {
             ++nalt;
-}
+        }
     }
 
     // Single alt: compile linearly and return
@@ -278,8 +277,7 @@ static enum Err compile_alt_sequence(ReB* b, String pat, int len)
         }
         if (pat.bytes[j] == '(') {
             ++depth;
-        }
-        else if (pat.bytes[j] == ')') {
+        } else if (pat.bytes[j] == ')') {
             --depth;
         } else if (pat.bytes[j] == '|' && depth == 0) {
             lo[k] = start;
@@ -525,16 +523,14 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout)
             if (pat.bytes[j] == '\\') {
                 if (j + 1 < pat.len) {
                     j += 2;
-                }
-                else {
+                } else {
                     return E_PARSE;
                 }
                 continue;
             }
             if (pat.bytes[j] == '(') {
                 depth++;
-            }
-            else if (pat.bytes[j] == ')') {
+            } else if (pat.bytes[j] == ')') {
                 depth--;
                 if (depth == 0) {
                     break;
@@ -954,8 +950,7 @@ enum Err re_compile_into(String pattern,
         }
         if (pattern.bytes[j] == '(') {
             depth++;
-        }
-        else if (pattern.bytes[j] == ')') {
+        } else if (pattern.bytes[j] == ')') {
             depth--;
         } else if (pattern.bytes[j] == '|' && depth == 0) {
             has_bar = 1;
@@ -989,7 +984,9 @@ enum Err re_compile_into(String pattern,
     out->classes = b.cls;
     out->nclasses = b.ncls;
 
-    if (ins_used) *ins_used = ins_start + b.nins;
-    if (cls_used) *cls_used = cls_start + b.ncls;
+    if (ins_used)
+        *ins_used = ins_start + b.nins;
+    if (cls_used)
+        *cls_used = cls_start + b.ncls;
     return E_OK;
 }
