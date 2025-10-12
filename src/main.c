@@ -640,6 +640,9 @@ static void loop_compute_window(LoopState* state, File* io, i64* lo, i64* hi)
         state->last_size = size;
         state->last_activity_ms = now_millis(); // data arrived/truncated
     }
+    if (state->mode == LOOP_MODE_FOLLOW && size < state->baseline) {
+        state->baseline = size; // file shrank: restart tail at new EOF
+    }
     *hi = size;
 
     switch (state->mode) {
