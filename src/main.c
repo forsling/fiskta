@@ -228,11 +228,11 @@ typedef struct {
     const char* input_path;
     const char* ops_arg;
     const char* ops_file;
-    int loop_ms;
+    i32 loop_ms;
     bool loop_enabled;
     bool ignore_loop_failures;
-    int idle_timeout_ms;
-    int exec_timeout_ms;
+    i32 idle_timeout_ms;
+    i32 exec_timeout_ms;
     LoopMode loop_mode;
 } CliOptions;
 
@@ -260,7 +260,7 @@ typedef struct {
 typedef struct {
     bool enabled;
     LoopMode mode;
-    int loop_ms, idle_timeout_ms, exec_timeout_ms;
+    i32 loop_ms, idle_timeout_ms, exec_timeout_ms;
     u64 t0_ms, last_activity_ms;
     i64 baseline;     // FOLLOW: last processed end; CONTINUE: unused; MONITOR: 0
     i64 last_size;    // last observed file size
@@ -270,9 +270,9 @@ typedef struct {
     int exit_reason;  // 0 normal, 5 exec timeout
 } LoopState;
 
-static int parse_time_option(const char* value, const char* opt_name, int* out);
+static int parse_time_option(const char* value, const char* opt_name, i32* out);
 static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int argc, char** argv, Operations* out);
-static int parse_until_idle_option(const char* value, int* out);
+static int parse_until_idle_option(const char* value, i32* out);
 
 // Loop context helper functions
 static void loop_init(LoopState* state, const CliOptions* opt, File* io);
@@ -530,61 +530,76 @@ static void refresh_file_size(File* io)
     }
 }
 
-static int parse_time_option(const char* value, const char* opt_name, int* out)
+static int parse_time_option(const char* value, const char* opt_name, i32* out)
 {
     if (!value || !opt_name || !out) {
         return 1;
     }
 
-    char* end = NULL;
-    long v = strtol(value, &end, 10);
-    if (value[0] == '\0' || v < 0 || v > INT_MAX) {
+    const unsigned char* p = (const unsigned char*)value;
+    if (*p == '\0') {
         fprintf(stderr, "fiskta: %s expects a non-negative integer with suffix (ms|s|m|h)\n", opt_name);
         return 1;
     }
 
-    if (v == 0) {
-        if (!end || *end == '\0'
-            || strcmp(end, "ms") == 0
-            || strcmp(end, "s") == 0
-            || strcmp(end, "m") == 0
-            || strcmp(end, "h") == 0) {
-            *out = 0;
-            return 0;
+    i32 base = 0;
+    while (*p >= '0' && *p <= '9') {
+        int digit = (int)(*p - '0');
+        if (base > INT_MAX / 10 || (base == INT_MAX / 10 && digit > (INT_MAX % 10))) {
+            fprintf(stderr, "fiskta: %s value too large\n", opt_name);
+            return 1;
         }
-        fprintf(stderr, "fiskta: %s invalid suffix '%s' (valid: ms, s, m, h)\n", opt_name, end);
+        base = base * 10 + digit;
+        p++;
+    }
+
+    if (p == (const unsigned char*)value) {
+        fprintf(stderr, "fiskta: %s expects a non-negative integer with suffix (ms|s|m|h)\n", opt_name);
         return 1;
     }
 
-    if (!end || *end == '\0') {
+    const char* suffix = (const char*)p;
+    if (*suffix != '\0' && strcmp(suffix, "ms") != 0 && strcmp(suffix, "s") != 0 &&
+        strcmp(suffix, "m") != 0 && strcmp(suffix, "h") != 0) {
+        fprintf(stderr, "fiskta: %s invalid suffix '%s' (valid: ms, s, m, h)\n", opt_name, suffix);
+        return 1;
+    }
+
+    if (base == 0) {
+        if (*suffix == '\0' || strcmp(suffix, "ms") == 0 || strcmp(suffix, "s") == 0
+            || strcmp(suffix, "m") == 0 || strcmp(suffix, "h") == 0) {
+            *out = 0;
+            return 0;
+        }
+        return 1;
+    }
+
+    if (*suffix == '\0') {
         fprintf(stderr, "fiskta: %s requires a suffix (ms|s|m|h) for non-zero values\n", opt_name);
         return 1;
     }
 
-    int multiplier = 1;
-    if (strcmp(end, "ms") == 0) {
+    i32 multiplier = 1;
+    if (strcmp(suffix, "ms") == 0) {
         multiplier = 1;
-    } else if (strcmp(end, "s") == 0) {
+    } else if (strcmp(suffix, "s") == 0) {
         multiplier = 1000;
-    } else if (strcmp(end, "m") == 0) {
+    } else if (strcmp(suffix, "m") == 0) {
         multiplier = 60000;
-    } else if (strcmp(end, "h") == 0) {
+    } else if (strcmp(suffix, "h") == 0) {
         multiplier = 3600000;
-    } else {
-        fprintf(stderr, "fiskta: %s invalid suffix '%s' (valid: ms, s, m, h)\n", opt_name, end);
-        return 1;
     }
 
-    if (v > INT_MAX / multiplier) {
+    if (base > 0 && base > INT_MAX / multiplier) {
         fprintf(stderr, "fiskta: %s value too large\n", opt_name);
         return 1;
     }
 
-    *out = (int)(v * multiplier);
+    *out = base * multiplier;
     return 0;
 }
 
-static int parse_until_idle_option(const char* value, int* out)
+static int parse_until_idle_option(const char* value, i32* out)
 {
     if (!value || !out) {
         return 1;
