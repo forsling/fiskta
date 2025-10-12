@@ -505,7 +505,7 @@ void convert_tokens_to_strings(char** tokens, i32 token_count, String* out)
 }
 
 
-i32 split_ops_string_optimized(const char* s, String* out, i32 max_tokens)
+i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens)
 {
     static char buf[4096];
     size_t boff = 0;

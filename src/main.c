@@ -755,7 +755,7 @@ int main(int argc, char** argv)
         }
         tokens = argv + ops_index;
         if (token_count == 1 && strchr(tokens[0], ' ')) {
-            i32 n = split_ops_string_optimized(tokens[0], tokens_view, MAX_TOKENS);
+            i32 n = tokenize_ops_string(tokens[0], tokens_view, MAX_TOKENS);
             if (n == -1) {
                 fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
                 return 2;
@@ -765,7 +765,7 @@ int main(int argc, char** argv)
                 return 2;
             }
             token_count = n;
-            // tokens_view already populated by split_ops_string_optimized
+            // tokens_view already populated by tokenize_ops_string
             tokens = NULL;  // Mark that we don't need conversion
         }
     }

@@ -21,13 +21,13 @@
 #endif
 
 // Forward declarations
-static enum Err bmh_forward(const unsigned char* text, size_t text_len,
+static enum Err bmh_search_forward(const unsigned char* text, size_t text_len,
     const unsigned char* needle, size_t nlen, i64* ms, i64* me);
 static enum Err get_line_block(File* io, i64 pos, LineBlockIdx** out);
 
 // UTF-8 helper functions
-static inline i32 is_cont_byte(unsigned char b) { return (b & 0xC0) == 0x80; }
-static inline i32 utf8_len_from_lead(unsigned char b)
+static inline i32 utf8_is_cont_byte(unsigned char b) { return (b & 0xC0) == 0x80; }
+static inline i32 utf8_len_from_lead_byte(unsigned char b)
 {
     if ((b & 0x80) == 0x00) {
         return 1;
@@ -364,7 +364,7 @@ enum Err io_line_end(File* io, i64 pos, i64* out)
     return E_OK;
 }
 
-enum Err io_step_lines_from(File* io, i64 start_line_start, i32 delta, i64* out_line_start)
+enum Err io_step_lines(File* io, i64 start_line_start, i32 delta, i64* out_line_start)
 {
     if (start_line_start < 0 || start_line_start > io->size) {
         return E_LOC_RESOLVE;
@@ -453,7 +453,7 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
 
             i64 local_ms;
             i64 local_me;
-            enum Err err = bmh_forward(io->buf, n, needle, nlen, &local_ms, &local_me);
+            enum Err err = bmh_search_forward(io->buf, n, needle, nlen, &local_ms, &local_me);
             if (err == E_OK) {
                 *ms = block_lo + local_ms;
                 *me = block_lo + local_me;
@@ -508,7 +508,7 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
             while (search_pos < (i64)n) {
                 i64 local_ms;
                 i64 local_me;
-                enum Err err = bmh_forward(io->buf + search_pos, (size_t)((i64)n - search_pos),
+                enum Err err = bmh_search_forward(io->buf + search_pos, (size_t)((i64)n - search_pos),
                     needle, nlen, &local_ms, &local_me);
                 if (err != E_OK) {
                     break;
@@ -544,7 +544,7 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
  * UTF-8 CHARACTER NAVIGATION
  *****************************/
 
-enum Err io_char_start(File* io, i64 pos, i64* out)
+enum Err io_prev_char_start(File* io, i64 pos, i64* out)
 {
     if (pos <= 0) {
         *out = 0;
@@ -573,9 +573,9 @@ enum Err io_char_start(File* io, i64 pos, i64* out)
     i64 rel = (i64)n - 1;
     for (i64 k = 0; k < (i64)n; ++k) {
         unsigned char b = io->buf[rel - k];
-        if (!is_cont_byte(b)) {
+        if (!utf8_is_cont_byte(b)) {
             // Validate forward length; if malformed, treat that byte as a single-char
-            i32 len = utf8_len_from_lead(b);
+            i32 len = utf8_len_from_lead_byte(b);
             i64 start = hi - 1 - k;
             if (len == 0 || start + len > io->size) {
                 *out = start;
@@ -590,7 +590,7 @@ enum Err io_char_start(File* io, i64 pos, i64* out)
     return E_OK;
 }
 
-enum Err io_step_chars_from(File* io, i64 start, i32 delta, i64* out)
+enum Err io_step_chars(File* io, i64 start, i32 delta, i64* out)
 {
     if (start < 0) {
         start = 0;
@@ -623,7 +623,7 @@ enum Err io_step_chars_from(File* io, i64 start, i32 delta, i64* out)
             }
 
             unsigned char b0 = io->buf[0];
-            i32 len = utf8_len_from_lead(b0);
+            i32 len = utf8_len_from_lead_byte(b0);
             if (len == 0) {
                 // malformed lead -> count as 1
                 cur += 1;
@@ -632,7 +632,7 @@ enum Err io_step_chars_from(File* io, i64 start, i32 delta, i64* out)
                 if ((i64)len <= (i64)n) {
                     bool ok = true;
                     for (i32 j = 1; j < len; j++) {
-                        if (!is_cont_byte(io->buf[j])) {
+                        if (!utf8_is_cont_byte(io->buf[j])) {
                             ok = false;
                             break;
                         }
@@ -657,7 +657,7 @@ enum Err io_step_chars_from(File* io, i64 start, i32 delta, i64* out)
             }
             i64 start_char;
             // snap to the start of the char immediately before cur
-            enum Err e = io_char_start(io, cur - 1, &start_char);
+            enum Err e = io_prev_char_start(io, cur - 1, &start_char);
             if (e != E_OK) {
                 return e;
             }
@@ -766,7 +766,7 @@ static enum Err get_line_block(File* io, i64 pos, LineBlockIdx** out)
  * BOYER-MOORE-HORSPOOL SEARCH
  ******************************/
 
-static enum Err bmh_forward(const unsigned char* text, size_t text_len,
+static enum Err bmh_search_forward(const unsigned char* text, size_t text_len,
     const unsigned char* needle, size_t nlen, i64* ms, i64* me)
 {
     if (nlen == 0 || nlen > text_len) {

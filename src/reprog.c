@@ -70,7 +70,7 @@ static enum Err emit_inst(ReB* b, ReOp op, int x, int y, unsigned char ch, int c
     return E_OK;
 }
 
-static enum Err new_class(ReB* b, const ReClass* src, int* idx_out)
+static enum Err emit_class(ReB* b, const ReClass* src, int* idx_out)
 {
     if (b->ncls >= b->cls_cap) {
         return E_OOM;
@@ -85,7 +85,7 @@ static enum Err new_class(ReB* b, const ReClass* src, int* idx_out)
  *************************/
 
 // Parse a character class: pattern points at first char AFTER '['; returns index AFTER ']'
-static enum Err parse_class(ReB* b, String pat, int* i_inout, int* out_cls_idx)
+static enum Err parse_char_class(ReB* b, String pat, int* i_inout, int* out_cls_idx)
 {
     int i = *i_inout;
     ReClass cls;
@@ -196,7 +196,7 @@ static enum Err parse_class(ReB* b, String pat, int* i_inout, int* out_cls_idx)
     }
 
     int cls_idx;
-    enum Err e = new_class(b, &cls, &cls_idx);
+    enum Err e = emit_class(b, &cls, &cls_idx);
     if (e != E_OK) {
         return e;
     }
@@ -209,11 +209,11 @@ static enum Err parse_class(ReB* b, String pat, int* i_inout, int* out_cls_idx)
  * PATTERN COMPILATION
  **********************/
 
-static enum Err compile_piece(ReB* b, String pat, int* i_inout);
+static enum Err compile_atom(ReB* b, String pat, int* i_inout);
 
 // Compiles pat[0..len) into `b` without emitting RI_MATCH.
 // Uses N-1 splits so there is no epsilon path that skips all alts.
-static enum Err compile_subpattern(ReB* b, String pat, int len)
+static enum Err compile_alt_sequence(ReB* b, String pat, int len)
 {
     // 1) Collect top-level alternatives (respect escapes/parentheses)
     int depth = 0;
@@ -240,7 +240,7 @@ static enum Err compile_subpattern(ReB* b, String pat, int len)
         int i = 0;
         String tmp_bytes = { pat.bytes, len };
         while (i < len) {
-            enum Err e = compile_piece(b, tmp_bytes, &i);
+            enum Err e = compile_atom(b, tmp_bytes, &i);
             if (e != E_OK) {
                 return e;
             }
@@ -306,7 +306,7 @@ static enum Err compile_subpattern(ReB* b, String pat, int len)
         int pi = 0;
         String frag_bytes = { pat.bytes + lo[i], alen[i] };
         while (pi < alen[i]) {
-            e = compile_piece(b, frag_bytes, &pi);
+            e = compile_atom(b, frag_bytes, &pi);
             if (e != E_OK) {
                 err = e;
                 goto cleanup;
@@ -325,7 +325,7 @@ static enum Err compile_subpattern(ReB* b, String pat, int len)
     int pi = 0;
     String last_bytes = { pat.bytes + lo[nalt - 1], alen[nalt - 1] };
     while (pi < alen[nalt - 1]) {
-        e = compile_piece(b, last_bytes, &pi);
+        e = compile_atom(b, last_bytes, &pi);
         if (e != E_OK) {
             err = e;
             goto cleanup;
@@ -359,8 +359,8 @@ cleanup:
     return err;
 }
 
-// Compile a single regex piece (atom + optional quantifier)
-static enum Err compile_piece(ReB* b, String pat, int* i_inout)
+// Compile a single regex atom (+ optional quantifier)
+static enum Err compile_atom(ReB* b, String pat, int* i_inout)
 {
     int i = *i_inout;
     if (i >= pat.len) {
@@ -387,7 +387,7 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
         i++;
     } else if (pat.bytes[i] == '[') {
         i++;
-        enum Err e = parse_class(b, pat, &i, &cls_idx);
+        enum Err e = parse_char_class(b, pat, &i, &cls_idx);
         if (e != E_OK) {
             return e;
         }
@@ -402,7 +402,7 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             ReClass c;
             cls_clear(&c);
             cls_set_digit(&c);
-            enum Err e = new_class(b, &c, &cls_idx);
+            enum Err e = emit_class(b, &c, &cls_idx);
             if (e != E_OK) {
                 return e;
             }
@@ -420,7 +420,7 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             for (int b2 = 0; b2 < 32; ++b2) {
                 c.bits[b2] &= (unsigned char)~d.bits[b2];
             }
-            enum Err e = new_class(b, &c, &cls_idx);
+            enum Err e = emit_class(b, &c, &cls_idx);
             if (e != E_OK) {
                 return e;
             }
@@ -430,7 +430,7 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             ReClass c;
             cls_clear(&c);
             cls_set_word(&c);
-            enum Err e = new_class(b, &c, &cls_idx);
+            enum Err e = emit_class(b, &c, &cls_idx);
             if (e != E_OK) {
                 return e;
             }
@@ -448,7 +448,7 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             for (int b2 = 0; b2 < 32; ++b2) {
                 c.bits[b2] &= (unsigned char)~w.bits[b2];
             }
-            enum Err e = new_class(b, &c, &cls_idx);
+            enum Err e = emit_class(b, &c, &cls_idx);
             if (e != E_OK) {
                 return e;
             }
@@ -458,7 +458,7 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             ReClass c;
             cls_clear(&c);
             cls_set_ws(&c);
-            enum Err e = new_class(b, &c, &cls_idx);
+            enum Err e = emit_class(b, &c, &cls_idx);
             if (e != E_OK) {
                 return e;
             }
@@ -476,7 +476,7 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             for (int b2 = 0; b2 < 32; ++b2) {
                 c.bits[b2] &= (unsigned char)~ws.bits[b2];
             }
-            enum Err e = new_class(b, &c, &cls_idx);
+            enum Err e = emit_class(b, &c, &cls_idx);
             if (e != E_OK) {
                 return e;
             }
@@ -573,7 +573,7 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
 
             group_entry = b->nins;
             String inner_bytes = { pat.bytes + inner_lo, inner_len };
-            e = compile_subpattern(b, inner_bytes, inner_len);
+            e = compile_alt_sequence(b, inner_bytes, inner_len);
             if (e != E_OK) {
                 return e;
             }
@@ -592,7 +592,7 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
 
             group_entry = b->nins;
             String inner_bytes = { pat.bytes + inner_lo, inner_len };
-            e = compile_subpattern(b, inner_bytes, inner_len);
+            e = compile_alt_sequence(b, inner_bytes, inner_len);
             if (e != E_OK) {
                 return e;
             }
@@ -612,7 +612,7 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
             // Use the same pattern as single-atom +: atom, then split(atom, next)
             group_entry = b->nins;
             String inner_bytes = { pat.bytes + inner_lo, inner_len };
-            e = compile_subpattern(b, inner_bytes, inner_len);
+            e = compile_alt_sequence(b, inner_bytes, inner_len);
             if (e != E_OK) {
                 return e;
             }
@@ -628,7 +628,7 @@ static enum Err compile_piece(ReB* b, String pat, int* i_inout)
         } else {
             // No quantifier - just compile the body
             String inner_bytes = { pat.bytes + inner_lo, inner_len };
-            e = compile_subpattern(b, inner_bytes, inner_len);
+            e = compile_alt_sequence(b, inner_bytes, inner_len);
             if (e != E_OK) {
                 return e;
             }
@@ -941,7 +941,7 @@ enum Err re_compile_into(String pattern,
         return E_BAD_NEEDLE;
     }
 
-    // Always use the proven single-pass emitter (with nested alternation via compile_subpattern)
+    // Always use the proven single-pass emitter (with nested alternation via compile_alt_sequence)
     // First, check top-level alternation
     int depth = 0;
     int has_bar = 0;
@@ -966,13 +966,13 @@ enum Err re_compile_into(String pattern,
     if (!has_bar) {
         int i = 0;
         while (i < pattern.len) {
-            enum Err e = compile_piece(&b, pattern, &i);
+            enum Err e = compile_atom(&b, pattern, &i);
             if (e != E_OK) {
                 return e;
             }
         }
     } else {
-        enum Err e2 = compile_subpattern(&b, pattern, pattern.len);
+        enum Err e2 = compile_alt_sequence(&b, pattern, pattern.len);
         if (e2 != E_OK) {
             return e2;
         }
