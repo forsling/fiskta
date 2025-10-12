@@ -11,38 +11,56 @@ It may be a good fit when grep is insufficient but you don't want to deal with s
 - Atomic clauses with rollback on failure
 - Views to restrict operations to file regions
 - Continue mode for continuous operation like monitoring streams or changing files
-- Small footprint: binaries ~50-100 KB, memory use <8 MB (for standard builds)
+- Small footprint: binaries ~60-100 KB, memory use <8 MB (for standard builds)
 - Written with plain C with zero dependencies beyond libc
 
 ## What does it do?
 
 ```bash
-# Extract first 10 bytes:
-$ fiskta --input somefile.dat take 10b
-```
+# Output 7 characters starting from the second line
+$ printf "Starting text\nMiddle line\nEnding line" | ./fiskta skip 1l take 7c
+Middle
 
-```bash
-# Take 10 characters from the 6th line
-$ fiskta --input report.txt skip 5l take 10c
-```
+# Output all the data except for the last 10 bytes
+$ fiskta --input data.file take to EOF-10b
 
-```bash
-# Find a pattern and take the rest of the line:
-$ echo 'ERROR: connection failed' | fiskta find "ERROR:" take to line-end
+# Find a pattern and take the rest of the line
+$ echo 'Connecting... ERROR: connection failed' | fiskta find "ERROR:" take to line-end
 ERROR: connection failed
-```
-Try multiple patterns—first match wins:
-```bash
+
+# Try multiple patterns—first match wins
 $ echo 'WARNING: disk full' | fiskta find "ERROR:" take to line-end OR find "WARNING:" take to line-end
 WARNING: disk full
-```
 
-Extract text between delimiters:
-```bash
+# Extract text between delimiters
 $ echo 'start: [content here] end' | fiskta find "[" skip 1b take until "]"
 content here
-```
 
+# Output five lines even find fails
+$ fiskta --input file.txt find "Optional Section" THEN take 5l
+
+# Try to find "user=" and extract username, fallback to "id=" if not found
+$ echo 'id=12345 user=john' | fiskta find "user=" skip 5b take until " " OR find "id=" skip 3b take until " "
+12345
+
+# Detect PNG file header
+$ fiskta -i image.bin find:bin "89 50 4E 47 0D 0A 1A 0A" print "PNG" OR fail "Not a PNG file"
+PNG
+
+# Extract email addresses using regex
+$ echo 'Contact: john@example.com or jane@test.org' | fiskta find:re "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+" take to match-end
+john@example.com
+
+# Process data in chunks
+fiskta --input source --continue --every 200ms find:re "^BEGIN" take until:re "\s{4}:"
+
+# Tail log file,stop when no new data appears for 1 minute
+$ fiskta --follow --every 1s --ignore-failures --until-idle 1m --input service.log find "ERROR" take to line-end
+
+# Monitor changing file content
+$ fiskta --input status.txt --monitor --every 2s --for 8h find "DISCONNECTED" take -10l
+
+```
 
 ## Overview
 
@@ -492,10 +510,10 @@ fiskta --input data.txt view BOF+100b BOF+200b take to EOF
 
 # Extract only from the [server] section
 fiskta --input config.ini \
-    find "[server]" skip to line-end label START \
+    find "[server]" goto match-end label START \
     find "[" label END \
     view START END \
-    find "port" take to line-end
+    ...
 ```
 
 ### View Atomicity
@@ -530,7 +548,7 @@ view BOF EOF          # back to full file
 **Extract from specific section:**
 ```bash
 fiskta --continue --input config.ini \
-    find "[database]" skip to line-end label S \
+    find "[database]" goto line-end label S \
     find "[" label E \
     view S E \
     find "=" take to line-end
@@ -549,7 +567,7 @@ view cursor cursor+1000b find "marker"
 Problem: Get the first 10 characters from each line in a log file
 
 ```bash
-fiskta --input app.log take 10b skip to line-end skip 1b
+fiskta --input app.log take 10b goto line-end skip 1b
 ```
 
 ### Skip header, extract body
@@ -574,7 +592,7 @@ Problem: Extract the username only if the line contains "login success"
 
 ```bash
 fiskta --input auth.log \
-    find "login success" skip to line-end skip -1l find "user=" skip 5b take until " "
+    find "login success" goto line-end skip -1l find "user=" skip 5b take until " "
 ```
 
 ### Try multiple patterns
@@ -609,7 +627,7 @@ Problem: Extract all config values from the `[database]` section only
 
 ```bash
 fiskta --continue --input config.ini \
-    find "[database]" skip to line-end \
+    find "[database]" goto line-end \
     view cursor cursor+1000b \
     find "=" skip -1l take to line-end
 ```
