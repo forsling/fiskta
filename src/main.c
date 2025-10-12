@@ -602,7 +602,8 @@ static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int 
 // Initialize loop context with default values
 static void loop_init(LoopState* state, const CliOptions* opt, File* io)
 {
-    if (!state || !opt) return;
+    if (!state || !opt) { return;
+}
 
     memset(state, 0, sizeof *state);
     state->enabled = opt->loop_enabled;
@@ -623,7 +624,8 @@ static void loop_init(LoopState* state, const CliOptions* opt, File* io)
     state->last_size = io_size(io);
 
     state->vm.cursor = VM_CURSOR_UNSET; // replaces have_saved_vm
-    for (i32 i = 0; i < MAX_LABELS; i++) state->vm.label_pos[i] = -1;
+    for (i32 i = 0; i < MAX_LABELS; i++) { state->vm.label_pos[i] = -1;
+}
 
     // FOLLOW: tail semantics—start at EOF
     state->baseline = (state->enabled && state->mode == LOOP_MODE_FOLLOW) ? state->last_size : 0;
@@ -644,14 +646,16 @@ static void loop_compute_window(LoopState* state, File* io, i64* lo, i64* hi)
         case LOOP_MODE_MONITOR: *lo = 0; break;
         case LOOP_MODE_FOLLOW:  *lo = state->baseline; break;
         case LOOP_MODE_CONTINUE:
-            if (state->vm.cursor != VM_CURSOR_UNSET)
+            if (state->vm.cursor != VM_CURSOR_UNSET) {
                 *lo = clamp64(state->vm.cursor, 0, size);
-            else
+            } else {
                 *lo = 0;
+}
             break;
         default: *lo = 0; break; // Should never happen, but prevents uninitialized warning
     }
-    if (*lo > *hi) *lo = *hi; // truncation safety
+    if (*lo > *hi) { *lo = *hi; // truncation safety
+}
 }
 
 // Determine if we should wait or stop
@@ -667,7 +671,8 @@ static bool loop_should_wait_or_stop(LoopState* state, bool no_new_data, int* ou
         }
         return false; // stop
     }
-    if (!state->enabled) return false; // one-shot
+    if (!state->enabled) { return false; // one-shot
+}
 
     if (no_new_data) {
         if (state->idle_timeout_ms >= 0 && now - state->last_activity_ms >= (u64)state->idle_timeout_ms) {
@@ -1029,7 +1034,8 @@ int main(int argc, char** argv)
             break;
         }
 
-        i64 lo, hi;
+        i64 lo;
+        i64 hi;
         loop_compute_window(&loop_state, &io, &lo, &hi);
 
         // FOLLOW/CONTINUE: nothing new? maybe wait/stop
@@ -1079,8 +1085,10 @@ int main(int argc, char** argv)
     io_close(&io);
     free(block);
 
-    if (loop_state.exit_code) return loop_state.exit_code;
-    if (loop_state.exit_reason == 5) return 5; // --for timeout
+    if (loop_state.exit_code) { return loop_state.exit_code;
+}
+    if (loop_state.exit_reason == 5) { return 5; // --for timeout
+}
 
     // Otherwise evaluate last iteration outcome
     switch (loop_state.last_result.status) {

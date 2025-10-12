@@ -383,11 +383,13 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout)
                 if (j + 1 < pat.len) { j += 2; continue; }
                 return E_PARSE;
             }
-            if (pat.bytes[j] == '(') depth++;
-            else if (pat.bytes[j] == ')') { depth--; if (depth == 0) break; }
+            if (pat.bytes[j] == '(') { depth++;
+            } else if (pat.bytes[j] == ')') { depth--; if (depth == 0) { break; 
+}}
             j++;
         }
-        if (j >= pat.len || pat.bytes[j] != ')') return E_PARSE; // unmatched '('
+        if (j >= pat.len || pat.bytes[j] != ')') { return E_PARSE; // unmatched '('
+}
 
         int inner_lo = i + 1;
         int inner_len = j - inner_lo;
@@ -400,16 +402,18 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout)
 
         enum Err e;
         if (q == '?') {
-            int split_pc; e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc); if (e != E_OK) return e;
+            int split_pc; e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc); if (e != E_OK) { return e;
+}
             int entry = b->nins;
             String inner = (String){ pat.bytes + inner_lo, inner_len };
-            e = compile_alt_sequence(b, inner, inner_len); if (e != E_OK) return e;
+            e = compile_alt_sequence(b, inner, inner_len); if (e != E_OK) { return e;
+}
             int cont = b->nins;
             b->ins[split_pc].x = entry;  // take
             b->ins[split_pc].y = cont;   // skip
             *i_inout = j + 2;
             return E_OK;
-        } else if (q == '*') {
+        } if (q == '*') {
             int split_pc; e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc); if (e != E_OK) return e;
             int entry = b->nins;
             String inner = (String){ pat.bytes + inner_lo, inner_len };
@@ -925,9 +929,11 @@ enum Err re_compile_into(String pattern,
     out->classes = b.cls;
     out->nclasses = b.ncls;
 
-    if (ins_used)
+    if (ins_used) {
         *ins_used = ins_start + b.nins;
-    if (cls_used)
+}
+    if (cls_used) {
         *cls_used = cls_start + b.ncls;
+}
     return E_OK;
 }

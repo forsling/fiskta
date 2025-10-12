@@ -94,10 +94,9 @@ static bool loc_expr_contains_label(const String* token)
 
         String base_str = { base, (i32)base_len };
         return is_label_name_valid(base_str);
-    } else {
-        // No offset - check the whole token
+    }         // No offset - check the whole token
         return is_label_name_valid(*token);
-    }
+   
 }
 
 enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_path, ParsePlan* plan, const char** in_path_out)
