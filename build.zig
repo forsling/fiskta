@@ -52,7 +52,7 @@ pub fn build(b: *std.Build) !void {
 
     b.getInstallStep().dependOn(host_step);
 
-    const run_cmd = b.addSystemCommand(&.{ "zig-out/bin/fiskta" });
+    const run_cmd = b.addSystemCommand(&.{"zig-out/bin/fiskta"});
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
@@ -136,7 +136,7 @@ fn createBuildStep(
         b.fmt("zig-out/bin/{s}{s}", .{ out_name, out_ext }),
     });
 
-    cmd.addArg(b.fmt("-DFISKTA_VERSION=\"{s}\"", .{ version }));
+    cmd.addArg(b.fmt("-DFISKTA_VERSION=\"{s}\"", .{version}));
     cmd.addArgs(&.{ "-target", target_triple });
 
     switch (optimize) {
