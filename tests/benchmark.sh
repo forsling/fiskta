@@ -6,14 +6,17 @@ set -e
 
 # Parse arguments
 SUMMARY_ONLY=0
+FISKTA=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
-    --summary-only)
+    -s|--summary-only)
         SUMMARY_ONLY=1
         shift
         ;;
     *)
-        FISKTA="$1"
+        if [[ -z "$FISKTA" ]]; then
+            FISKTA="$1"
+        fi
         shift
         ;;
     esac
