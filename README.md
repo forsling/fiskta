@@ -16,50 +16,71 @@ It may be a good fit when grep is insufficient but you don't want to deal with s
 
 ## What does it do?
 
+**Output 7 characters starting from the second line:**
 ```bash
-# Output 7 characters starting from the second line
 $ printf "Starting text\nMiddle line\nEnding line" | ./fiskta skip 1l take 7c
 Middle
+```
 
-# Output all the data except for the last 10 bytes
+**Output all the data except for the last 10 bytes:**
+```bash
 $ fiskta --input data.file take to EOF-10b
+```
 
-# Find a pattern and take the rest of the line
+**Find a pattern and take the rest of the line:**
+```bash
 $ echo 'Connecting... ERROR: connection failed' | fiskta find "ERROR:" take to line-end
 ERROR: connection failed
+```
 
-# Try multiple patterns—first match wins
+**Try multiple patterns—first match wins:**
+```bash
 $ echo 'WARNING: disk full' | fiskta find "ERROR:" take to line-end OR find "WARNING:" take to line-end
 WARNING: disk full
+```
 
-# Extract text between delimiters
+**Extract text between delimiters:**
+```bash
 $ echo 'start: [content here] end' | fiskta find "[" skip 1b take until "]"
 content here
+```
 
-# Output five lines even find fails
+**Output five lines even if find fails:**
+```bash
 $ fiskta --input file.txt find "Optional Section" THEN take 5l
+```
 
-# Try to find "user=" and extract username, fallback to "id=" if not found
+**Try to find "user=" and extract username, fallback to "id=" if not found:**
+```bash
 $ echo 'id=12345 user=john' | fiskta find "user=" skip 5b take until " " OR find "id=" skip 3b take until " "
 12345
+```
 
-# Detect PNG file header
+**Detect PNG file header:**
+```bash
 $ fiskta -i image.bin find:bin "89 50 4E 47 0D 0A 1A 0A" print "PNG" OR fail "Not a PNG file"
 PNG
+```
 
-# Extract email addresses using regex
+**Extract email addresses using regex:**
+```bash
 $ echo 'Contact: john@example.com or jane@test.org' | fiskta find:re "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+" take to match-end
 john@example.com
+```
 
-# Process data in chunks
-fiskta --input source --continue --every 200ms find:re "^BEGIN" take until:re "\s{4}:"
+**Process data in chunks:**
+```bash
+$ fiskta --input source --continue --every 200ms find:re "^BEGIN" take until:re "\s{4}:"
+```
 
-# Tail log file,stop when no new data appears for 1 minute
+**Tail log file, stop when no new data appears for 1 minute:**
+```bash
 $ fiskta --follow --every 1s --ignore-failures --until-idle 1m --input service.log find "ERROR" take to line-end
+```
 
-# Monitor changing file content
+**Monitor changing file content:**
+```bash
 $ fiskta --input status.txt --monitor --every 2s --for 8h find "DISCONNECTED" take -10l
-
 ```
 
 ## Overview
