@@ -293,7 +293,7 @@ if [ "$SUMMARY_ONLY" -eq 0 ]; then
 fi
 core_samples+=("$time")
 
-search+=("$(run_bench "Find literal (backward)" "$FISKTA" --input "$BENCH_DIR/services.conf" -- goto EOF find to BOF '[service_' take to line-end)")
+search+=("$(run_bench "Find literal (backward)" "$FISKTA" --input "$BENCH_DIR/services.conf" -- skip to EOF find to BOF '[service_' take to line-end)")
 IFS='|' read -r name time mem f1 f2 <<< "${search[-1]}"
 if [ "$SUMMARY_ONLY" -eq 0 ]; then
     print_result "Search" "$name" "$time" "$mem" "$f1"
@@ -343,10 +343,10 @@ core_samples+=("$time")
 cat > "$BENCH_DIR/loop.fis" <<'FISPROG'
 label LOOP
 find "[service_"
-goto line-end
+skip to line-end
 label S
 find "["
-OR goto DONE
+OR skip to DONE
 label E
 view S E
 find "host="
@@ -354,9 +354,9 @@ skip 5b
 take to line-end
 print "\n"
 clear view
-goto E
+skip to E
 skip 1b
-goto LOOP
+skip to LOOP
 label DONE
 FISPROG
 complex+=("$(run_bench "500 section extraction" "$FISKTA" --input "$BENCH_DIR/services.conf" --ops "$BENCH_DIR/loop.fis")")
@@ -373,7 +373,7 @@ label S
 find "[service_002]"
 label E
 view S E
-goto S
+skip to S
 find "port="
 skip 5b
 take to line-end
@@ -394,7 +394,7 @@ fi
 core_samples+=("$time")
 
 # Test 4: Backward navigation with context
-complex+=("$(run_bench "Back navigation + extract" "$FISKTA" --input "$BENCH_DIR/logs.txt" -- goto EOF find to BOF ERROR goto line-start take 1l)")
+complex+=("$(run_bench "Back navigation + extract" "$FISKTA" --input "$BENCH_DIR/logs.txt" -- skip to EOF find to BOF ERROR skip to line-start take 1l)")
 IFS='|' read -r name time mem f1 f2 <<< "${complex[-1]}"
 if [ "$SUMMARY_ONLY" -eq 0 ]; then
     print_result "Complex" "$name" "$time" "$mem" "$f1"

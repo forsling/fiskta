@@ -52,7 +52,6 @@ static const String kw_until = { "until", 5 };
 static const String kw_until_re = { "until:re", 8 };
 static const String kw_until_bin = { "until:bin", 9 };
 static const String kw_label = { "label", 5 };
-static const String kw_goto = { "goto", 4 };
 static const String kw_view = { "view", 4 };
 static const String kw_clear = { "clear", 5 };
 static const String kw_print = { "print", 5 };
@@ -222,8 +221,23 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                 }
             } else if (is_keyword(cmd_tok, &kw_skip)) {
                 idx++;
-                if (idx < token_count) {
-                    idx++;
+                if (idx < token_count && is_keyword(tokens[idx], &kw_to)) {
+                    idx++; // skip "to"
+                    if (idx < token_count) {
+                        // Check if this location expression contains a valid label name
+                        if (loc_expr_contains_label(&tokens[idx])) {
+                            /* no-op: we don't size anything from names in preflight */
+                        }
+                        idx++;
+                    }
+                    if (idx < token_count) {
+                        char first = string_first(tokens[idx]);
+                        if (first == '+' || first == '-') {
+                            idx++;
+                        }
+                    }
+                } else if (idx < token_count) {
+                    idx++; // skip offset
                 }
             } else if (is_keyword(cmd_tok, &kw_take)) {
                 idx++;
@@ -356,21 +370,6 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                     }
                     idx++;
                 }
-            } else if (is_keyword(cmd_tok, &kw_goto)) {
-                idx++;
-                if (idx < token_count) {
-                    // Check if this location expression contains a valid label name
-                    if (loc_expr_contains_label(&tokens[idx])) {
-                        /* no-op: we don't size anything from names in preflight */
-                    }
-                    idx++;
-                }
-                if (idx < token_count) {
-                    char first = string_first(tokens[idx]);
-                    if (first == '+' || first == '-') {
-                        idx++;
-                    }
-                }
             } else if (is_keyword(cmd_tok, &kw_view)) {
                 idx++;
                 if (idx < token_count) {
@@ -485,8 +484,14 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
                 skip_one_token(&idx, token_count);
             } else if (is_keyword(cmd_tok, &kw_skip)) {
                 idx++;
-                if (idx < token_count) {
-                    idx++;
+                if (idx < token_count && is_keyword(tokens[idx], &kw_to)) {
+                    idx++; // skip "to"
+                    skip_one_token(&idx, token_count); // skip location
+                    if (idx < token_count && (TOK_FIRST(tokens, idx) == '+' || TOK_FIRST(tokens, idx) == '-')) {
+                        idx++; // skip offset
+                    }
+                } else if (idx < token_count) {
+                    idx++; // skip offset
                 }
             } else if (is_keyword(cmd_tok, &kw_take)) {
                 if (idx < token_count) {
@@ -523,13 +528,6 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
             } else if (is_keyword(cmd_tok, &kw_label)) {
                 if (idx < token_count) {
                     idx++; // skip name
-                }
-            } else if (is_keyword(cmd_tok, &kw_goto)) {
-                if (idx < token_count) {
-                    idx++; // skip location
-                }
-                if (idx < token_count && (TOK_FIRST(tokens, idx) == '+' || TOK_FIRST(tokens, idx) == '-')) {
-                    idx++; // skip offset
                 }
             } else if (is_keyword(cmd_tok, &kw_view)) {
                 if (idx < token_count) {
@@ -723,11 +721,23 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         if (*idx >= token_count) {
             return E_PARSE;
         }
-        enum Err err = parse_offset(tokens[*idx], &op->u.skip.offset, &op->u.skip.unit);
-        if (err != E_OK) {
-            return err;
+
+        // Check if this is "skip to <location>" or "skip <offset><unit>"
+        if (is_keyword(tokens[*idx], &kw_to)) {
+            (*idx)++; // consume "to"
+            op->u.skip.is_location = true;
+            enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.skip.to_location.to, prg);
+            if (err != E_OK) {
+                return err;
+            }
+        } else {
+            op->u.skip.is_location = false;
+            enum Err err = parse_offset(tokens[*idx], &op->u.skip.by_offset.offset, &op->u.skip.by_offset.unit);
+            if (err != E_OK) {
+                return err;
+            }
+            (*idx)++;
         }
-        (*idx)++;
 
         /************************************************************
          * EXTRACTION OPERATIONS
@@ -878,17 +888,6 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
             return E_OOM;
         }
         op->u.label.name_idx = name_idx;
-
-    } else if (is_keyword(cmd_tok, &kw_goto)) {
-        op->kind = OP_GOTO;
-
-        if (*idx >= token_count) {
-            return E_PARSE;
-        }
-        enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.go.to, prg);
-        if (err != E_OK) {
-            return err;
-        }
 
         /************************************************************
          * VIEW OPERATIONS

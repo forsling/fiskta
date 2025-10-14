@@ -40,7 +40,6 @@ enum {
     OP_TAKE_UNTIL_RE,
     OP_TAKE_UNTIL_BIN,
     OP_LABEL,
-    OP_GOTO,
     OP_VIEWSET,
     OP_VIEWCLEAR,
     OP_PRINT,
@@ -115,8 +114,16 @@ typedef struct {
             String needle; // parsed hex bytes
         } findbin;
         struct {
-            i64 offset;
-            Unit unit;
+            bool is_location; // true for "skip to <loc>", false for "skip <offset><unit>"
+            union {
+                struct {
+                    i64 offset;
+                    Unit unit;
+                } by_offset;
+                struct {
+                    LocExpr to;
+                } to_location;
+            };
         } skip;
         struct {
             i64 offset;
@@ -144,9 +151,6 @@ typedef struct {
         struct {
             i32 name_idx;
         } label;
-        struct {
-            LocExpr to;
-        } go;
         struct {
             LocExpr a, b;
         } viewset;

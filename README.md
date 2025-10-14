@@ -79,7 +79,7 @@ $ fiskta --input status.txt --monitor --every 2s --for 8h find "DISCONNECTED" ta
 
 **Navigation:**
 - `label <name>` - Mark current position with label
-- `goto <location>` - Move cursor to labeled position
+- `skip to <location>` - Move cursor to labeled position
 - `view <L1> <L2>` - Limit all ops to `[min(L1,L2), max(L1,L2))`
 - `clear view` - Clear view; return to full file
 
@@ -359,24 +359,24 @@ skip -2l       # skip 2 lines backward
 skip 50c       # skip 50 UTF-8 characters forward
 ```
 
-#### `goto <location>`
+#### `skip to <location>`
 
-Jump cursor to a specific location.
+Move cursor to a specific location without emitting output.
 
 ```bash
-goto BOF                 # jump to beginning
-goto EOF                 # jump to end
-goto MYLABEL             # jump to labeled position
-goto match-start         # jump to start of last match
-goto line-start          # jump to start of current line
-goto cursor+100b         # jump 100 bytes from current position
+skip to BOF                 # move to beginning
+skip to EOF                 # move to end
+skip to MYLABEL             # move to labeled position
+skip to match-start         # move to start of last match
+skip to line-start          # move to start of current line
+skip to cursor+100b         # move 100 bytes from current position
 ```
 
 ### Labels
 
 #### `label <name>`
 
-Mark the current cursor position with a label. Labels can be used with `goto` and `take to`.
+Mark the current cursor position with a label. Labels can be used with `skip to` and `take to`.
 
 - Names must be UPPERCASE
 - Start with A-Z, contain A-Z0-9_-
@@ -510,7 +510,7 @@ fiskta --input data.txt view BOF+100b BOF+200b take to EOF
 
 # Extract only from the [server] section
 fiskta --input config.ini \
-    find "[server]" goto match-end label START \
+    find "[server]" skip to match-end label START \
     find "[" label END \
     view START END \
     ...
@@ -530,7 +530,7 @@ find "[section]" view cursor cursor+1000b
 Once a view is set:
 - `find`, `find:re`, and `find:bin` only search within the view
 - `take` and `skip` can't move outside the view
-- `goto` fails if the target is outside the view
+- `skip to` fails if the target is outside the view
 - The view remains active until `clear view` or program ends
 
 ### Nested Views
@@ -548,7 +548,7 @@ view BOF EOF          # back to full file
 **Extract from specific section:**
 ```bash
 fiskta --continue --input config.ini \
-    find "[database]" goto line-end label S \
+    find "[database]" skip to line-end label S \
     find "[" label E \
     view S E \
     find "=" take to line-end
@@ -567,7 +567,7 @@ view cursor cursor+1000b find "marker"
 Problem: Get the first 10 characters from each line in a log file
 
 ```bash
-fiskta --input app.log take 10b goto line-end skip 1b
+fiskta --input app.log take 10b skip to line-end skip 1b
 ```
 
 ### Skip header, extract body
@@ -592,7 +592,7 @@ Problem: Extract the username only if the line contains "login success"
 
 ```bash
 fiskta --input auth.log \
-    find "login success" goto line-end skip -1l find "user=" skip 5b take until " "
+    find "login success" skip to line-end skip -1l find "user=" skip 5b take until " "
 ```
 
 ### Try multiple patterns
@@ -627,7 +627,7 @@ Problem: Extract all config values from the `[database]` section only
 
 ```bash
 fiskta --continue --input config.ini \
-    find "[database]" goto line-end \
+    find "[database]" skip to line-end \
     view cursor cursor+1000b \
     find "=" skip -1l take to line-end
 ```
@@ -662,19 +662,18 @@ fiskta --continue --input photo.jpg \
 ```
 Program        = Clause { ( "THEN" | "OR" ) Clause } .
 Clause         = { Op } .
-Op             = Find | FindRegex | FindBinary | Skip | Take | Label | Goto
+Op             = Find | FindRegex | FindBinary | Skip | Take | Label
                | View | ClearView | Print | Fail .
 Find           = "find" [ "to" LocationExpr ] String .
 FindRegex      = "find" ":" "re" [ "to" LocationExpr ] String .
 FindBinary     = "find" ":" "bin" [ "to" LocationExpr ] String .
-Skip           = "skip" Number Unit .
+Skip           = "skip" ( Number Unit | "to" LocationExpr ) .
 Take           = "take" ( SignedNumber Unit
                           | "to" LocationExpr
                           | "until" String [ "at" AtExpr ]
                           | "until" ":" "re" String [ "at" AtExpr ]
                           | "until" ":" "bin" String [ "at" AtExpr ] ) .
 Label          = "label" Name .
-Goto           = "goto" LocationExpr .
 View           = "view" LocationExpr LocationExpr .
 ClearView      = "clear" "view" .
 Print          = ( "print" | "echo" ) String .

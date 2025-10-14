@@ -426,15 +426,35 @@ static enum Err find_regex_op(
 static enum Err skip_op(
     File* io,
     const Op* op,
+    VM* vm,
     i64* c_cursor,
+    Match* c_last_match,
+    LabelWrite* label_writes,
+    i32 label_count,
     const View* c_view)
 {
+    if (op->u.skip.is_location) {
+        // skip to <location>
+        enum Err err = resolve_location(&op->u.skip.to_location.to, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_NONE, c_cursor);
+        if (err != E_OK) {
+            return err;
+        }
 
-    if (op->u.skip.unit == UNIT_BYTES) {
+        // Check if target is outside view bounds
+        if (c_view->active && (*c_cursor < c_view->lo || *c_cursor > c_view->hi)) {
+            return E_LOC_RESOLVE;
+        }
+
+        *c_cursor = clamp64(*c_cursor, 0, io_size(io));
+        return E_OK;
+    }
+
+    // skip <offset><unit>
+    if (op->u.skip.by_offset.unit == UNIT_BYTES) {
         i64 cur = view_clamp(c_view, io, *c_cursor);
-        apply_delta_with_clamp(&cur, op->u.skip.offset, c_view, io, CLAMP_VIEW);
+        apply_delta_with_clamp(&cur, op->u.skip.by_offset.offset, c_view, io, CLAMP_VIEW);
         *c_cursor = cur;
-    } else if (op->u.skip.unit == UNIT_LINES) {
+    } else if (op->u.skip.by_offset.unit == UNIT_LINES) {
         // Skip by lines
         i64 current_line_start;
         enum Err err = io_line_start(io, *c_cursor, &current_line_start);
@@ -448,7 +468,7 @@ static enum Err skip_op(
         }
 
         err = io_step_lines(io, current_line_start,
-            (i32)op->u.skip.offset, c_cursor);
+            (i32)op->u.skip.by_offset.offset, c_cursor);
         if (err != E_OK) {
             return err;
         }
@@ -459,36 +479,12 @@ static enum Err skip_op(
         if (err != E_OK) {
             return err;
         }
-        err = io_step_chars(io, char_start, (i32)op->u.skip.offset, c_cursor);
+        err = io_step_chars(io, char_start, (i32)op->u.skip.by_offset.offset, c_cursor);
         if (err != E_OK) {
             return err;
         }
         *c_cursor = view_clamp(c_view, io, *c_cursor);
     }
-    return E_OK;
-}
-
-static enum Err goto_op(
-    File* io,
-    const Op* op,
-    VM* vm,
-    i64* c_cursor,
-    Match* c_last_match,
-    LabelWrite* label_writes,
-    i32 label_count,
-    const View* c_view)
-{
-    enum Err err = resolve_location(&op->u.go.to, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_NONE, c_cursor);
-    if (err != E_OK) {
-        return err;
-    }
-
-    // Check if target is outside view bounds
-    if (c_view->active && (*c_cursor < c_view->lo || *c_cursor > c_view->hi)) {
-        return E_LOC_RESOLVE;
-    }
-
-    *c_cursor = clamp64(*c_cursor, 0, io_size(io));
     return E_OK;
 }
 
@@ -849,9 +845,7 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
     case OP_FIND_BIN:
         return find_bytes_op(io, op, vm, c_cursor, c_last_match, *label_writes, *label_count, c_view);
     case OP_SKIP:
-        return skip_op(io, op, c_cursor, c_view);
-    case OP_GOTO:
-        return goto_op(io, op, vm, c_cursor, c_last_match, *label_writes, *label_count, c_view);
+        return skip_op(io, op, vm, c_cursor, c_last_match, *label_writes, *label_count, c_view);
     case OP_TAKE_LEN:
         return take_len_op(io, op, c_cursor, *ranges, range_count, *range_cap, c_view);
     case OP_TAKE_TO:

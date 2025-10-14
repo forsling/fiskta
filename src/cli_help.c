@@ -31,7 +31,7 @@ void print_usage(void)
     printf("  take until:bin <hex-string> [at match-start|match-end|line-start|line-end]\n");
     printf("                              Same as take until but with binary pattern (hex format)\n");
     printf("  label <name>                Mark current position with label\n");
-    printf("  goto <location>             Jump to labeled position\n");
+    printf("  skip to <location>          Move cursor to labeled position (no output)\n");
     printf("  view <L1> <L2>              Limit all ops to [min(L1,L2), max(L1,L2))\n");
     printf("  clear view                  Clear view; return to full file\n");
     printf("  print <string>              Emit literal bytes (alias: echo)\n");
@@ -150,7 +150,7 @@ void print_examples(void)
     printf("  fiskta --input config.txt find \"[database]\" label START find \"[\" label END view START END ...\n");
     printf("\n");
     printf("  # Extract all occurrences\n");
-    printf("  fiskta -i contacts.txt --continue find:re \"Name: \" goto match-end \n");
+    printf("  fiskta -i contacts.txt --continue find:re \"Name: \" skip to match-end \n");
     printf("         take until line-end \n");
     printf("\n");
     printf("  # Extract with regex until\n");
