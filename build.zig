@@ -1,139 +1,177 @@
 const std = @import("std");
 
 pub fn build(b: *std.Build) !void {
-    // Standard Zig CLI options
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    // Our options
     const version = b.option([]const u8, "version", "FISKTA version string") orelse blk: {
         const version_file = std.fs.cwd().readFileAlloc(b.allocator, "VERSION", 100) catch break :blk "dev";
         break :blk std.mem.trim(u8, version_file, &std.ascii.whitespace);
     };
-    const linkage = b.option(std.builtin.LinkMode, "linkage", "static or dynamic") orelse .dynamic;
 
-    // Use zig cc directly via system command
-    const exe_step = b.step("build", "Build fiskta using zig cc");
+    const out_dir = "zig-out/bin";
+    const mkdir_step = b.addSystemCommand(&.{ "mkdir", "-p", out_dir });
 
-    // Create output directory
-    const mkdir_cmd = b.addSystemCommand(&.{ "mkdir", "-p", "zig-out/bin" });
+    const host_step = b.step("build", "Build fiskta (host)");
+    const linkage_override = b.option(std.builtin.LinkMode, "linkage", "Linkage for host build") orelse .dynamic;
 
-    const zig_cc_cmd = b.addSystemCommand(&.{
-        "zig",            "cc",
-        "-std=c11",       "-Wall",
-        "-Wextra",        "-Wconversion",
-        "-Wshadow",       "-I",
-        "src",            "src/main.c",
-        "src/cli_help.c", "src/parse.c",
-        "src/engine.c",
-        "src/iosearch.c", "src/reprog.c",
-        "src/util.c",
-        "-o",             "zig-out/bin/fiskta",
-    });
+    const host_triple = try target.result.zigTriple(b.allocator);
+    const host_os = target.result.os.tag;
+    const host_shrink = optimize != .Debug;
+    const host_cmd = createBuildStep(
+        b,
+        &mkdir_step.step,
+        host_triple,
+        host_os,
+        linkage_override,
+        optimize,
+        version,
+        "fiskta",
+        "",
+        host_shrink,
+        false,
+    );
+    host_step.dependOn(&host_cmd.step);
 
-    // Add version define
-    zig_cc_cmd.addArg(b.fmt("-DFISKTA_VERSION=\"{s}\"", .{version}));
-
-    // Set target
-    zig_cc_cmd.addArg("-target");
-    zig_cc_cmd.addArg(b.fmt("{s}", .{try target.result.zigTriple(b.allocator)}));
-
-    // Set optimization
-    switch (optimize) {
-        .Debug => {
-            zig_cc_cmd.addArgs(&.{ "-g", "-O0", "-DDEBUG" });
-        },
-        .ReleaseFast => {
-            zig_cc_cmd.addArg("-O3");
-        },
-        .ReleaseSafe => {
-            zig_cc_cmd.addArg("-O2");
-        },
-        .ReleaseSmall => {
-            zig_cc_cmd.addArg("-Os");
-        },
+    if (host_os == .linux) {
+        const musl_cmd = createBuildStep(
+            b,
+            &mkdir_step.step,
+            "x86_64-linux-musl",
+            .linux,
+            .static,
+            optimize,
+            version,
+            "fiskta-musl",
+            "",
+            host_shrink,
+            false,
+        );
+        host_step.dependOn(&musl_cmd.step);
     }
 
-    // Set linkage
-    if (linkage == .static) {
-        zig_cc_cmd.addArg("-static");
-    }
+    b.getInstallStep().dependOn(host_step);
 
-    zig_cc_cmd.step.dependOn(&mkdir_cmd.step);
-    exe_step.dependOn(&zig_cc_cmd.step);
-
-    // Make install step depend on our build step
-    b.getInstallStep().dependOn(exe_step);
-
-    // Run step
-    const run_cmd = b.addSystemCommand(&.{"zig-out/bin/fiskta"});
+    const run_cmd = b.addSystemCommand(&.{ "zig-out/bin/fiskta" });
     if (b.args) |args| {
         run_cmd.addArgs(args);
     }
     const run_step = b.step("run", "Run fiskta");
-    run_step.dependOn(exe_step);
+    run_step.dependOn(host_step);
     run_step.dependOn(&run_cmd.step);
 
-    // Test step
     const test_cmd = b.addSystemCommand(&.{ "python3", "tests/run_tests.py" });
     test_cmd.setCwd(b.path("."));
-    test_cmd.setEnvironmentVariable("PATH", b.pathJoin(&.{ b.pathFromRoot("zig-out/bin"), ":", std.posix.getenv("PATH") orelse "" }));
-    test_cmd.step.dependOn(exe_step);
+    test_cmd.setEnvironmentVariable("PATH", b.pathJoin(&.{ b.pathFromRoot(out_dir), ":", std.posix.getenv("PATH") orelse "" }));
+    test_cmd.step.dependOn(host_step);
     const test_step = b.step("test", "Run comprehensive test suite");
     test_step.dependOn(&test_cmd.step);
 
-    // Multi-target build step
-    const all_step = b.step("all", "Build fiskta for multiple platforms");
+    const release_step = b.step("release", "Build release binaries (<150 KiB) for all platforms");
+    const release_targets = [_]struct {
+        triple: []const u8,
+        os: std.Target.Os.Tag,
+        linkage: std.builtin.LinkMode,
+        name: []const u8,
+        ext: []const u8,
+        use_lto: bool,
+    }{
+        .{ .triple = "x86_64-linux-gnu", .os = .linux, .linkage = .dynamic, .name = "fiskta-linux-x86_64", .ext = "", .use_lto = true },
+        .{ .triple = "x86_64-linux-musl", .os = .linux, .linkage = .static, .name = "fiskta-linux-x86_64-musl", .ext = "", .use_lto = true },
+        .{ .triple = "aarch64-macos", .os = .macos, .linkage = .dynamic, .name = "fiskta-macos-arm64", .ext = "", .use_lto = false },
+        .{ .triple = "x86_64-windows", .os = .windows, .linkage = .dynamic, .name = "fiskta-x86_64", .ext = ".exe", .use_lto = false },
+    };
 
-    // Linux x86_64 dynamic
-    const linux_dynamic = createBuildStep(b, "x86_64-linux-gnu", .dynamic, "linux-x86_64", version, "");
-    all_step.dependOn(&linux_dynamic.step);
-
-    // Linux x86_64 static (musl)
-    const linux_static = createBuildStep(b, "x86_64-linux-musl", .static, "linux-x86_64-musl", version, "");
-    all_step.dependOn(&linux_static.step);
-
-    // macOS ARM64
-    const macos_arm = createBuildStep(b, "aarch64-macos", .dynamic, "macos-arm64", version, "");
-    all_step.dependOn(&macos_arm.step);
-
-    // Windows x86_64
-    const windows_x64 = createBuildStep(b, "x86_64-windows", .dynamic, "x86_64", version, ".exe");
-    all_step.dependOn(&windows_x64.step);
+    for (release_targets) |entry| {
+        const step = createBuildStep(
+            b,
+            &mkdir_step.step,
+            entry.triple,
+            entry.os,
+            entry.linkage,
+            .ReleaseFast,
+            version,
+            entry.name,
+            entry.ext,
+            true,
+            entry.use_lto,
+        );
+        release_step.dependOn(&step.step);
+    }
 }
 
-fn createBuildStep(b: *std.Build, target_str: []const u8, linkage: std.builtin.LinkMode, output_name: []const u8, version: []const u8, ext: []const u8) *std.Build.Step.Run {
-    // Create output directory
-    const mkdir_cmd = b.addSystemCommand(&.{ "mkdir", "-p", "zig-out/bin" });
-
-    const zig_cc_cmd = b.addSystemCommand(&.{
-        "zig",            "cc",
-        "-std=c11",       "-Wall",
-        "-Wextra",        "-Wconversion",
-        "-Wshadow",       "-I",
-        "src",            "src/main.c",
-        "src/cli_help.c", "src/parse.c",
+fn createBuildStep(
+    b: *std.Build,
+    mkdir_step: *std.Build.Step,
+    target_triple: []const u8,
+    target_os: std.Target.Os.Tag,
+    linkage: std.builtin.LinkMode,
+    optimize: std.builtin.OptimizeMode,
+    version: []const u8,
+    out_name: []const u8,
+    out_ext: []const u8,
+    shrink: bool,
+    use_lto: bool,
+) *std.Build.Step.Run {
+    const cmd = b.addSystemCommand(&.{
+        "zig",
+        "cc",
+        "-std=c11",
+        "-Wall",
+        "-Wextra",
+        "-Wconversion",
+        "-Wshadow",
+        "-ffunction-sections",
+        "-fdata-sections",
+        "-I",
+        "src",
+        "src/main.c",
+        "src/cli_help.c",
+        "src/parse.c",
         "src/engine.c",
-        "src/iosearch.c", "src/reprog.c",
+        "src/iosearch.c",
+        "src/reprog.c",
         "src/util.c",
-        "-o",             b.fmt("zig-out/bin/fiskta-{s}{s}", .{ output_name, ext }),
+        "-o",
+        b.fmt("zig-out/bin/{s}{s}", .{ out_name, out_ext }),
     });
 
-    // Add version define
-    zig_cc_cmd.addArg(b.fmt("-DFISKTA_VERSION=\"{s}\"", .{version}));
+    cmd.addArg(b.fmt("-DFISKTA_VERSION=\"{s}\"", .{ version }));
+    cmd.addArgs(&.{ "-target", target_triple });
 
-    // Set target
-    zig_cc_cmd.addArg("-target");
-    zig_cc_cmd.addArg(target_str);
-
-    // Set optimization to ReleaseSmall for smaller binaries
-    zig_cc_cmd.addArg("-Os");
-
-    // Set linkage
-    if (linkage == .static) {
-        zig_cc_cmd.addArg("-static");
+    switch (optimize) {
+        .Debug => cmd.addArgs(&.{ "-g", "-O0", "-DDEBUG" }),
+        .ReleaseFast => cmd.addArg("-O3"),
+        .ReleaseSafe => cmd.addArg("-O2"),
+        .ReleaseSmall => cmd.addArg("-Os"),
     }
 
-    zig_cc_cmd.step.dependOn(&mkdir_cmd.step);
-    return zig_cc_cmd;
+    if (shrink) {
+        if (use_lto) {
+            cmd.addArg("-flto");
+        }
+        cmd.addArgs(&.{
+            "-fomit-frame-pointer",
+            "-fno-stack-protector",
+            "-fno-unwind-tables",
+            "-fno-asynchronous-unwind-tables",
+        });
+    }
+
+    if (optimize != .Debug) {
+        cmd.addArg("-s");
+    }
+
+    if (target_os == .macos) {
+        cmd.addArg("-Wl,-dead_strip");
+    } else {
+        cmd.addArg("-Wl,--gc-sections");
+    }
+
+    if (linkage == .static) {
+        cmd.addArg("-static");
+    }
+
+    cmd.step.dependOn(mkdir_step);
+    return cmd;
 }
