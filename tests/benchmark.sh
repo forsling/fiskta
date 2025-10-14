@@ -1,17 +1,25 @@
 #!/bin/bash
 # fiskta benchmark - comprehensive performance and memory testing
-# Usage: tests/bench/benchmark.sh [fiskta_binary]
+# Usage: tests/benchmark.sh [options] [fiskta_binary]
+# Options:
+#   -s, --summary-only    Show only summary (suppress individual test output)
+#   -n, --iterations N    Run benchmark N times and show aggregate statistics
 
 set -e
 
 # Parse arguments
 SUMMARY_ONLY=0
 FISKTA=""
+ITERATIONS=1
 while [[ $# -gt 0 ]]; do
     case "$1" in
     -s|--summary-only)
         SUMMARY_ONLY=1
         shift
+        ;;
+    -n|--iterations)
+        ITERATIONS="$2"
+        shift 2
         ;;
     *)
         if [[ -z "$FISKTA" ]]; then
@@ -163,6 +171,53 @@ calc_stats() {
     echo "$total_time $peak_mem $avg_time"
 }
 
+# Calculate statistical measures (mean, median, stddev, min, max) for an array of values
+calc_statistics() {
+    local values=("$@")
+    if [ ${#values[@]} -eq 0 ]; then
+        echo "0.00 0.00 0.00 0.00 0.00"
+        return
+    fi
+
+    printf '%s\n' "${values[@]}" | sort -n | awk '
+    {
+        values[NR] = $1
+        sum += $1
+        if (NR == 1 || $1 < min) min = $1
+        if (NR == 1 || $1 > max) max = $1
+    }
+    END {
+        n = NR
+        if (n == 0) {
+            print "0.00 0.00 0.00 0.00 0.00"
+            exit
+        }
+
+        mean = sum / n
+
+        # Calculate median (values are already sorted via sort -n)
+        if (n % 2 == 1) {
+            median = values[int(n/2) + 1]
+        } else {
+            median = (values[n/2] + values[n/2 + 1]) / 2
+        }
+
+        # Calculate standard deviation
+        if (n > 1) {
+            variance_sum = 0
+            for (i = 1; i <= n; i++) {
+                diff = values[i] - mean
+                variance_sum += diff * diff
+            }
+            stddev = sqrt(variance_sum / (n - 1))
+        } else {
+            stddev = 0
+        }
+
+        printf "%.2f %.2f %.2f %.2f %.2f\n", mean, median, stddev, min, max
+    }'
+}
+
 # Generate test data
 generate_test_data
 
@@ -179,18 +234,29 @@ if [ "$SUMMARY_ONLY" -eq 0 ]; then
     echo ""
 fi
 
-# Arrays to store results
-declare -a throughput
-declare -a search
-declare -a complex
-declare -a core_samples
+# Arrays to store results across all iterations
+declare -a all_core_sums
+declare -a all_grand_totals
 
-if [ "$SUMMARY_ONLY" -eq 0 ]; then
-    echo ""
-    echo "Running benchmarks..."
-    printf "%-12s %-34s %12s %10s %8s\n" "Section" "Test" "Time (ms)" "RSS KB" "Faults"
-    printf "%-12s %-34s %12s %10s %8s\n" "------------" "----------------------------------" "------------" "--------" "--------"
-fi
+# Run benchmarks for specified number of iterations
+for iter in $(seq 1 "$ITERATIONS"); do
+    if [ "$ITERATIONS" -gt 1 ] && [ "$SUMMARY_ONLY" -eq 0 ]; then
+        echo ""
+        echo "=== Iteration $iter/$ITERATIONS ==="
+    fi
+
+    # Arrays to store results for this iteration
+    declare -a throughput
+    declare -a search
+    declare -a complex
+    declare -a core_samples
+
+    if [ "$SUMMARY_ONLY" -eq 0 ]; then
+        echo ""
+        echo "Running benchmarks..."
+        printf "%-12s %-34s %12s %10s %8s\n" "Section" "Test" "Time (ms)" "RSS KB" "Faults"
+        printf "%-12s %-34s %12s %10s %8s\n" "------------" "----------------------------------" "------------" "--------" "--------"
+    fi
 
 # ============================================================
 # THROUGHPUT TESTS (no search, raw I/O performance)
@@ -241,27 +307,27 @@ if [ "$SUMMARY_ONLY" -eq 0 ]; then
 fi
 core_samples+=("$time")
 
-search+=("$(run_bench "Regex simple" "$FISKTA" -c "find:re ERROR take to line-end" --input "$BENCH_DIR/logs.txt")")
+search+=("$(run_bench "Regex simple" "$FISKTA" --input "$BENCH_DIR/logs.txt" -- find:re ERROR take to line-end)")
 IFS='|' read -r name time mem f1 f2 <<< "${search[-1]}"
 if [ "$SUMMARY_ONLY" -eq 0 ]; then
     print_result "Search" "$name" "$time" "$mem" "$f1"
 fi
 core_samples+=("$time")
 
-search+=("$(run_bench "Regex email extract" "$FISKTA" -c "find:re [a-z0-9]+@[a-z.]+ take to match-end" --input "$BENCH_DIR/logs.txt")")
+search+=("$(run_bench "Regex email extract" "$FISKTA" --input "$BENCH_DIR/logs.txt" -- "find:re" "[a-z0-9]+@[a-z.]+" take to match-end)")
 IFS='|' read -r name time mem f1 f2 <<< "${search[-1]}"
 if [ "$SUMMARY_ONLY" -eq 0 ]; then
     print_result "Search" "$name" "$time" "$mem" "$f1"
 fi
 
-search+=("$(run_bench "Regex alternation" "$FISKTA" -c "find:re (ERROR|WARN|INFO) take to line-end" --input "$BENCH_DIR/logs.txt")")
+search+=("$(run_bench "Regex alternation" "$FISKTA" --input "$BENCH_DIR/logs.txt" -- "find:re" "(ERROR|WARN|INFO)" take to line-end)")
 IFS='|' read -r name time mem f1 f2 <<< "${search[-1]}"
 if [ "$SUMMARY_ONLY" -eq 0 ]; then
     print_result "Search" "$name" "$time" "$mem" "$f1"
 fi
 core_samples+=("$time")
 
-search+=("$(run_bench "Regex until" "$FISKTA" -c "take until:re ERROR" --input "$BENCH_DIR/logs.txt")")
+search+=("$(run_bench "Regex until" "$FISKTA" --input "$BENCH_DIR/logs.txt" -- take "until:re" ERROR)")
 IFS='|' read -r name time mem f1 f2 <<< "${search[-1]}"
 if [ "$SUMMARY_ONLY" -eq 0 ]; then
     print_result "Search" "$name" "$time" "$mem" "$f1"
@@ -293,7 +359,7 @@ skip 1b
 goto LOOP
 label DONE
 FISPROG
-complex+=("$(run_bench "500 section extraction" "$FISKTA" --input "$BENCH_DIR/services.conf" -c "$BENCH_DIR/loop.fis")")
+complex+=("$(run_bench "500 section extraction" "$FISKTA" --input "$BENCH_DIR/services.conf" --ops "$BENCH_DIR/loop.fis")")
 IFS='|' read -r name time mem f1 f2 <<< "${complex[-1]}"
 if [ "$SUMMARY_ONLY" -eq 0 ]; then
     print_result "Complex" "$name" "$time" "$mem" "$f1"
@@ -312,7 +378,7 @@ find "port="
 skip 5b
 take to line-end
 FISPROG
-complex+=("$(run_bench "View-scoped extraction" "$FISKTA" --input "$BENCH_DIR/services.conf" -c "$BENCH_DIR/view.fis")")
+complex+=("$(run_bench "View-scoped extraction" "$FISKTA" --input "$BENCH_DIR/services.conf" --ops "$BENCH_DIR/view.fis")")
 IFS='|' read -r name time mem f1 f2 <<< "${complex[-1]}"
 if [ "$SUMMARY_ONLY" -eq 0 ]; then
     print_result "Complex" "$name" "$time" "$mem" "$f1"
@@ -380,19 +446,59 @@ calc_mean_throughput() {
     fi
 }
 
-throughput_mbs=$(calc_mean_throughput throughput)
+    throughput_mbs=$(calc_mean_throughput throughput)
 
-core_sum=$(printf '%s\n' "${core_samples[@]}" | awk '{sum+=$1} END {if (NR==0) printf("0.00"); else printf("%.2f", sum)}')
-echo ""
-echo "╔════════════════════════════════════════════════════════════╗"
-summary_label="Summary for: $FISKTA"
-printf "║ %-58.58s ║\n" "$summary_label"
-echo "╠════════════════════════════════════════════════════════════╣"
-printf "║ %-23s %-34s ║\n" "Total runtime:" "${grand_total} ms"
-printf "║ %-23s %-34s ║\n" "Throughput section:" "${thr_total}ms (avg ${thr_avg}ms)"
-printf "║ %-23s %-34s ║\n" "Search section:" "${sea_total}ms (avg ${sea_avg}ms)"
-printf "║ %-23s %-34s ║\n" "Complex section:" "${com_total}ms (avg ${com_avg}ms)"
-printf "║ %-23s %-34s ║\n" "Mean throughput:" "${throughput_mbs} MB/s"
-printf "║ %-23s %-34s ║\n" "Peak memory:" "${mem_mb} MB"
-printf "║ %-23s %-34s ║\n" "Core sum:" "${core_sum} ms"
-echo "╚════════════════════════════════════════════════════════════╝"
+    core_sum=$(printf '%s\n' "${core_samples[@]}" | awk '{sum+=$1} END {if (NR==0) printf("0.00"); else printf("%.2f", sum)}')
+
+    # Store iteration results
+    all_core_sums+=("$core_sum")
+    all_grand_totals+=("$grand_total")
+
+    if [ "$ITERATIONS" -eq 1 ] || [ "$SUMMARY_ONLY" -eq 0 ]; then
+        echo ""
+        echo "╔════════════════════════════════════════════════════════════╗"
+        if [ "$ITERATIONS" -gt 1 ]; then
+            summary_label="Iteration $iter/$ITERATIONS: $FISKTA"
+        else
+            summary_label="Summary for: $FISKTA"
+        fi
+        printf "║ %-58.58s ║\n" "$summary_label"
+        echo "╠════════════════════════════════════════════════════════════╣"
+        printf "║ %-23s %-34s ║\n" "Total runtime:" "${grand_total} ms"
+        printf "║ %-23s %-34s ║\n" "Throughput section:" "${thr_total}ms (avg ${thr_avg}ms)"
+        printf "║ %-23s %-34s ║\n" "Search section:" "${sea_total}ms (avg ${sea_avg}ms)"
+        printf "║ %-23s %-34s ║\n" "Complex section:" "${com_total}ms (avg ${com_avg}ms)"
+        printf "║ %-23s %-34s ║\n" "Mean throughput:" "${throughput_mbs} MB/s"
+        printf "║ %-23s %-34s ║\n" "Peak memory:" "${mem_mb} MB"
+        printf "║ %-23s %-34s ║\n" "Core sum:" "${core_sum} ms"
+        echo "╚════════════════════════════════════════════════════════════╝"
+    fi
+
+    # Clear iteration arrays for next iteration
+    unset throughput search complex core_samples
+done
+
+# Print aggregate statistics if multiple iterations
+if [ "$ITERATIONS" -gt 1 ]; then
+    read -r mean_core median_core stddev_core min_core max_core <<< "$(calc_statistics "${all_core_sums[@]}")"
+    read -r mean_total median_total stddev_total min_total max_total <<< "$(calc_statistics "${all_grand_totals[@]}")"
+
+    echo ""
+    echo "╔════════════════════════════════════════════════════════════╗"
+    printf "║ %-58.58s ║\n" "Aggregate Statistics ($ITERATIONS iterations)"
+    echo "╠════════════════════════════════════════════════════════════╣"
+    printf "║ %-58.58s ║\n" "Core Sum (ms):"
+    printf "║   %-20s %-35s ║\n" "Mean:" "$mean_core"
+    printf "║   %-20s %-35s ║\n" "Median:" "$median_core"
+    printf "║   %-20s %-35s ║\n" "Std Dev:" "$stddev_core"
+    printf "║   %-20s %-35s ║\n" "Min:" "$min_core"
+    printf "║   %-20s %-35s ║\n" "Max:" "$max_core"
+    echo "╠════════════════════════════════════════════════════════════╣"
+    printf "║ %-58.58s ║\n" "Total Runtime (ms):"
+    printf "║   %-20s %-35s ║\n" "Mean:" "$mean_total"
+    printf "║   %-20s %-35s ║\n" "Median:" "$median_total"
+    printf "║   %-20s %-35s ║\n" "Std Dev:" "$stddev_total"
+    printf "║   %-20s %-35s ║\n" "Min:" "$min_total"
+    printf "║   %-20s %-35s ║\n" "Max:" "$max_total"
+    echo "╚════════════════════════════════════════════════════════════╝"
+fi
