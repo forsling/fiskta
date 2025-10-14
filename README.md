@@ -190,12 +190,12 @@ fiskta --follow --every 1s --until-idle 0 --input service.log find "ERROR" take 
 
 ## Installation
 
-### Using Make
+### Using build.sh (simple local builds)
 
 ```bash
-make              # Build optimized binary (./fiskta)
-make debug        # Build with debug symbols
-make test         # Run test suite (requires Python 3)
+./build.sh              # Build optimized binary (./fiskta)
+./build.sh --debug      # Build with debug symbols
+python3 tests/run_tests.py  # Run test suite
 tests/benchmark.sh ./fiskta  # Run performance benchmark
 ```
 
@@ -204,7 +204,7 @@ tests/benchmark.sh ./fiskta  # Run performance benchmark
 ```bash
 zig build                    # Build for host platform (zig-out/bin/fiskta)
 zig build test               # Build and run test suite
-zig build all                # Build for all platforms (Linux, macOS, Windows)
+zig build release            # Build for all platforms (Linux, macOS, Windows)
 ```
 
 ## Command Reference
@@ -482,21 +482,21 @@ fiskta --monitor --every 5m --input status.txt \
 
 fiskta uses exit codes to indicate success, failure, and the type of error encountered.
 
-- **0**: Success (at least one clause succeeded)
-  - Even if some clauses fail, if any clause succeeds, the exit code is 0
-- **1**: I/O error
-  - File not found, permission denied, read/write errors
-- **2**: Parse error
-  - Invalid syntax, unknown operation, missing arguments
-  - Caught during program parsing, before execution
-- **3**: Regex error
-  - Invalid regex pattern
-- **4**: Resource limit
-  - Program too large, out of memory during startup
-- **5**: Loop timeout (`--for`)
-- **9**: Program failure (no clause pipeline succeeded in the final iteration)
+- **0**: Success (includes normal --until-idle stop)
+  - At least one clause succeeded in the final iteration
+- **1**: Program failure (no clause succeeded in final iteration)
   - Returned when every clause in the last iteration failed
   - Suppressed by `--ignore-failures` while looping
+- **2**: Execution timeout (`--for` elapsed)
+- **10**: I/O error (open/read/write failure)
+  - File not found, permission denied, read/write errors
+- **11**: Resource limit (program too large, out of memory)
+  - Out of memory during startup or program too large
+- **12**: Parse error (invalid syntax, unknown operation)
+  - Invalid syntax, unknown operation, missing arguments
+  - Caught during program parsing, before execution
+- **13**: Regex error (invalid regex pattern)
+  - Invalid regex pattern syntax
 
 ## Views and Scoping
 
