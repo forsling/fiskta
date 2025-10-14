@@ -68,7 +68,7 @@ static size_t align_or_die(size_t x, size_t align)
     size_t aligned = safe_align(x, align);
     if (aligned == SIZE_MAX) {
         print_err(E_OOM, "arena alignment overflow");
-        exit(4);
+        exit(FISKTA_EXIT_RESOURCE);
     }
     return aligned;
 }
@@ -670,7 +670,7 @@ static bool loop_should_wait_or_stop(LoopState* state, bool no_new_data, int* ou
     u64 now = now_millis();
     if (state->exec_timeout_ms >= 0 && now - state->t0_ms >= (u64)state->exec_timeout_ms) {
         if (out_exit_reason) {
-            *out_exit_reason = 5; // EXEC TIMEOUT
+            *out_exit_reason = FISKTA_EXIT_TIMEOUT;
         }
         return false; // stop
     }
@@ -721,7 +721,7 @@ static void loop_commit(LoopState* state, i64 data_hi, IterResult result, bool i
         }
         break;
     case ITER_IO_ERROR:
-        state->exit_code = 1;
+        state->exit_code = FISKTA_EXIT_IO;
         break;
     }
 }
@@ -915,13 +915,13 @@ int main(int argc, char** argv)
     size_t total = search_buf_size;
     if (add_overflow(total, clauses_size, &total) || add_overflow(total, ops_size, &total) || add_overflow(total, re_prog_size, &total) || add_overflow(total, re_ins_size, &total) || add_overflow(total, re_cls_size, &total) || add_overflow(total, str_pool_size, &total) || add_overflow(total, re_thrbufs_size, &total) || add_overflow(total, re_seen_size, &total) || add_overflow(total, ranges_bytes, &total) || add_overflow(total, labels_bytes, &total) || add_overflow(total, 64, &total)) { // 3 small cushion
         print_err(E_OOM, "arena size overflow");
-        return 4; // Exit code 4: Resource limit
+        return FISKTA_EXIT_RESOURCE;
     }
 
     void* block = malloc(total);
     if (!block) {
         print_err(E_OOM, "arena alloc");
-        return 4; // Exit code 4: Resource limit
+        return FISKTA_EXIT_RESOURCE;
     }
     Arena arena;
     arena_init(&arena, block, total);
@@ -951,7 +951,7 @@ int main(int argc, char** argv)
         || (plan.sum_label_ops > 0 && !clause_labels)) {
         print_err(E_OOM, "arena carve");
         free(block);
-        return 4; // Exit code 4: Resource limit
+        return FISKTA_EXIT_RESOURCE;
     }
 
     /************************************************************
@@ -988,7 +988,7 @@ int main(int argc, char** argv)
                 if (err != E_OK) {
                     print_err(err, "regex compile");
                     free(block);
-                    return (err == E_PARSE || err == E_BAD_NEEDLE) ? 3 : 4;
+                    return (err == E_PARSE || err == E_BAD_NEEDLE) ? FISKTA_EXIT_REGEX : FISKTA_EXIT_RESOURCE;
                 }
                 op->u.findr.prog = prog;
             } else if (op->kind == OP_TAKE_UNTIL_RE) {
@@ -999,7 +999,7 @@ int main(int argc, char** argv)
                 if (err != E_OK) {
                     print_err(err, "regex compile");
                     free(block);
-                    return (err == E_PARSE || err == E_BAD_NEEDLE) ? 3 : 4;
+                    return (err == E_PARSE || err == E_BAD_NEEDLE) ? FISKTA_EXIT_REGEX : FISKTA_EXIT_RESOURCE;
                 }
                 op->u.take_until_re.prog = prog;
             }
@@ -1015,7 +1015,7 @@ int main(int argc, char** argv)
     if (e != E_OK) {
         free(block);
         print_err(e, "I/O open");
-        return 1; // Exit code 1: I/O error
+        return FISKTA_EXIT_IO;
     }
 
     io_set_regex_scratch(&io, re_curr_thr, re_next_thr, re_threads_cap,
@@ -1032,7 +1032,7 @@ int main(int argc, char** argv)
         // Handle --for timeout even if no iteration has executed yet
         int reason = 0;
         (void)loop_should_wait_or_stop(&loop_state, /*no_new_data=*/false, &reason);
-        if (reason == 5) {
+        if (reason == FISKTA_EXIT_TIMEOUT) {
             loop_state.exit_reason = reason;
             break;
         }
@@ -1048,7 +1048,7 @@ int main(int argc, char** argv)
             if (loop_should_wait_or_stop(&loop_state, /*no_new_data=*/true, &reason)) {
                 continue; // just slept; try again
             }
-            loop_state.exit_reason = reason; // 0 => idle stop, 5 => exec timeout
+            loop_state.exit_reason = reason; // 0 => idle stop, FISKTA_EXIT_TIMEOUT => exec timeout
             break;
         }
 
@@ -1090,14 +1090,14 @@ int main(int argc, char** argv)
 
     if (loop_state.exit_code) { return loop_state.exit_code;
 }
-    if (loop_state.exit_reason == 5) { return 5; // --for timeout
+    if (loop_state.exit_reason == FISKTA_EXIT_TIMEOUT) { return FISKTA_EXIT_TIMEOUT;
 }
 
     // Otherwise evaluate last iteration outcome
     switch (loop_state.last_result.status) {
-    case ITER_OK: return 0;
-    case ITER_IO_ERROR: return 1;
+    case ITER_OK: return FISKTA_EXIT_OK;
+    case ITER_IO_ERROR: return FISKTA_EXIT_IO;
     case ITER_PROGRAM_FAIL: return FISKTA_EXIT_PROGRAM_FAIL;
-    default: return 1;
+    default: return FISKTA_EXIT_IO;
     }
 }

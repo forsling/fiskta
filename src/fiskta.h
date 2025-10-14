@@ -77,6 +77,18 @@ enum Err {
     E_OOM
 };
 
+// Exit codes
+enum FisktaExitCode {
+    FISKTA_EXIT_OK = 0,
+    FISKTA_EXIT_PROGRAM_FAIL = 1,
+    FISKTA_EXIT_TIMEOUT = 2,
+    // 3-9 reserved for future user-controlled outcomes
+    FISKTA_EXIT_IO = 10,
+    FISKTA_EXIT_RESOURCE = 11,
+    FISKTA_EXIT_PARSE = 12,
+    FISKTA_EXIT_REGEX = 13,
+};
+
 typedef struct {
     i64 offset;
     i32 name_idx; // index into program->names[], -1 otherwise

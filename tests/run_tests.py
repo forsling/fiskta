@@ -18,7 +18,7 @@ def repo_version() -> str:
 
 VERSION = repo_version()
 VERSION_LINE = f"fiskta - (fi)nd (sk)ip (ta)ke v{VERSION}\n"
-PROGRAM_FAIL_EXIT = 9
+PROGRAM_FAIL_EXIT = 1
 
 def write(path: Path, data: bytes):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -309,7 +309,7 @@ def tests():
 
         dict(id="error-008-invalid-regex",
              tokens=["find:re","[unclosed"], input_file="small.txt",
-             expect=dict(stdout="", exit=3)),
+             expect=dict(stdout="", exit=13)),
 
         dict(id="error-009-take-until-not-found",
              tokens=["take","until","NOTFOUND"], input_file="small.txt",
@@ -1538,7 +1538,7 @@ def tests():
 
         dict(id="regex-043-empty-pattern",
              tokens=["find:re",""], input_file="overlap.txt",
-             expect=dict(stdout="", exit=3)),
+             expect=dict(stdout="", exit=13)),
 
         dict(id="regex-044-invalid-escape",
              tokens=["find:re","\\z","take","+1b"], input_file="-", stdin=b"abc",
@@ -1643,7 +1643,7 @@ def tests():
         # Edge case: very long pattern
         dict(id="regex-065-long-pattern",
              tokens=["find:re","X{1000}","take","+1000b"], input_file="large-lines.txt",
-             expect=dict(stdout="", exit=4)),  # Large quantifiers cause memory issues (1000 individual instructions)
+             expect=dict(stdout="", exit=11)),  # Large quantifiers cause memory issues (1000 individual instructions)
 
         # Regex with CRLF
         dict(id="regex-066-crlf-pattern",
@@ -2392,7 +2392,7 @@ def tests():
         dict(id="loop-014-for-timeout",
              tokens=["take","+1b"], input_file="overlap.txt",
              extra_args=["--for","0"],
-             expect=dict(stdout="", exit=5)),
+             expect=dict(stdout="", exit=2)),
 
         # ---------- Stage-only execution tests ----------
         dict(id="stage-001-basic-staging",
