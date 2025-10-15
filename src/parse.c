@@ -999,19 +999,15 @@ static enum Err parse_loc_expr(const String* tokens, i32* idx, i32 token_count, 
     String base_tok;
     if (offset_start) {
         // Parse base part
-        char base_token[256];
         size_t base_len = (size_t)(offset_start - token);
-        if (base_len >= sizeof(base_token)) {
+        if (base_len == 0) {
             return E_PARSE;
         }
-        // Create String for base part and copy to buffer
-        String base_str = { token, (i32)base_len };
-        if (!string_copy_to_buffer(base_str, base_token, sizeof(base_token))) {
+        if (base_len > INT32_MAX) {
             return E_PARSE;
         }
 
         // Parse offset part
-        // Create String for offset part - compute length directly
         i32 offset_len = (i32)(token_tok.len - (offset_start - token_tok.bytes));
         String offset_str = { offset_start, offset_len };
         enum Err err = parse_offset(offset_str, &loc->offset, &loc->unit);
@@ -1019,8 +1015,8 @@ static enum Err parse_loc_expr(const String* tokens, i32* idx, i32 token_count, 
             return err;
         }
 
-        // Create String token for base part
-        base_tok.bytes = base_token;
+        // Reuse the original token buffer for the base substring
+        base_tok.bytes = token_tok.bytes;
         base_tok.len = (i32)base_len;
     } else {
         // No offset - use original token
@@ -1084,14 +1080,11 @@ static enum Err parse_at_expr(const String* tokens, i32* idx, i32 token_count, L
     String base_tok;
     if (offset_start) {
         // Parse base part
-        char base_token[256];
         size_t base_len = (size_t)(offset_start - token);
-        if (base_len >= sizeof(base_token)) {
+        if (base_len == 0) {
             return E_PARSE;
         }
-        // Create String for base part and copy to buffer
-        String base_str = { token, (i32)base_len };
-        if (!string_copy_to_buffer(base_str, base_token, sizeof(base_token))) {
+        if (base_len > INT32_MAX) {
             return E_PARSE;
         }
 
@@ -1104,8 +1097,8 @@ static enum Err parse_at_expr(const String* tokens, i32* idx, i32 token_count, L
             return err;
         }
 
-        // Create String token for base part
-        base_tok.bytes = base_token;
+        // Reuse the original token buffer for the base substring
+        base_tok.bytes = token_tok.bytes;
         base_tok.len = (i32)base_len;
     } else {
         // No offset - use original token

@@ -271,6 +271,10 @@ def tests():
              tokens=["label","Bad"], input_file="small.txt",
              expect=dict(stdout="", exit=2)),
 
+        dict(id="gram-005-view-inline-offsets",
+             tokens=["view","BOF+2b","BOF+5b","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="cde", exit=0)),
+
 #             expect=dict(stdout="ab", exit=0)),
 
         dict(id="gram-008-print-hex",
