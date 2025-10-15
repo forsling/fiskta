@@ -545,12 +545,10 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
             } else if (is_keyword(cmd_tok, &kw_clear)) {
                 skip_optional_token(&idx, token_count);
             } else if (is_keyword(cmd_tok, &kw_print) || is_keyword(cmd_tok, &kw_echo)) {
-                idx++; // skip command token
                 skip_one_token(&idx, token_count);
             } else if (is_keyword(cmd_tok, &kw_fail)) {
-                idx++; // skip command token
                 if (idx < token_count) {
-                    idx++; // skip message
+                    idx++;
                 }
             }
         }
