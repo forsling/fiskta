@@ -172,23 +172,23 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
         }
         if (strcmp(arg, "-h") == 0 || strcmp(arg, "--help") == 0) {
             print_usage();
-            *exit_code_out = 0;
+            *exit_code_out = FISKTA_EXIT_OK;
             return false;
         }
         if (strcmp(arg, "--examples") == 0) {
             print_examples();
-            *exit_code_out = 0;
+            *exit_code_out = FISKTA_EXIT_OK;
             return false;
         }
         if (strcmp(arg, "-v") == 0 || strcmp(arg, "--version") == 0) {
             printf("fiskta - (fi)nd (sk)ip (ta)ke v%s\n", FISKTA_VERSION);
-            *exit_code_out = 0;
+            *exit_code_out = FISKTA_EXIT_OK;
             return false;
         }
         if (strcmp(arg, "-i") == 0 || strcmp(arg, "--input") == 0) {
             if (argi + 1 >= argc) {
                 fprintf(stderr, "fiskta: --input requires a path\n");
-                *exit_code_out = 2;
+                *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
             opt.input_path = argv[argi + 1];
@@ -198,7 +198,7 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
         if (strncmp(arg, "--input=", 8) == 0) {
             if (arg[8] == '\0') {
                 fprintf(stderr, "fiskta: --input requires a path\n");
-                *exit_code_out = 2;
+                *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
             opt.input_path = arg + 8;
@@ -209,11 +209,11 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
             opt.loop_enabled = true;
             if (argi + 1 >= argc) {
                 fprintf(stderr, "fiskta: --every requires a time value\n");
-                *exit_code_out = 2;
+                *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
             if (parse_time_option(argv[argi + 1], "--every", &opt.loop_ms) != 0) {
-                *exit_code_out = 2;
+                *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
             argi += 2;
@@ -222,7 +222,7 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
         if (strncmp(arg, "--every=", 8) == 0) {
             opt.loop_enabled = true;
             if (parse_time_option(arg + 8, "--every", &opt.loop_ms) != 0) {
-                *exit_code_out = 2;
+                *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
             argi++;
@@ -231,11 +231,11 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
         if (strcmp(arg, "--until-idle") == 0) {
             if (argi + 1 >= argc) {
                 fprintf(stderr, "fiskta: --until-idle requires a value\n");
-                *exit_code_out = 2;
+                *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
             if (parse_until_idle_option(argv[argi + 1], &opt.idle_timeout_ms) != 0) {
-                *exit_code_out = 2;
+                *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
             argi += 2;
@@ -243,7 +243,7 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
         }
         if (strncmp(arg, "--until-idle=", 13) == 0) {
             if (parse_until_idle_option(arg + 13, &opt.idle_timeout_ms) != 0) {
-                *exit_code_out = 2;
+                *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
             argi++;
@@ -252,11 +252,11 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
         if (strcmp(arg, "--for") == 0) {
             if (argi + 1 >= argc) {
                 fprintf(stderr, "fiskta: --for requires a value\n");
-                *exit_code_out = 2;
+                *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
             if (parse_time_option(argv[argi + 1], "--for", &opt.exec_timeout_ms) != 0) {
-                *exit_code_out = 2;
+                *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
             argi += 2;
@@ -264,7 +264,7 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
         }
         if (strncmp(arg, "--for=", 6) == 0) {
             if (parse_time_option(arg + 6, "--for", &opt.exec_timeout_ms) != 0) {
-                *exit_code_out = 2;
+                *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
             argi++;
@@ -296,12 +296,12 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
         if (strcmp(arg, "--ops") == 0) {
             if (opt.ops_arg || opt.ops_file) {
                 fprintf(stderr, "fiskta: --ops specified multiple times\n");
-                *exit_code_out = 2;
+                *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
             if (argi + 1 >= argc) {
                 fprintf(stderr, "fiskta: --ops requires a string\n");
-                *exit_code_out = 2;
+                *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
             const char* value = argv[argi + 1];
@@ -318,12 +318,12 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
         if (strncmp(arg, "--ops=", 6) == 0) {
             if (opt.ops_arg || opt.ops_file) {
                 fprintf(stderr, "fiskta: --ops specified multiple times\n");
-                *exit_code_out = 2;
+                *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
             if (arg[6] == '\0') {
                 fprintf(stderr, "fiskta: --ops requires a string\n");
-                *exit_code_out = 2;
+                *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
             const char* value = arg + 6;
@@ -342,7 +342,7 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
                 break;
             }
             fprintf(stderr, "fiskta: unknown option %s\n", arg);
-            *exit_code_out = 2;
+            *exit_code_out = FISKTA_EXIT_PARSE;
             return false;
         }
         break;
@@ -479,7 +479,7 @@ static int parse_until_idle_option(const char* value, i32* out)
 static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int argc, char** argv, Operations* out)
 {
     if (!opts || !out) {
-        return 2;
+        return FISKTA_EXIT_PARSE;
     }
 
     // Static buffers for operations loading
@@ -493,32 +493,32 @@ static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int 
         // Load operations from file
         if (ops_index < argc) {
             fprintf(stderr, "fiskta: --ops cannot be combined with positional operations\n");
-            return 2;
+            return FISKTA_EXIT_PARSE;
         }
 
         FILE* cf = fopen(command_file, "rb");
         if (!cf) {
             fprintf(stderr, "fiskta: unable to open ops file %s\n", command_file);
-            return 2;
+            return FISKTA_EXIT_PARSE;
         }
 
         size_t total = fread(file_content_buf, 1, sizeof(file_content_buf) - 1, cf);
         if (ferror(cf)) {
             fclose(cf);
             fprintf(stderr, "fiskta: error reading ops file %s\n", command_file);
-            return 2;
+            return FISKTA_EXIT_PARSE;
         }
         if (!feof(cf)) {
             fclose(cf);
             fprintf(stderr, "fiskta: operations file too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
-            return 2;
+            return FISKTA_EXIT_PARSE;
         }
         fclose(cf);
 
         file_content_buf[total] = '\0';
         if (total == 0) {
             fprintf(stderr, "fiskta: empty ops file\n");
-            return 2;
+            return FISKTA_EXIT_PARSE;
         }
 
         // Replace newlines with spaces
@@ -531,11 +531,11 @@ static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int 
         i32 n = tokenize_ops_string(file_content_buf, tokens_view, MAX_TOKENS);
         if (n == -1) {
             fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
-            return 2;
+            return FISKTA_EXIT_PARSE;
         }
         if (n <= 0) {
             fprintf(stderr, "fiskta: empty ops string\n");
-            return 2;
+            return FISKTA_EXIT_PARSE;
         }
 
         out->tokens = tokens_view;
@@ -546,17 +546,17 @@ static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int 
         // Load operations from --ops string
         if (ops_index < argc) {
             fprintf(stderr, "fiskta: --ops cannot be combined with positional operations\n");
-            return 2;
+            return FISKTA_EXIT_PARSE;
         }
 
         i32 n = tokenize_ops_string(command_arg, tokens_view, MAX_TOKENS);
         if (n == -1) {
             fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
-            return 2;
+            return FISKTA_EXIT_PARSE;
         }
         if (n <= 0) {
             fprintf(stderr, "fiskta: empty ops string\n");
-            return 2;
+            return FISKTA_EXIT_PARSE;
         }
 
         out->tokens = tokens_view;
@@ -569,7 +569,7 @@ static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int 
         if (token_count <= 0) {
             fprintf(stderr, "fiskta: missing operations\n");
             fprintf(stderr, "Try 'fiskta --help' for more information.\n");
-            return 2;
+            return FISKTA_EXIT_PARSE;
         }
 
         char** tokens = argv + ops_index;
@@ -578,11 +578,11 @@ static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int 
             i32 n = tokenize_ops_string(tokens[0], tokens_view, MAX_TOKENS);
             if (n == -1) {
                 fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
-                return 2;
+                return FISKTA_EXIT_PARSE;
             }
             if (n <= 0) {
                 fprintf(stderr, "fiskta: empty operations string\n");
-                return 2;
+                return FISKTA_EXIT_PARSE;
             }
             out->tokens = tokens_view;
             out->token_count = n;
@@ -596,7 +596,7 @@ static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int 
         }
     }
 
-    return 0; // Success
+    return FISKTA_EXIT_OK; // Success
 }
 
 // Initialize loop context with default values
@@ -612,7 +612,7 @@ static void loop_init(LoopState* state, const CliOptions* opt, File* io)
     state->idle_timeout_ms = opt->idle_timeout_ms;
     state->exec_timeout_ms = opt->exec_timeout_ms;
     state->t0_ms = state->last_activity_ms = now_millis();
-    state->exit_code = 0;
+    state->exit_code = FISKTA_EXIT_OK;
     state->exit_reason = 0;
     state->last_result = (IterResult) {
         .status = ITER_OK,
@@ -707,7 +707,7 @@ static void loop_commit(LoopState* state, i64 data_hi, IterResult result, bool i
         } else if (state->mode == LOOP_MODE_FOLLOW) {
             state->baseline = data_hi; // tail at EOF
         } else { /* MONITOR: stays 0 */ }
-        state->exit_code = 0;
+        state->exit_code = FISKTA_EXIT_OK;
         break;
     case ITER_PROGRAM_FAIL:
         if (ignore_fail && state->enabled) {
@@ -715,7 +715,7 @@ static void loop_commit(LoopState* state, i64 data_hi, IterResult result, bool i
             state->last_result.status = ITER_OK;
             state->last_result.last_err = E_OK;
             state->last_result.emitted_ranges = 0;
-            state->exit_code = 0;
+            state->exit_code = FISKTA_EXIT_OK;
         } else {
             state->exit_code = FISKTA_EXIT_PROGRAM_FAIL; // program failed (no clause succeeded)
         }
@@ -842,7 +842,7 @@ int main(int argc, char** argv)
     int ops_index = 0;
     int parse_exit = -1;
     if (!parse_cli_args(argc, argv, &cli_opts, &ops_index, &parse_exit)) {
-        return (parse_exit >= 0) ? parse_exit : 0;
+        return (parse_exit >= 0) ? parse_exit : FISKTA_EXIT_OK;
     }
 
     const char* input_path = cli_opts.input_path;
@@ -853,7 +853,7 @@ int main(int argc, char** argv)
      **************************/
     Operations ops;
     int ops_result = load_ops_from_cli_options(&cli_opts, ops_index, argc, argv, &ops);
-    if (ops_result != 0) {
+    if (ops_result != FISKTA_EXIT_OK) {
         return ops_result;
     }
 
@@ -866,7 +866,7 @@ int main(int argc, char** argv)
     enum Err e = parse_preflight(ops.token_count, ops.tokens, input_path, &plan, &path);
     if (e != E_OK) {
         print_err(e, "parse preflight");
-        return 2; // Exit code 2: Parse error
+        return FISKTA_EXIT_PARSE;
     }
 
     /************************************************************
@@ -905,7 +905,7 @@ int main(int argc, char** argv)
     size_t re_seen_size;
     if (add_overflow(re_seen_bytes_each, re_seen_bytes_each, &re_seen_size)) {
         print_err(E_OOM, "regex 'seen' size overflow");
-        return 4;
+        return FISKTA_EXIT_RESOURCE;
     }
     size_t re_thrbufs_size = align_or_die(re_threads_bytes, alignof(ReThread)) * 2;
 
@@ -964,12 +964,12 @@ int main(int argc, char** argv)
     if (e != E_OK) {
         print_err(e, "parse build");
         free(block);
-        return 2; // Exit code 2: Parse error
+        return FISKTA_EXIT_PARSE;
     }
     if (prg.clause_count == 0) {
         print_err(E_PARSE, "no operations parsed");
         free(block);
-        return 2;
+        return FISKTA_EXIT_PARSE;
     }
 
     // Compile all regex patterns upfront
