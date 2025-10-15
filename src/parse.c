@@ -581,6 +581,14 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
         }
     }
 
+    // Check for trailing link operators (OR, THEN, AND without following clause)
+    if (prg->clause_count > 0) {
+        const Clause* last_clause = &prg->clauses[prg->clause_count - 1];
+        if (last_clause->link != LINK_NONE) {
+            return E_PARSE;  // Trailing OR/THEN is a parse error
+        }
+    }
+
     return E_OK;
 }
 
