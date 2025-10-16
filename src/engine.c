@@ -39,8 +39,10 @@ static inline void apply_delta_with_clamp(i64* base, i64 delta, const View* v, c
     } else {
         tgt = *base + delta;
     }
-    if (tgt < lo) tgt = lo;
-    if (tgt > hi) tgt = hi;
+    if (tgt < lo)
+        tgt = lo;
+    if (tgt > hi)
+        tgt = hi;
     *base = tgt;
 }
 

@@ -1076,11 +1076,11 @@ enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
                     *ms = min_start;
                     *me = pos;
                     return E_OK;
-                }                     best_ms = min_start;
-                    best_me = pos;
-                    curr.n = 0;
-                    have_min = 0;
-               
+                }
+                best_ms = min_start;
+                best_me = pos;
+                curr.n = 0;
+                have_min = 0;
             }
         }
 

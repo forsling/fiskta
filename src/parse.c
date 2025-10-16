@@ -1,5 +1,5 @@
-#include "fiskta.h"
 #include "error.h"
+#include "fiskta.h"
 #include "util.h"
 #include <ctype.h>
 #include <limits.h>
@@ -179,9 +179,8 @@ static bool loc_expr_contains_label(const String* token)
 
         String base_str = { base, (i32)base_len };
         return is_label_name_valid(base_str);
-    }         // No offset - check the whole token
-        return is_label_name_valid(*token);
-   
+    } // No offset - check the whole token
+    return is_label_name_valid(*token);
 }
 
 enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_path, ParsePlan* plan, const char** in_path_out)
@@ -688,7 +687,7 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
             } else {
                 error_detail_set(E_PARSE, -1, "dangling clause link without target");
             }
-            return E_PARSE;  // Trailing OR/THEN is a parse error
+            return E_PARSE; // Trailing OR/THEN is a parse error
         }
     }
 
@@ -812,7 +811,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         // Parse hex string
         if (*idx >= token_count) {
-        error_detail_set(E_PARSE, cmd_idx, "missing hex bytes for 'find:bin'");
+            error_detail_set(E_PARSE, cmd_idx, "missing hex bytes for 'find:bin'");
             return E_PARSE;
         }
         const String hex_tok = tokens[*idx];
@@ -1088,7 +1087,6 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         }
         op->u.print.cursor_marks = parsed_marks;
         op->u.print.literal_segments = segments;
-
 
     } else if (is_keyword(cmd_tok, &kw_fail)) {
         op->kind = OP_FAIL;

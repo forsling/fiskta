@@ -119,7 +119,7 @@ typedef struct {
 } Operations;
 
 // Sentinel: means "no saved VM yet"
-#define VM_CURSOR_UNSET ((i64)-1)
+#define VM_CURSOR_UNSET ((i64) - 1)
 
 typedef enum {
     ITER_OK,
@@ -138,12 +138,12 @@ typedef struct {
     LoopMode mode;
     i32 loop_ms, idle_timeout_ms, exec_timeout_ms;
     u64 t0_ms, last_activity_ms;
-    i64 baseline;     // FOLLOW: last processed end; CONTINUE: unused; MONITOR: 0
-    i64 last_size;    // last observed file size
-    VM vm;            // CONTINUE state (vm.cursor == VM_CURSOR_UNSET => none)
+    i64 baseline; // FOLLOW: last processed end; CONTINUE: unused; MONITOR: 0
+    i64 last_size; // last observed file size
+    VM vm; // CONTINUE state (vm.cursor == VM_CURSOR_UNSET => none)
     IterResult last_result;
     int exit_code;
-    int exit_reason;  // 0 normal, 5 exec timeout
+    int exit_reason; // 0 normal, 5 exec timeout
 } LoopState;
 
 static int parse_time_option(const char* value, const char* opt_name, i32* out);
@@ -430,8 +430,7 @@ static int parse_time_option(const char* value, const char* opt_name, i32* out)
     }
 
     const char* suffix = (const char*)p;
-    if (*suffix != '\0' && strcmp(suffix, "ms") != 0 && strcmp(suffix, "s") != 0 &&
-        strcmp(suffix, "m") != 0 && strcmp(suffix, "h") != 0) {
+    if (*suffix != '\0' && strcmp(suffix, "ms") != 0 && strcmp(suffix, "s") != 0 && strcmp(suffix, "m") != 0 && strcmp(suffix, "h") != 0) {
         fprintf(stderr, "fiskta: %s invalid suffix '%s' (valid: ms, s, m, h)\n", opt_name, suffix);
         return 1;
     }
@@ -610,8 +609,9 @@ static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int 
 // Initialize loop context with default values
 static void loop_init(LoopState* state, const CliOptions* opt, File* io)
 {
-    if (!state || !opt) { return;
-}
+    if (!state || !opt) {
+        return;
+    }
 
     memset(state, 0, sizeof *state);
     state->enabled = opt->loop_enabled;
@@ -632,8 +632,9 @@ static void loop_init(LoopState* state, const CliOptions* opt, File* io)
     state->last_size = io_size(io);
 
     state->vm.cursor = VM_CURSOR_UNSET; // replaces have_saved_vm
-    for (i32 i = 0; i < MAX_LABELS; i++) { state->vm.label_pos[i] = -1;
-}
+    for (i32 i = 0; i < MAX_LABELS; i++) {
+        state->vm.label_pos[i] = -1;
+    }
 
     // FOLLOW: tail semantics—start at EOF
     state->baseline = (state->enabled && state->mode == LOOP_MODE_FOLLOW) ? state->last_size : 0;
@@ -654,19 +655,26 @@ static void loop_compute_window(LoopState* state, File* io, i64* lo, i64* hi)
     *hi = size;
 
     switch (state->mode) {
-        case LOOP_MODE_MONITOR: *lo = 0; break;
-        case LOOP_MODE_FOLLOW:  *lo = state->baseline; break;
-        case LOOP_MODE_CONTINUE:
-            if (state->vm.cursor != VM_CURSOR_UNSET) {
-                *lo = clamp64(state->vm.cursor, 0, size);
-            } else {
-                *lo = 0;
-}
-            break;
-        default: *lo = 0; break; // Should never happen, but prevents uninitialized warning
+    case LOOP_MODE_MONITOR:
+        *lo = 0;
+        break;
+    case LOOP_MODE_FOLLOW:
+        *lo = state->baseline;
+        break;
+    case LOOP_MODE_CONTINUE:
+        if (state->vm.cursor != VM_CURSOR_UNSET) {
+            *lo = clamp64(state->vm.cursor, 0, size);
+        } else {
+            *lo = 0;
+        }
+        break;
+    default:
+        *lo = 0;
+        break; // Should never happen, but prevents uninitialized warning
     }
-    if (*lo > *hi) { *lo = *hi; // truncation safety
-}
+    if (*lo > *hi) {
+        *lo = *hi; // truncation safety
+    }
 }
 
 // Determine if we should wait or stop
@@ -682,8 +690,9 @@ static bool loop_should_wait_or_stop(LoopState* state, bool no_new_data, int* ou
         }
         return false; // stop
     }
-    if (!state->enabled) { return false; // one-shot
-}
+    if (!state->enabled) {
+        return false; // one-shot
+    }
 
     if (no_new_data) {
         if (state->idle_timeout_ms >= 0 && now - state->last_activity_ms >= (u64)state->idle_timeout_ms) {
@@ -714,7 +723,8 @@ static void loop_commit(LoopState* state, i64 data_hi, IterResult result, bool i
             }
         } else if (state->mode == LOOP_MODE_FOLLOW) {
             state->baseline = data_hi; // tail at EOF
-        } else { /* MONITOR: stays 0 */ }
+        } else { /* MONITOR: stays 0 */
+        }
         state->exit_code = FISKTA_EXIT_OK;
         break;
     case ITER_PROGRAM_FAIL:
@@ -1072,8 +1082,7 @@ int main(int argc, char** argv)
         loop_compute_window(&loop_state, &io, &lo, &hi);
 
         // FOLLOW/CONTINUE: nothing new? maybe wait/stop
-        if (loop_state.enabled && loop_state.idle_timeout_ms != 0 &&
-            (loop_state.mode == LOOP_MODE_FOLLOW || loop_state.mode == LOOP_MODE_CONTINUE) && lo >= hi) {
+        if (loop_state.enabled && loop_state.idle_timeout_ms != 0 && (loop_state.mode == LOOP_MODE_FOLLOW || loop_state.mode == LOOP_MODE_CONTINUE) && lo >= hi) {
             reason = 0;
             if (loop_should_wait_or_stop(&loop_state, /*no_new_data=*/true, &reason)) {
                 continue; // just slept; try again
@@ -1085,9 +1094,9 @@ int main(int argc, char** argv)
         // CONTINUE passes saved VM; other modes run with ephemeral VM
         VM* vm_ptr = (loop_state.mode == LOOP_MODE_CONTINUE) ? &loop_state.vm : NULL;
         IterResult iteration = execute_program_iteration(&prg, &io, vm_ptr,
-                                                         clause_ranges, clause_labels,
-                                                         clause_inline, plan.sum_inline_lits,
-                                                         lo, hi);
+            clause_ranges, clause_labels,
+            clause_inline, plan.sum_inline_lits,
+            lo, hi);
 
         loop_commit(&loop_state, hi, iteration, ignore_loop_failures);
         fflush(stdout);
@@ -1119,16 +1128,22 @@ int main(int argc, char** argv)
     io_close(&io);
     free(block);
 
-    if (loop_state.exit_code) { return loop_state.exit_code;
-}
-    if (loop_state.exit_reason == FISKTA_EXIT_TIMEOUT) { return FISKTA_EXIT_TIMEOUT;
-}
+    if (loop_state.exit_code) {
+        return loop_state.exit_code;
+    }
+    if (loop_state.exit_reason == FISKTA_EXIT_TIMEOUT) {
+        return FISKTA_EXIT_TIMEOUT;
+    }
 
     // Otherwise evaluate last iteration outcome
     switch (loop_state.last_result.status) {
-    case ITER_OK: return FISKTA_EXIT_OK;
-    case ITER_IO_ERROR: return FISKTA_EXIT_IO;
-    case ITER_PROGRAM_FAIL: return FISKTA_EXIT_PROGRAM_FAIL;
-    default: return FISKTA_EXIT_IO;
+    case ITER_OK:
+        return FISKTA_EXIT_OK;
+    case ITER_IO_ERROR:
+        return FISKTA_EXIT_IO;
+    case ITER_PROGRAM_FAIL:
+        return FISKTA_EXIT_PROGRAM_FAIL;
+    default:
+        return FISKTA_EXIT_IO;
     }
 }
