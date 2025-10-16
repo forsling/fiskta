@@ -105,7 +105,7 @@ $ fiskta --input status.txt --monitor --every 2s --for 8h find "DISCONNECTED" ta
 - `clear view` - Clear view; return to full file
 
 **Utilities:**
-- `print <string>` - Emit literal bytes (alias: echo). Supports escape sequences: `\n \t \r \0 \\ \xHH`. Participates in clause atomicity
+- `print <string>` - Emit literal bytes (alias: echo). Supports escape sequences: `\n \t \r \0 \\ \xHH \c`. Participates in clause atomicity
 - `fail <message>` - Write message to stderr and fail clause. Message written immediately (not staged). Useful with OR for error messages
 
 ### Units
@@ -438,12 +438,21 @@ clear view
 
 Emit a literal string. Participates in clause atomicity (output only emitted if clause succeeds).
 
-Supports escape sequences: `\n` (newline), `\t` (tab), `\r` (CR), `\0` (null), `\\` (backslash), `\xHH` (hex byte)
+Supports escape sequences:
+
+- `\n` — newline (LF)
+- `\t` — tab
+- `\r` — carriage return
+- `\0` — NUL byte
+- `\\` — literal backslash
+- `\xHH` — literal byte from two hex digits
+- `\c` — decimal cursor offset at the point of staging
 
 ```bash
 print "---\n"           # print separator with newline
 print "\x1b[31m"        # print ANSI color code
 echo "Hello world"      # alias for print
+print "cursor=\c\n"    # embed cursor position and newline
 ```
 
 #### `fail <message>`

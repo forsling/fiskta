@@ -171,6 +171,8 @@ typedef struct {
         } viewclear;
         struct {
             String string;
+            i32 cursor_marks;
+            i32 literal_segments;
         } print;
         struct {
             String message;
@@ -224,6 +226,8 @@ typedef struct {
     };
 } Range;
 
+enum { INLINE_LIT_CAP = 24 };
+
 #ifndef FISKTA_FW_WIN
 #define FISKTA_FW_WIN (6 * 1024 * 1024)
 #endif
@@ -269,11 +273,12 @@ typedef struct {
     enum Err err; // Execution result
 } StagedResult;
 
-void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap);
+void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap, i32* out_inline_cap);
 enum Err stage_clause(const Clause* clause,
     void* io, VM* vm,
     Range* ranges, i32 ranges_cap,
     LabelWrite* label_writes, i32 label_cap,
+    char* inline_buf, i32 inline_cap,
     StagedResult* result);
 
 typedef struct ParsePlan {
@@ -287,6 +292,7 @@ typedef struct ParsePlan {
     i32 re_ins_estimate;
     i32 re_classes_estimate;
     i32 re_ins_estimate_max;
+    i32 sum_inline_lits;
 } ParsePlan;
 
 enum Err engine_run(const Program* prg, const char* in_path, FILE* out);

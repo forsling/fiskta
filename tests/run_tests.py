@@ -1158,6 +1158,41 @@ def tests():
              tokens=["skip","5b","take","to","cursor+0c","THEN","take","+3b"], input_file="overlap.txt",
              expect=dict(stdout="fgh", exit=0)),
 
+        dict(id="utf8-006-skip-byte-align",
+             tokens=["skip","1b","skip","1c","THEN","print", r"\c"], input_file="-",
+             stdin=b"\xF0\x9F\x9A\x80a\xF0\x9F\x9A\x80",
+             expect=dict(stdout="4", exit=0)),
+
+        dict(id="utf8-007-take-skip-cursor",
+             tokens=["take","+1c","THEN","skip","1c","print", r"\c"], input_file="-",
+             stdin=b"\xF0\x9F\x9A\x80a\xF0\x9F\x9A\x80b",
+             expect=dict(stdout="🚀5", exit=0)),
+
+        # ---------- Cursor reporting ----------
+        dict(id="cursor-001-skip-bytes",
+             tokens=["skip","5b","THEN","print", r"\c"], input_file="overlap.txt",
+             expect=dict(stdout="5", exit=0)),
+
+        dict(id="cursor-002-take-updates",
+             tokens=["take","+3b","THEN","print", r"\c"], input_file="overlap.txt",
+             expect=dict(stdout="abc3", exit=0)),
+
+        dict(id="cursor-003-view-clamp-hi",
+             tokens=["view","BOF+2b","EOF-2b","skip","100b","THEN","print", r"\c"], input_file="overlap.txt",
+             expect=dict(stdout="8", exit=0)),
+
+        dict(id="cursor-004-view-clamp-lo",
+             tokens=["view","BOF+2b","EOF-2b","skip","-100b","THEN","print", r"\c"], input_file="overlap.txt",
+             expect=dict(stdout="2", exit=0)),
+
+        dict(id="cursor-005-embedded-prefix",
+             tokens=["print", r"Cursor=\c"], input_file="overlap.txt",
+             expect=dict(stdout="Cursor=0", exit=0)),
+
+        dict(id="cursor-006-embedded-suffix",
+             tokens=["skip","3b","print", r"\c\n"], input_file="overlap.txt",
+             expect=dict(stdout="3\n", exit=0)),
+
         dict(id="edge-feedback-001-inline-offset-label-resolution",
              tokens=["label","HERE","THEN","skip","to","HERE+1l","take","1l"], input_file="-", stdin=b"a\nb\nX\n",
              expect=dict(stdout="b\n", exit=0)),

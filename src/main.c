@@ -741,6 +741,7 @@ static void loop_commit(LoopState* state, i64 data_hi, IterResult result, bool i
 
 static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm,
     Range* clause_ranges, LabelWrite* clause_labels,
+    char* clause_inline, i32 inline_slots_total,
     i64 data_lo, i64 data_hi)
 {
     io_reset_full(io);
@@ -776,24 +777,42 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
     };
 
     StagedResult result;
+    char* inline_cursor = clause_inline;
+    char* inline_end = NULL;
+    if (clause_inline && inline_slots_total > 0) {
+        inline_end = clause_inline + (size_t)inline_slots_total * INLINE_LIT_CAP;
+    }
 
     for (i32 ci = 0; ci < prg->clause_count; ++ci) {
         i32 rc = 0;
         i32 lc = 0;
-        clause_caps(&prg->clauses[ci], &rc, &lc);
+        i32 ic = 0;
+        clause_caps(&prg->clauses[ci], &rc, &lc, &ic);
         Range* r_tmp = (rc > 0) ? clause_ranges : NULL;
         LabelWrite* lw_tmp = (lc > 0) ? clause_labels : NULL;
+        char* inline_tmp = NULL;
+        if (ic > 0) {
+            if (!inline_cursor || !inline_end || inline_cursor + (size_t)ic * INLINE_LIT_CAP > inline_end) {
+                iter_result.status = ITER_IO_ERROR;
+                iter_result.last_err = E_OOM;
+                return iter_result;
+            }
+            inline_tmp = inline_cursor;
+            inline_cursor += (size_t)ic * INLINE_LIT_CAP;
+        }
 
         enum Err e = stage_clause(&prg->clauses[ci], io, vm_exec,
-            r_tmp, rc, lw_tmp, lc, &result);
+            r_tmp, rc, lw_tmp, lc,
+            inline_tmp, ic,
+            &result);
         if (e == E_OK) {
             // Commit staged ranges to stdout / file as appropriate
             for (i32 i = 0; i < result.range_count; i++) {
-                if (result.ranges[i].kind == RANGE_FILE) {
-                    e = io_emit(io, result.ranges[i].file.start, result.ranges[i].file.end, stdout);
+                const Range* range = &result.ranges[i];
+                if (range->kind == RANGE_FILE) {
+                    e = io_emit(io, range->file.start, range->file.end, stdout);
                 } else {
-                    // RANGE_LIT: write literal bytes
-                    if ((size_t)fwrite(result.ranges[i].lit.bytes, 1, (size_t)result.ranges[i].lit.len, stdout) != (size_t)result.ranges[i].lit.len) {
+                    if ((size_t)fwrite(range->lit.bytes, 1, (size_t)range->lit.len, stdout) != (size_t)range->lit.len) {
                         e = E_IO;
                     }
                 }
@@ -924,9 +943,10 @@ int main(int argc, char** argv)
 
     size_t ranges_bytes = (plan.sum_take_ops > 0) ? align_or_die((size_t)plan.sum_take_ops * sizeof(Range), alignof(Range)) : 0;
     size_t labels_bytes = (plan.sum_label_ops > 0) ? align_or_die((size_t)plan.sum_label_ops * sizeof(LabelWrite), alignof(LabelWrite)) : 0;
+    size_t inline_bytes = (plan.sum_inline_lits > 0) ? align_or_die((size_t)plan.sum_inline_lits * INLINE_LIT_CAP, alignof(char)) : 0;
 
     size_t total = search_buf_size;
-    if (add_overflow(total, clauses_size, &total) || add_overflow(total, ops_size, &total) || add_overflow(total, re_prog_size, &total) || add_overflow(total, re_ins_size, &total) || add_overflow(total, re_cls_size, &total) || add_overflow(total, str_pool_size, &total) || add_overflow(total, re_thrbufs_size, &total) || add_overflow(total, re_seen_size, &total) || add_overflow(total, ranges_bytes, &total) || add_overflow(total, labels_bytes, &total) || add_overflow(total, 64, &total)) { // 3 small cushion
+    if (add_overflow(total, clauses_size, &total) || add_overflow(total, ops_size, &total) || add_overflow(total, re_prog_size, &total) || add_overflow(total, re_ins_size, &total) || add_overflow(total, re_cls_size, &total) || add_overflow(total, str_pool_size, &total) || add_overflow(total, re_thrbufs_size, &total) || add_overflow(total, re_seen_size, &total) || add_overflow(total, ranges_bytes, &total) || add_overflow(total, labels_bytes, &total) || add_overflow(total, inline_bytes, &total) || add_overflow(total, 64, &total)) { // small cushion
         print_err(E_OOM, "arena size overflow");
         return FISKTA_EXIT_RESOURCE;
     }
@@ -956,12 +976,14 @@ int main(int argc, char** argv)
     char* str_pool = arena_alloc(&arena, str_pool_bytes, alignof(char));
     Range* clause_ranges = (plan.sum_take_ops > 0) ? arena_alloc(&arena, (size_t)plan.sum_take_ops * sizeof(Range), alignof(Range)) : NULL;
     LabelWrite* clause_labels = (plan.sum_label_ops > 0) ? arena_alloc(&arena, (size_t)plan.sum_label_ops * sizeof(LabelWrite), alignof(LabelWrite)) : NULL;
+    char* clause_inline = (plan.sum_inline_lits > 0) ? arena_alloc(&arena, (size_t)plan.sum_inline_lits * INLINE_LIT_CAP, alignof(char)) : NULL;
 
     if (!search_buf || !clauses_buf || !ops_buf
         || !re_curr_thr || !re_next_thr || !seen_curr || !seen_next
         || !re_progs || !re_ins || !re_cls || !str_pool
         || (plan.sum_take_ops > 0 && !clause_ranges)
-        || (plan.sum_label_ops > 0 && !clause_labels)) {
+        || (plan.sum_label_ops > 0 && !clause_labels)
+        || (plan.sum_inline_lits > 0 && !clause_inline)) {
         print_err(E_OOM, "arena carve");
         free(block);
         return FISKTA_EXIT_RESOURCE;
@@ -1069,6 +1091,7 @@ int main(int argc, char** argv)
         VM* vm_ptr = (loop_state.mode == LOOP_MODE_CONTINUE) ? &loop_state.vm : NULL;
         IterResult iteration = execute_program_iteration(&prg, &io, vm_ptr,
                                                          clause_ranges, clause_labels,
+                                                         clause_inline, plan.sum_inline_lits,
                                                          lo, hi);
 
         loop_commit(&loop_state, hi, iteration, ignore_loop_failures);

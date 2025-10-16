@@ -25,6 +25,91 @@ static void skip_one_token(i32* idx, i32 token_count)
     }
 }
 
+static int parse_hex_digit(char c)
+{
+    if (c >= '0' && c <= '9') {
+        return c - '0';
+    }
+    if (c >= 'a' && c <= 'f') {
+        return 10 + (c - 'a');
+    }
+    if (c >= 'A' && c <= 'F') {
+        return 10 + (c - 'A');
+    }
+    return -1;
+}
+
+static bool compute_print_stats(String token, size_t* out_len, i32* out_segments, i32* out_marks)
+{
+    size_t len = 0;
+    i32 segments = 0;
+    i32 marks = 0;
+    bool in_literal = false;
+
+    for (size_t i = 0; i < (size_t)token.len; ++i) {
+        char c = token.bytes[i];
+        if (c == '\\' && i + 1 < (size_t)token.len) {
+            char esc = token.bytes[i + 1];
+            if (esc == 'n' || esc == 't' || esc == 'r' || esc == '0' || esc == '\\') {
+                len++;
+                if (!in_literal) {
+                    in_literal = true;
+                    segments++;
+                }
+                i++;
+                continue;
+            }
+            if (esc == 'x') {
+                if (i + 3 >= (size_t)token.len) {
+                    return false;
+                }
+                int hi = parse_hex_digit(token.bytes[i + 2]);
+                int lo = parse_hex_digit(token.bytes[i + 3]);
+                if (hi < 0 || lo < 0) {
+                    return false;
+                }
+                len++;
+                if (!in_literal) {
+                    in_literal = true;
+                    segments++;
+                }
+                i += 3;
+                continue;
+            }
+            if (esc == 'c' || esc == 'C') {
+                len++;
+                marks++;
+                in_literal = false;
+                i++;
+                continue;
+            }
+            len++;
+            if (!in_literal) {
+                in_literal = true;
+                segments++;
+            }
+            continue;
+        }
+
+        len++;
+        if (!in_literal) {
+            in_literal = true;
+            segments++;
+        }
+    }
+
+    if (out_len) {
+        *out_len = len;
+    }
+    if (out_segments) {
+        *out_segments = segments;
+    }
+    if (out_marks) {
+        *out_marks = marks;
+    }
+    return true;
+}
+
 // Helper function to find inline offset start
 static const char* find_inline_offset_start(const char* s)
 {
@@ -409,9 +494,17 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
             } else if (is_keyword(cmd_tok, &kw_print) || is_keyword(cmd_tok, &kw_echo)) {
                 idx++;
                 if (idx < token_count) {
+                    size_t stored_len = 0;
+                    i32 segments = 0;
+                    i32 marks = 0;
+                    if (!compute_print_stats(tokens[idx], &stored_len, &segments, &marks)) {
+                        error_detail_set(E_PARSE, idx, "invalid escape in print literal");
+                        return E_PARSE;
+                    }
                     plan->needle_count++;
-                    plan->needle_bytes += (size_t)tokens[idx].len;
-                    plan->sum_take_ops++;
+                    plan->needle_bytes += stored_len;
+                    plan->sum_take_ops += segments + marks;
+                    plan->sum_inline_lits += marks;
                     idx++;
                 }
             } else if (is_keyword(cmd_tok, &kw_fail)) {
@@ -667,7 +760,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         }
 
         enum Err err = E_OK;
-        op->u.find.needle = parse_string_to_bytes(needle_tok, str_pool, str_pool_off, str_pool_cap, &err);
+        op->u.find.needle = parse_string_to_bytes(needle_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
         if (err != E_OK) {
             return err;
         }
@@ -694,7 +787,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         const String pat_tok = tokens[*idx];
         (*idx)++;
         enum Err err = E_OK;
-        op->u.findr.pattern = parse_string_to_bytes(pat_tok, str_pool, str_pool_off, str_pool_cap, &err);
+        op->u.findr.pattern = parse_string_to_bytes(pat_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
         if (err != E_OK) {
             return err;
         }
@@ -799,7 +892,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
             }
 
             enum Err err = E_OK;
-            op->u.take_until_re.pattern = parse_string_to_bytes(pattern_tok, str_pool, str_pool_off, str_pool_cap, &err);
+            op->u.take_until_re.pattern = parse_string_to_bytes(pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
             if (err != E_OK) {
                 return err;
             }
@@ -866,7 +959,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
             }
 
             enum Err err = E_OK;
-            op->u.take_until.needle = parse_string_to_bytes(needle_tok, str_pool, str_pool_off, str_pool_cap, &err);
+            op->u.take_until.needle = parse_string_to_bytes(needle_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
             if (err != E_OK) {
                 return err;
             }
@@ -981,15 +1074,21 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         const String str_tok = tokens[*idx];
         (*idx)++;
 
-        if (str_tok.len == 0) {
-            return E_BAD_NEEDLE;
+        i32 segments = 0;
+        if (!compute_print_stats(str_tok, NULL, &segments, NULL)) {
+            error_detail_set(E_PARSE, cmd_idx, "invalid escape in print literal");
+            return E_PARSE;
         }
 
         enum Err err = E_OK;
-        op->u.print.string = parse_string_to_bytes(str_tok, str_pool, str_pool_off, str_pool_cap, &err);
+        i32 parsed_marks = 0;
+        op->u.print.string = parse_string_to_bytes(str_tok, str_pool, str_pool_off, str_pool_cap, &err, &parsed_marks);
         if (err != E_OK) {
             return err;
         }
+        op->u.print.cursor_marks = parsed_marks;
+        op->u.print.literal_segments = segments;
+
 
     } else if (is_keyword(cmd_tok, &kw_fail)) {
         op->kind = OP_FAIL;
@@ -1003,7 +1102,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         (*idx)++;
 
         enum Err err = E_OK;
-        op->u.fail.message = parse_string_to_bytes(message_tok, str_pool, str_pool_off, str_pool_cap, &err);
+        op->u.fail.message = parse_string_to_bytes(message_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
         if (err != E_OK) {
             return err;
         }

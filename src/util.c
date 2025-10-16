@@ -225,11 +225,14 @@ bad_hex:
     return out;
 }
 
-String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum Err* err_out)
+String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum Err* err_out, i32* cursor_marks_out)
 {
     String out = { 0 };
     if (err_out) {
         *err_out = E_OK;
+    }
+    if (cursor_marks_out) {
+        *cursor_marks_out = 0;
     }
 
     if (str.len < 0) {
@@ -243,6 +246,11 @@ String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, s
         if (str.bytes[i] == '\\' && i + 1 < src_len) {
             char esc = str.bytes[i + 1];
             if (esc == 'n' || esc == 't' || esc == 'r' || esc == '0' || esc == '\\') {
+                dst_len++;
+                i++;
+                continue;
+            }
+            if (esc == 'c' || esc == 'C') {
                 dst_len++;
                 i++;
                 continue;
@@ -301,6 +309,14 @@ String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, s
             }
             if (esc == '\\') {
                 dst[dst_pos++] = '\\';
+                i++;
+                continue;
+            }
+            if (esc == 'c' || esc == 'C') {
+                dst[dst_pos++] = PRINT_CURSOR_SENTINEL;
+                if (cursor_marks_out) {
+                    (*cursor_marks_out)++;
+                }
                 i++;
                 continue;
             }

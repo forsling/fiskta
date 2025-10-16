@@ -44,10 +44,11 @@ static inline void apply_delta_with_clamp(i64* base, i64 delta, const View* v, c
     *base = tgt;
 }
 
-void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap)
+void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap, i32* out_inline_cap)
 {
     i32 rc = 0;
     i32 lc = 0;
+    i32 ic = 0;
     for (i32 i = 0; i < c->op_count; i++) {
         switch (c->ops[i].kind) {
         case OP_TAKE_LEN:
@@ -55,9 +56,14 @@ void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap)
         case OP_TAKE_UNTIL:
         case OP_TAKE_UNTIL_RE:
         case OP_TAKE_UNTIL_BIN:
-        case OP_PRINT:
             rc++;
             break;
+        case OP_PRINT: {
+            const Op* op = &c->ops[i];
+            rc += op->u.print.literal_segments + op->u.print.cursor_marks;
+            ic += op->u.print.cursor_marks;
+            break;
+        }
         case OP_LABEL:
             lc++;
             break;
@@ -67,13 +73,17 @@ void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap)
     }
     *out_ranges_cap = rc > 0 ? rc : 1; // avoid zero-length arrays
     *out_labels_cap = lc > 0 ? lc : 1;
+    if (out_inline_cap) {
+        *out_inline_cap = ic;
+    }
 }
 
 static enum Err execute_op(const Op* op, File* io, VM* vm,
     i64* c_cursor, Match* c_last_match,
     Range** ranges, i32* range_count, const i32* range_cap,
     LabelWrite** label_writes, i32* label_count, const i32* label_cap,
-    View* c_view);
+    View* c_view,
+    char** inline_ptr, char* inline_end);
 static enum Err resolve_location(
     const LocExpr* loc, File* io, const VM* vm,
     const Match* staged_match, i64 staged_cursor,
@@ -91,15 +101,20 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
 
     i32 max_r_cap = 0;
     i32 max_l_cap = 0;
+    i32 max_inline_cap = 0;
     for (i32 i = 0; i < cc; ++i) {
         i32 rc = 0;
         i32 lc = 0;
-        clause_caps(&prg->clauses[i], &rc, &lc);
+        i32 ic = 0;
+        clause_caps(&prg->clauses[i], &rc, &lc, &ic);
         if (rc > max_r_cap) {
             max_r_cap = rc;
         }
         if (lc > max_l_cap) {
             max_l_cap = lc;
+        }
+        if (ic > max_inline_cap) {
+            max_inline_cap = ic;
         }
     }
 
@@ -162,6 +177,12 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
         goto cleanup;
     }
 
+    size_t inline_bytes = (max_inline_cap > 0) ? safe_align((size_t)max_inline_cap * INLINE_LIT_CAP, alignof(char)) : 0;
+    if (inline_bytes == SIZE_MAX || add_overflow(total, inline_bytes, &total)) {
+        err = E_OOM;
+        goto cleanup;
+    }
+
     if (add_overflow(total, 64, &total)) { // small cushion like main.c
         err = E_OOM;
         goto cleanup;
@@ -183,8 +204,11 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     unsigned char* seen_next = (unsigned char*)arena_alloc(&arena, re_seen_bytes_each, 1);
     Range* ranges_buf = (max_r_cap > 0) ? (Range*)arena_alloc(&arena, (size_t)max_r_cap * sizeof(Range), alignof(Range)) : NULL;
     LabelWrite* labels_buf = (max_l_cap > 0) ? (LabelWrite*)arena_alloc(&arena, (size_t)max_l_cap * sizeof(LabelWrite), alignof(LabelWrite)) : NULL;
+    char* inline_buf = (max_inline_cap > 0) ? (char*)arena_alloc(&arena, (size_t)max_inline_cap * INLINE_LIT_CAP, alignof(char)) : NULL;
 
-    if (!search_buf || !re_curr_thr || !re_next_thr || !seen_curr || !seen_next || (max_r_cap > 0 && !ranges_buf) || (max_l_cap > 0 && !labels_buf)) {
+    if (!search_buf || !re_curr_thr || !re_next_thr || !seen_curr || !seen_next
+        || (max_r_cap > 0 && !ranges_buf) || (max_l_cap > 0 && !labels_buf)
+        || (max_inline_cap > 0 && !inline_buf)) {
         err = E_OOM;
         goto cleanup;
     }
@@ -207,16 +231,34 @@ enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
     i32 successful_clauses = 0;
     enum Err last_err = E_OK;
 
+    char* inline_cursor = inline_buf;
+    char* inline_end = NULL;
+    if (inline_buf && max_inline_cap > 0) {
+        inline_end = inline_buf + (size_t)max_inline_cap * INLINE_LIT_CAP;
+    }
+
     for (i32 i = 0; i < cc; ++i) {
         i32 rc = 0;
         i32 lc = 0;
-        clause_caps(&prg->clauses[i], &rc, &lc);
+        i32 ic = 0;
+        clause_caps(&prg->clauses[i], &rc, &lc, &ic);
         Range* r_tmp = (rc > 0) ? ranges_buf : NULL;
         LabelWrite* lw_tmp = (lc > 0) ? labels_buf : NULL;
+        char* inline_tmp = NULL;
+        if (ic > 0) {
+            if (!inline_cursor || !inline_end || inline_cursor + (size_t)ic * INLINE_LIT_CAP > inline_end) {
+                err = E_OOM;
+                break;
+            }
+            inline_tmp = inline_cursor;
+            inline_cursor += (size_t)ic * INLINE_LIT_CAP;
+        }
 
         StagedResult result;
         err = stage_clause(&prg->clauses[i], &io, &vm,
-            r_tmp, rc, lw_tmp, lc, &result);
+            r_tmp, rc, lw_tmp, lc,
+            inline_tmp, ic,
+            &result);
         if (err == E_OK) {
             // Commit staged ranges to output
             for (i32 j = 0; j < result.range_count; j++) {
@@ -282,11 +324,55 @@ static enum Err stage_lit_range(Range* ranges, i32* range_count, i32 range_cap, 
 
 static enum Err print_literal_op(
     const Op* op,
+    const File* io,
+    const View* c_view,
+    i64 cursor,
     Range* ranges,
     i32* range_count,
-    i32 range_cap)
+    i32 range_cap,
+    char** inline_ptr,
+    char* inline_end)
 {
-    return stage_lit_range(ranges, range_count, range_cap, op->u.print.string);
+    const char* bytes = op->u.print.string.bytes;
+    i32 len = op->u.print.string.len;
+    i64 clamped = view_clamp(c_view, io, cursor);
+    i32 start = 0;
+
+    for (i32 i = 0; i <= len; ++i) {
+        bool is_sentinel = (i < len && bytes[i] == PRINT_CURSOR_SENTINEL);
+        if (is_sentinel || i == len) {
+            if (i > start) {
+                String seg = { bytes + start, i - start };
+                enum Err err = stage_lit_range(ranges, range_count, range_cap, seg);
+                if (err != E_OK) {
+                    return err;
+                }
+            }
+            if (is_sentinel) {
+                if (!inline_ptr || !*inline_ptr || !inline_end || *inline_ptr + INLINE_LIT_CAP > inline_end) {
+                    return E_OOM;
+                }
+                char* slot = *inline_ptr;
+                int written = snprintf(slot, INLINE_LIT_CAP, "%lld", (long long)clamped);
+                if (written < 0) {
+                    return E_IO;
+                }
+                if (written >= INLINE_LIT_CAP) {
+                    written = INLINE_LIT_CAP - 1;
+                    slot[written] = '\0';
+                }
+                String dyn = { slot, written };
+                enum Err err = stage_lit_range(ranges, range_count, range_cap, dyn);
+                if (err != E_OK) {
+                    return err;
+                }
+                *inline_ptr += INLINE_LIT_CAP;
+            }
+            start = i + 1;
+        }
+    }
+
+    return E_OK;
 }
 
 static enum Err fail_with_message_op(const Op* op)
@@ -797,6 +883,7 @@ enum Err stage_clause(const Clause* clause,
     void* io_ptr, VM* vm,
     Range* ranges, i32 ranges_cap,
     LabelWrite* label_writes, i32 label_cap,
+    char* inline_buf, i32 inline_cap,
     StagedResult* result)
 {
     File* io = (File*)io_ptr;
@@ -806,6 +893,11 @@ enum Err stage_clause(const Clause* clause,
 
     i32 range_count = 0;
     i32 label_count = 0;
+    char* inline_ptr = inline_buf;
+    char* inline_end = NULL;
+    if (inline_buf && inline_cap > 0) {
+        inline_end = inline_buf + (size_t)inline_cap * INLINE_LIT_CAP;
+    }
 
     enum Err err = E_OK;
     for (i32 i = 0; i < clause->op_count; i++) {
@@ -813,7 +905,8 @@ enum Err stage_clause(const Clause* clause,
             &c_cursor, &c_last_match,
             &ranges, &range_count, &ranges_cap,
             &label_writes, &label_count, &label_cap,
-            &c_view);
+            &c_view,
+            inline_buf ? &inline_ptr : NULL, inline_end);
         if (err != E_OK) {
             break;
         }
@@ -835,7 +928,8 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
     i64* c_cursor, Match* c_last_match,
     Range** ranges, i32* range_count, const i32* range_cap,
     LabelWrite** label_writes, i32* label_count, const i32* label_cap,
-    View* c_view)
+    View* c_view,
+    char** inline_ptr, char* inline_end)
 {
     switch (op->kind) {
     case OP_FIND:
@@ -863,7 +957,7 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
     case OP_VIEWCLEAR:
         return view_clear_op(io, c_view);
     case OP_PRINT:
-        return print_literal_op(op, *ranges, range_count, *range_cap);
+        return print_literal_op(op, io, c_view, *c_cursor, *ranges, range_count, *range_cap, inline_ptr, inline_end);
     case OP_FAIL:
         return fail_with_message_op(op);
     default:

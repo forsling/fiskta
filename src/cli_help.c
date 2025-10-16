@@ -35,7 +35,7 @@ void print_usage(void)
     printf("  view <L1> <L2>              Limit all ops to [min(L1,L2), max(L1,L2))\n");
     printf("  clear view                  Clear view; return to full file\n");
     printf("  print <string>              Emit literal bytes (alias: echo)\n");
-    printf("                              Supports escape sequences: \\n \\t \\r \\0 \\\\ \\xHH\n");
+    printf("                              Supports escape sequences: \\n \\t \\r \\0 \\\\ \\xHH \\c (cursor offset)\n");
     printf("                              Participates in clause atomicity\n");
     printf("  fail <message>              Write message to stderr and fail clause\n");
     printf("                              Message written immediately (not staged)\n");
@@ -64,7 +64,7 @@ void print_usage(void)
     printf("OFFSETS:\n");
     printf("  <location> +<n><unit>       n units after location\n");
     printf("  <location> -<n><unit>       n units before location\n");
-    printf("                              (inline offsets like BOF+100b are allowed)\n");
+    printf("                              (attached offsets like BOF+100b are allowed)\n");
     printf("\n");
     printf("REGEX SYNTAX:\n");
     printf("  Character Classes: \\d (digits), \\D (non-digits), \\w (word), \\W (non-word),\n");
