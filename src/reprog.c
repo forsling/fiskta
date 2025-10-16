@@ -255,15 +255,17 @@ static enum Err compile_alt_sequence(ReB* b, String pat, int len)
     int* jmp_pc = NULL;
     enum Err err = E_OK;
 
-    lo = (int*)malloc((size_t)nalt * sizeof(int));
-    alen = (int*)malloc((size_t)nalt * sizeof(int));
-    split_pc = (int*)malloc((size_t)(nalt - 1) * sizeof(int));
-    alt_start_pc = (int*)malloc((size_t)nalt * sizeof(int));
-    jmp_pc = (int*)malloc((size_t)nalt * sizeof(int));
-    if (!lo || !alen || !split_pc || !alt_start_pc || !jmp_pc) {
-        err = E_OOM;
-        goto cleanup;
-    }
+    int split_cap = (nalt > 1) ? (nalt - 1) : 1;
+    int lo_arr[nalt];
+    int alen_arr[nalt];
+    int split_pc_arr[split_cap];
+    int alt_start_pc_arr[nalt];
+    int jmp_pc_arr[nalt];
+    lo = lo_arr;
+    alen = alen_arr;
+    split_pc = split_pc_arr;
+    alt_start_pc = alt_start_pc_arr;
+    jmp_pc = jmp_pc_arr;
 
     int k = 0;
     int start = 0;
@@ -349,11 +351,6 @@ static enum Err compile_alt_sequence(ReB* b, String pat, int len)
     err = E_OK;
 
 cleanup:
-    free(lo);
-    free(alen);
-    free(split_pc);
-    free(alt_start_pc);
-    free(jmp_pc);
     return err;
 }
 
