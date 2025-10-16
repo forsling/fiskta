@@ -188,11 +188,6 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
             *exit_code_out = FISKTA_EXIT_OK;
             return false;
         }
-        if (strcmp(arg, "--examples") == 0) {
-            print_examples();
-            *exit_code_out = FISKTA_EXIT_OK;
-            return false;
-        }
         if (strcmp(arg, "-v") == 0 || strcmp(arg, "--version") == 0) {
             printf("fiskta - (fi)nd (sk)ip (ta)ke v%s\n", FISKTA_VERSION);
             *exit_code_out = FISKTA_EXIT_OK;

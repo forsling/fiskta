@@ -442,7 +442,7 @@ Supports escape sequences:
 
 - `\n` — newline (LF)
 - `\t` — tab
-- `\r` — carriage return
+- `\r` — carriage return (CR)
 - `\0` — NUL byte
 - `\\` — literal backslash
 - `\xHH` — literal byte from two hex digits

@@ -135,7 +135,6 @@ fn createBuildStep(
         "-I",
         "src",
         "src/main.c",
-        "src/cli_help.c",
         "src/parse.c",
         "src/engine.c",
         "src/iosearch.c",
