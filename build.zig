@@ -141,6 +141,7 @@ fn createBuildStep(
         "src/iosearch.c",
         "src/reprog.c",
         "src/util.c",
+        "src/error.c",
         "-o",
         b.fmt("zig-out/bin/{s}{s}", .{ out_name, out_ext }),
     });

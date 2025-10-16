@@ -289,17 +289,9 @@ typedef struct ParsePlan {
     i32 re_ins_estimate_max;
 } ParsePlan;
 
-enum { PARSE_ERROR_MESSAGE_MAX = 160 };
-
-typedef struct {
-    i32 token_index;
-    char message[PARSE_ERROR_MESSAGE_MAX];
-} ParseError;
-
 enum Err engine_run(const Program* prg, const char* in_path, FILE* out);
 enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
 enum Err parse_build(i32 token_count, const String* tokens, const char* in_path, Program* prg, const char** in_path_out,
     Clause* clauses_buf, Op* ops_buf,
     char* str_pool, size_t str_pool_cap);
-const ParseError* parse_error_last(void);
 void commit_labels(VM* vm, const LabelWrite* label_writes, i32 label_count);

@@ -3,6 +3,7 @@
 #endif
 
 #include "cli_help.h"
+#include "error.h"
 #include "fiskta.h"
 #include "iosearch.h"
 #include "reprog.h"
@@ -63,14 +64,12 @@ static void print_err(enum Err e, const char* msg)
         fprintf(stderr, "%s", err_str(e));
     }
 
-    if (e == E_PARSE) {
-        const ParseError* perr = parse_error_last();
-        if (perr && perr->message[0] != '\0') {
-            if (perr->token_index >= 0) {
-                fprintf(stderr, ": %s (token %d)", perr->message, perr->token_index + 1);
-            } else {
-                fprintf(stderr, ": %s", perr->message);
-            }
+    const ErrorDetail* detail = error_detail_last();
+    if (detail && detail->message[0] != '\0' && detail->err == e) {
+        if (detail->position >= 0) {
+            fprintf(stderr, ": %s (token %d)", detail->message, detail->position + 1);
+        } else {
+            fprintf(stderr, ": %s", detail->message);
         }
     }
 
