@@ -554,8 +554,8 @@ enum Err io_prev_char_start(File* io, i64 pos, i64* out)
         return E_OK;
     }
 
-    // Read up to 3 bytes before pos to find a non-continuation
-    i64 lo = pos - 3;
+    // Read up to 4 bytes before pos to find a non-continuation byte
+    i64 lo = pos - 4;
     if (lo < 0) {
         lo = 0;
     }
@@ -568,16 +568,27 @@ enum Err io_prev_char_start(File* io, i64 pos, i64* out)
         return E_IO;
     }
 
-    // Scan backward from pos-1 to lo for a non-cont byte
-    i64 rel = (i64)n - 1;
-    for (i64 k = 0; k < (i64)n; ++k) {
-        unsigned char b = io->buf[rel - k];
+    i64 rel_end = (i64)n; // number of bytes we have (hi - lo)
+    if (rel_end <= 0) {
+        *out = pos;
+        return E_OK;
+    }
+
+    // Scan backward from pos-1 toward lo to find a non-continuation byte
+    for (i64 k = 1; k <= rel_end; ++k) {
+        unsigned char b = io->buf[rel_end - k];
         if (!utf8_is_cont_byte(b)) {
             // Validate forward length; if malformed, treat that byte as a single-char
             i32 len = utf8_len_from_lead_byte(b);
-            i64 start = hi - 1 - k;
+            i64 start = hi - k;
             if (len == 0 || start + len > io->size) {
                 *out = start;
+                return E_OK;
+            }
+            // If the character we found ends exactly at 'pos' and there's more data,
+            // the cursor is already on a character boundary; keep it there.
+            if (start + len == pos && pos < io->size) {
+                *out = pos;
                 return E_OK;
             }
             *out = start;
@@ -585,7 +596,7 @@ enum Err io_prev_char_start(File* io, i64 pos, i64* out)
         }
     }
     // All were continuation bytes; treat lo as boundary (permissive)
-    *out = lo;
+    *out = lo ? lo : pos;
     return E_OK;
 }
 

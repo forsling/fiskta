@@ -1140,15 +1140,15 @@ def tests():
         # ---------- UTF-8 character tests ----------
         dict(id="utf8-001-take-c-vs-b",
              tokens=["find","世界","take","to","match-start","take","+3c"], input_file="unicode-test.txt",
-             expect=dict(stdout=" 世界", exit=0)),
+             expect=dict(stdout="世界\n", exit=0)),
 
         dict(id="utf8-002-negative-chars",
              tokens=["find","Café","take","to","match-start","take","+3c"], input_file="unicode-test.txt",
-             expect=dict(stdout="\nCa", exit=0)),
+             expect=dict(stdout="Caf", exit=0)),
 
         dict(id="utf8-003-loc-expr-char-offset",
              tokens=["find","Café","take","to","match-start+2c"], input_file="unicode-test.txt",
-             expect=dict(stdout="C", exit=0)),
+             expect=dict(stdout="Ca", exit=0)),
 
         dict(id="utf8-004-permissive-invalid",
              tokens=["take","+3c"], input_file="binary-data.bin",
@@ -2288,11 +2288,11 @@ def tests():
         # View with character operations
         dict(id="view-034-view-chars",
              tokens=["view","BOF+2b","EOF-2b","take","+3c"], input_file="overlap.txt",
-             expect=dict(stdout="bcd", exit=0)),  # BOF+2b is position 2, take +3c gives bcd
+             expect=dict(stdout="cde", exit=0)),  # BOF+2b is position 2, take +3c gives cde
 
         dict(id="view-035-view-skip-chars",
              tokens=["view","BOF+2b","EOF-2b","skip","2c","take","+2c"], input_file="overlap.txt",
-             expect=dict(stdout="cd", exit=0)),  # skip 2c from position 2 gives position 4, take +2c gives cd
+             expect=dict(stdout="ef", exit=0)),  # skip 2c from position 2 gives position 4, take +2c gives ef
 
         # View with binary data
         dict(id="view-036-view-binary",
@@ -2580,7 +2580,7 @@ def tests():
         # Test 4: UTF-8 chopped boundary handling
         dict(id="edge-004-utf8-boundary",
              tokens=["take","1c","take","1c"], input_file="utf8-boundary.bin",
-             expect=dict(stdout_sha256="6bbc96c8ac55543ab5720e3de776c2d2289f9d00fa9dab0b2f7da2f36eb7888d", exit=0)),  # emoji + X
+             expect=dict(stdout_sha256="ac6dbe25c0c20f48d8ff142ca49cb5a5ad558ae1db59f938bb62cdfeaa5c2b52", exit=0)),  # emoji + X
 
         # Test 5: Lines anchor (negative offset)
         dict(id="edge-005-lines-negative",
