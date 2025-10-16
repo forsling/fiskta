@@ -56,11 +56,25 @@ static const char* err_str(enum Err e)
 
 static void print_err(enum Err e, const char* msg)
 {
+    fprintf(stderr, "fiskta: ");
     if (msg) {
-        fprintf(stderr, "fiskta: %s (%s)\n", msg, err_str(e));
+        fprintf(stderr, "%s (%s)", msg, err_str(e));
     } else {
-        fprintf(stderr, "fiskta: %s\n", err_str(e));
+        fprintf(stderr, "%s", err_str(e));
     }
+
+    if (e == E_PARSE) {
+        const ParseError* perr = parse_error_last();
+        if (perr && perr->message[0] != '\0') {
+            if (perr->token_index >= 0) {
+                fprintf(stderr, ": %s (token %d)", perr->message, perr->token_index + 1);
+            } else {
+                fprintf(stderr, ": %s", perr->message);
+            }
+        }
+    }
+
+    fputc('\n', stderr);
 }
 
 static size_t align_or_die(size_t x, size_t align)

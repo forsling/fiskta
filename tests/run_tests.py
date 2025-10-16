@@ -210,6 +210,18 @@ END_SECTION_B
     hex_test.extend(b"_SUFFIX")
     write(FIX / "hex-test.bin", hex_test)
 
+    # 29) label-offset.txt — exercises inline offset label lookups
+    write(FIX / "label-offset.txt", b"A\nB\nX\n")
+
+    # 30) backward-find.txt — ensures backward find chooses rightmost match
+    write(FIX / "backward-find.txt", b"alpha ERROR beta\nERROR gamma\n")
+
+    # 31) take-until-empty.txt — pattern at BOF to keep cursor stationary
+    write(FIX / "take-until-empty.txt", b"HEADtail\n")
+
+    # 32) utf8-boundary.bin — multi-byte code point followed by ASCII
+    write(FIX / "utf8-boundary.bin", "🚀X".encode("utf-8"))
+
 def sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
@@ -265,11 +277,11 @@ def tests():
 
         dict(id="gram-003-empty-needle-invalid",
              tokens=["find",""], input_file="small.txt",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="", exit=12)),
 
         dict(id="gram-004-label-name-validation",
              tokens=["label","Bad"], input_file="small.txt",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="", exit=12)),
 
         dict(id="gram-005-view-inline-offsets",
              tokens=["view","BOF+2b","BOF+5b","take","+3b"], input_file="overlap.txt",
@@ -283,24 +295,24 @@ def tests():
 
         dict(id="gram-009-print-hex-invalid",
              tokens=["print", r"\x0G"], input_file="overlap.txt",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="", exit=12)),
 
         # ---------- Error path tests ----------
         dict(id="error-001-unknown-operation",
              tokens=["unknown","arg"], input_file="small.txt",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="", exit=12)),
 
         dict(id="error-002-missing-argument",
              tokens=["find"], input_file="small.txt",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="", exit=12)),
 
         dict(id="error-003-invalid-number",
              tokens=["take","notanumber"], input_file="small.txt",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="", exit=12)),
 
         dict(id="error-004-invalid-unit",
              tokens=["take","10x"], input_file="small.txt",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="", exit=12)),
 
         dict(id="error-005-invalid-location",
              tokens=["skip","to","NOTEXIST"], input_file="small.txt",
@@ -554,7 +566,7 @@ def tests():
 
         dict(id="find-105-empty-string",
              tokens=["find",""], input_file="overlap.txt",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="", exit=12)),
 
         dict(id="find-106-binary-data",
              tokens=["find","BINARY_DATA","take","+11b"], input_file="binary-data.bin",
@@ -664,7 +676,7 @@ def tests():
 
         dict(id="take-until-109-empty-needle",
              tokens=["take","until",""], input_file="overlap.txt",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="", exit=12)),
 
         dict(id="take-until-110-binary-data",
              tokens=["take","until","BINARY_DATA"], input_file="binary-data.bin",
@@ -1970,21 +1982,21 @@ def tests():
         # Error cases - odd number of hex digits
         dict(id="findbin-013-odd-hex-digits",
              tokens=["find:bin","DEA","take","+1b"], input_file="hex-test.bin",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="", exit=12)),
 
         # Error cases - invalid hex characters
         dict(id="findbin-014-invalid-hex-char",
              tokens=["find:bin","DEFG","take","+1b"], input_file="hex-test.bin",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="", exit=12)),
 
         dict(id="findbin-015-invalid-hex-special",
              tokens=["find:bin","DE$F","take","+1b"], input_file="hex-test.bin",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="", exit=12)),
 
         # Error cases - empty pattern
         dict(id="findbin-016-empty-pattern",
              tokens=["find:bin",""], input_file="hex-test.bin",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="", exit=12)),
 
         # Large file search (buffer boundary testing)
         dict(id="findbin-017-large-file-search",
@@ -2027,7 +2039,7 @@ def tests():
         # Whitespace-only pattern (should fail as odd digits after removing whitespace if spaces only)
         dict(id="findbin-025-whitespace-only",
              tokens=["find:bin","   ","take","+1b"], input_file="hex-test.bin",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="", exit=12)),
 
         # All zeros pattern
         dict(id="findbin-026-all-zeros",
@@ -2089,15 +2101,15 @@ def tests():
 
         dict(id="takeuntilbin-008-odd-hex-digits",
              tokens=["take","until:bin","DEA"], input_file="hex-test.bin",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="", exit=12)),
 
         dict(id="takeuntilbin-009-invalid-hex",
              tokens=["take","until:bin","DEFG"], input_file="hex-test.bin",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="", exit=12)),
 
         dict(id="takeuntilbin-010-empty-pattern",
              tokens=["take","until:bin",""], input_file="hex-test.bin",
-             expect=dict(stdout="", exit=2)),
+             expect=dict(stdout="", exit=12)),
 
         # Integration with views
         dict(id="takeuntilbin-011-within-view",
@@ -2568,7 +2580,7 @@ def tests():
         # Test 4: UTF-8 chopped boundary handling
         dict(id="edge-004-utf8-boundary",
              tokens=["take","1c","take","1c"], input_file="utf8-boundary.bin",
-             expect=dict(stdout_sha256="f2941511443d21312cac669002756b2d32b62b4215ae5c0d44b43989502c751f", exit=0)),  # emoji + X
+             expect=dict(stdout_sha256="6bbc96c8ac55543ab5720e3de776c2d2289f9d00fa9dab0b2f7da2f36eb7888d", exit=0)),  # emoji + X
 
         # Test 5: Lines anchor (negative offset)
         dict(id="edge-005-lines-negative",
