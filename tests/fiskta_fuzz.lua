@@ -10,6 +10,7 @@ local bit = require("bit")
 ffi.cdef[[
 typedef int pid_t;
 typedef long time_t;
+typedef void (*sighandler_t)(int);
 int     kill(pid_t pid, int sig);
 pid_t   fork(void);
 int     execvp(const char *file, char *const argv[]);
@@ -22,10 +23,12 @@ time_t  time(time_t *t);
 int     sysconf(int name);
 char*   getenv(const char *name);
 int     setenv(const char *name, const char *value, int overwrite);
+sighandler_t signal(int signum, sighandler_t handler);
 extern int errno;
 const char *strerror(int errnum);
 ]]
 
+local SIGINT = 2
 local SIGKILL = 9
 local WNOHANG = 1
 local O_WRONLY, O_CREAT, O_TRUNC = 1, 64, 512
@@ -563,6 +566,19 @@ local function gen_input()
   return table.concat(t)
 end
 
+-- ========= Signal handling =========
+local interrupted = false
+
+local function sigint_handler(signum)
+  interrupted = true
+end
+
+local function install_signal_handlers()
+  -- Create C callback for signal handler
+  local handler = ffi.cast("sighandler_t", sigint_handler)
+  ffi.C.signal(SIGINT, handler)
+end
+
 -- ========= Stats & Progress =========
 local stats = { total=0, saved=0, timeouts=0, crashed=0, exits={}, start_time=os.time() }
 local function bump_exit(code) stats.exits[code] = (stats.exits[code] or 0) + 1 end
@@ -598,6 +614,7 @@ end
 -- ========= Main fuzz loop =========
 local function run()
   ensure_dir(cfg.artifacts)
+  install_signal_handlers()
 
   -- Clean old artifacts
   os.execute(string.format("rm -f %s/case_*.{ops.txt,input.bin,meta.txt,stderr.txt,stdout.txt} 2>/dev/null", cfg.artifacts))
@@ -610,7 +627,14 @@ local function run()
   io.write("\n")
 
   local case_id = 0
+  local last_save = 0
   while true do
+    -- Check for interrupt
+    if interrupted then
+      io.write("\n\nInterrupted by user (Ctrl-C)\n")
+      break
+    end
+
     if cfg.cases and case_id >= cfg.cases then break end
 
     local raw, ops, input, tmp_path, res, interesting
@@ -662,6 +686,12 @@ local function run()
         if case_id % 100 == 0 then
           show_progress()
         end
+
+        -- Save progress every 1000 cases
+        if case_id - last_save >= 1000 then
+          write_summary()
+          last_save = case_id
+        end
       end
     end
 
@@ -671,6 +701,7 @@ local function run()
   show_progress()
   io.write("\n\n")
 
+  -- Final save
   write_summary()
 
   if stats.saved > 0 then
