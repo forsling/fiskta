@@ -140,7 +140,7 @@ $ fiskta --input status.txt --monitor --every 2s --for 8h find "DISCONNECTED" ta
 ### Regex Syntax
 
 - **Character Classes**: `\d` (digits), `\D` (non-digits), `\w` (word), `\W` (non-word), `\s` (space), `\S` (non-space), `[a-z]`, `[^0-9]`
-- **Quantifiers**: `*` (0+), `+` (1+), `?` (0-1), `{n}` (exactly n), `{n,m}` (n to m)
+- **Quantifiers**: `*` (0+), `+` (1+), `?` (0-1), `{n}` (exactly n), `{n,m}` (n to m). Max quantifier values: 100 (policy limit to prevent excessive expansion)
 - **Grouping**: `( ... )` (group subpatterns), `(a|b)+` (quantified groups)
 - **Anchors**: `^` (line start), `$` (line end)
 - **Alternation**: `|` (OR)
@@ -253,7 +253,7 @@ Search using regular expressions. Same search behavior as `find`.
 
 Regex syntax:
 - Classes: `\d` (digit), `\D` (non-digit), `\w` (word), `\W` (non-word), `\s` (space), `\S` (non-space), `[a-z]`, `[^0-9]`
-- Quantifiers: `*` (0+), `+` (1+), `?` (0-1), `{n}`, `{n,m}`
+- Quantifiers: `*` (0+), `+` (1+), `?` (0-1), `{n}`, `{n,m}` (max n or m-n: 100)
 - Anchors: `^` (line start), `$` (line end)
 - Alternation: `|`, Grouping: `(...)`, Any char: `.`
 - Escapes: `\n`, `\t`, `\r`, `\f`, `\v`, `\0`
