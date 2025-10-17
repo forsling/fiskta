@@ -3,6 +3,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+// Maximum quantifier expansion to prevent OOM with large quantifiers like {1,1000}
+// Patterns like .{1,100} would naively expand to 199 instructions, exhausting buffers
+// The preflight estimator uses 4*len+8, which doesn't account for quantifier values,
+// so we cap quantifiers conservatively to ensure we don't exceed preallocated buffers
+#define MAX_QUANTIFIER_EXPANSION 10
+
 /****************************
  * CHARACTER CLASS UTILITIES
  ****************************/
@@ -792,6 +798,16 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout)
         } else {
             // {n,m} quantifier - more complex NFA structure needed
             // For now, implement a simple approach: emit min_count atoms, then add optional ones
+
+            // Cap expansion to prevent OOM with large quantifiers
+            // Note: This returns E_PARSE rather than E_OOM because it's a pattern limitation,
+            // not a true out-of-memory condition
+            if (min_count > MAX_QUANTIFIER_EXPANSION) {
+                return E_PARSE;
+            }
+            if (max_count > 0 && (max_count - min_count) > MAX_QUANTIFIER_EXPANSION) {
+                return E_PARSE;
+            }
 
             // Emit minimum required atoms
             for (int j = 0; j < min_count; j++) {
