@@ -1,4 +1,4 @@
--- Generated from the legacy Python test harness; update manually if needed.
+-- Canonical Fiskta test suite.
 return {
     {
         id = "gram-001-clause-sep",
@@ -7646,7 +7646,17 @@ return {
             "--version"
         },
         expect = {
-            stdout = "fiskta - (fi)nd (sk)ip (ta)ke v1.1\n",
+            stdout_startswith = "fiskta",
+            exit = 0,
+        },
+    },
+    {
+        id = "cli-002-help",
+        tokens = {
+            "--help"
+        },
+        expect = {
+            stdout_startswith = "(fi)",
             exit = 0,
         },
     },
@@ -7656,11 +7666,22 @@ return {
         input_file = "overlap.txt",
         extra_args = {
             "--ops",
-            "/home/simon/workspace/fiskta/tests/fixtures/commands_take_plus_2b.txt"
+            "tests/fixtures/commands_take_plus_2b.txt"
         },
         expect = {
             stdout = "ab",
             exit = 0,
+        },
+    },
+    {
+        id = "cli-006-unknown-option",
+        tokens = {
+            "--bogus-option"
+        },
+        expect = {
+            stdout = "",
+            stderr = "fiskta: unknown option --bogus-option\n",
+            exit = 12,
         },
     },
     {

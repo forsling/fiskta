@@ -522,14 +522,14 @@ else
 end
 
 local function load_generated_tests()
-    local generated_path = SCRIPT_DIR .. "/tests_generated.lua"
+    local generated_path = SCRIPT_DIR .. "/tests_suite.lua"
     local chunk, err = loadfile(generated_path)
     if not chunk then
-        error("tests/tests_generated.lua missing; regenerate the test table before running")
+        error("tests/tests_suite.lua missing; add the canonical test table before running")
     end
     local ok, data = pcall(chunk)
     if not ok then
-        error("failed to load tests/tests_generated.lua: " .. tostring(data))
+        error("failed to load tests/tests_suite.lua: " .. tostring(data))
     end
     return data
 end
