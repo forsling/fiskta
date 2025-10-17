@@ -661,6 +661,192 @@ local function apply_mutations(data, count)
   return data
 end
 
+-- ========= Template library (known-good programs) =========
+-- These templates stress specific runtime features with valid syntax
+local templates = {
+  -- Regex engine stress tests (custom implementation, likely bug source)
+  {"find:re", "a.*b", "take", "20b"},
+  {"find:re", "[0-9]+", "take", "to", "match-end"},
+  {"find:re", "(ERROR|WARNING|FATAL):", "take", "to", "line-end"},
+  {"find:re", "user=[a-z]+", "take", "to", "match-end"},
+  {"find:re", "^BEGIN", "take", "to", "line-end"},
+  {"find:re", "END$", "take", "to", "line-end"},
+  {"find:re", "a{3,5}", "take", "10b"},
+  {"find:re", ".{1,100}", "take", "to", "match-end"},
+  {"find:re", "\\w+@\\w+", "take", "to", "match-end"},
+  {"find:re", "[^\\s]+", "take", "to", "match-end"},
+  {"find:re", "(a|b|c)+", "take", "to", "match-end"},
+  {"find:re", "a*b*c*", "take", "to", "match-end"},
+  {"find:re", "\\d{3}-\\d{4}", "take", "to", "match-end"},
+
+  -- Boundary operations (view limits, offsets)
+  {"view", "BOF", "EOF-100b", "find:bin", "20", "take", "10b"},
+  {"view", "BOF+50b", "EOF", "find", "ERROR", "take", "to", "line-end"},
+  {"view", "BOF", "BOF+1000b", "find:re", "[a-z]+", "take", "to", "match-end"},
+  {"skip", "100b", "view", "cursor", "EOF", "find:bin", "0A", "take", "5b"},
+  {"find:bin", "0A", "view", "match-start", "match-end+50b", "take", "10b"},
+
+  -- Label operations
+  {"find", "ERROR", "label", "ERR", "skip", "10b", "skip", "to", "ERR", "take", "20b"},
+  {"find:re", "BEGIN", "label", "START", "find:re", "END", "label", "END", "take", "to", "END"},
+  {"find:bin", "0A", "label", "L1", "skip", "5b", "label", "L2", "skip", "to", "L1", "take", "to", "L2"},
+
+  -- UTF-8 character boundaries
+  {"find:bin", "0A", "skip", "1c", "take", "10c"},
+  {"view", "BOF", "BOF+500c", "find", "ERROR", "take", "to", "line-end"},
+  {"skip", "100c", "take", "20c"},
+
+  -- Literal hex searches
+  {"find:bin", "0A", "take", "to", "line-end"},
+  {"find:bin", "0D0A", "take", "to", "line-end"},
+  {"find:bin", "FF", "take", "10b"},
+  {"find:bin", "00", "skip", "1b", "take", "50b"},
+
+  -- Complex clause linking
+  {"find", "ERROR", "take", "to", "line-end", "THEN", "skip", "1l", "take", "to", "line-end"},
+  {"find", "WARNING", "take", "to", "line-end", "OR", "find", "disk", "take", "to", "line-end"},
+  {"find", "READY", "take", "to", "line-end", "OR", "find", "STATE", "take", "to", "line-end"},
+
+  -- Take operations
+  {"take", "to", "BOF+100b"},
+  {"find:bin", "0A", "take", "to", "match-end"},
+  {"find", "ERROR", "take", "to", "line-end"},
+
+  -- Until operations
+  {"take", "until", "ERROR"},
+  {"take", "until:re", "[0-9]+"},
+  {"take", "until:bin", "0A"},
+
+  -- Edge cases
+  {"take", "0b"},
+  {"skip", "0b", "take", "10b"},
+  {"find:bin", "0A", "skip", "0l", "take", "1l"},
+}
+
+-- Extreme values for injection
+local extreme_values = {
+  offsets = {
+    "BOF+999999999b", "EOF-999999999b",
+    "BOF+999999999c", "EOF-999999999c",
+    "BOF+999999999l", "EOF-999999999l",
+    "cursor+999999999b", "cursor-999999999b",
+    "match-start+999999999b", "match-end-999999999b",
+  },
+  sizes = {
+    "0b", "0c", "0l",
+    "999999999b", "999999999c", "999999999l",
+    "-1b", "-1c", "-1l",
+  },
+  regexes = {
+    "()",          -- empty capture
+    "a*",          -- zero-or-more at start
+    ".*$",         -- greedy to end
+    ".{0,999999}", -- huge quantifier
+    "a{999,}",     -- huge minimum
+    "((((a))))",   -- nested groups
+    "(a|){100}",   -- empty alt with repeat
+  },
+}
+
+local function rand_extreme_offset()
+  return extreme_values.offsets[rand(#extreme_values.offsets)]
+end
+
+local function rand_extreme_size()
+  return extreme_values.sizes[rand(#extreme_values.sizes)]
+end
+
+local function rand_extreme_regex()
+  return extreme_values.regexes[rand(#extreme_values.regexes)]
+end
+
+local function mutate_template(template)
+  -- Make a copy
+  local ops = {}
+  for i, v in ipairs(template) do
+    ops[i] = v
+  end
+
+  -- Apply 1-3 mutations
+  local num_mutations = 1 + rand(3)
+  for _=1,num_mutations do
+    local mutation_type = rand(6)
+
+    if mutation_type == 1 and #ops > 2 then
+      -- Replace a size/offset with extreme value
+      for i=1,#ops do
+        if ops[i]:match("%d+[blc]$") then
+          if rand(2) == 1 then
+            ops[i] = rand_extreme_size()
+            break
+          end
+        end
+      end
+
+    elseif mutation_type == 2 then
+      -- Replace location with extreme offset
+      for i=1,#ops do
+        if ops[i]:match("^[A-Z]") or ops[i]:match("^cursor") or ops[i]:match("^match") or ops[i]:match("^line") then
+          if rand(2) == 1 then
+            ops[i] = rand_extreme_offset()
+            break
+          end
+        end
+      end
+
+    elseif mutation_type == 3 then
+      -- Replace regex with extreme regex
+      for i=1,#ops do
+        if ops[i]:match("^/.*/$") then
+          if rand(2) == 1 then
+            ops[i] = rand_extreme_regex()
+            break
+          end
+        end
+      end
+
+    elseif mutation_type == 4 and #ops > 3 then
+      -- Remove random operation (1-2 tokens)
+      local pos = rand(#ops - 1)
+      table.remove(ops, pos)
+      if rand(2) == 1 and #ops > pos then
+        table.remove(ops, pos)
+      end
+
+    elseif mutation_type == 5 and #ops < 30 then
+      -- Insert operation from another template
+      local other = templates[rand(#templates)]
+      local insert_pos = rand(#ops + 1)
+      if #other > 0 then
+        table.insert(ops, insert_pos, other[rand(#other)])
+      end
+
+    elseif mutation_type == 6 and #ops > 2 then
+      -- Swap two adjacent operations
+      local pos = rand(#ops - 1)
+      ops[pos], ops[pos+1] = ops[pos+1], ops[pos]
+    end
+  end
+
+  return ops
+end
+
+local function gen_from_template()
+  local base = templates[rand(#templates)]
+
+  -- 20% mutate, 80% use as-is (mutations often break syntax)
+  if rand(10) <= 2 then
+    return mutate_template(base)
+  else
+    -- Return copy
+    local ops = {}
+    for i, v in ipairs(base) do
+      ops[i] = v
+    end
+    return ops
+  end
+end
+
 -- ========= Input generator =========
 local function gen_input_from_corpus()
   if #corpus == 0 then return nil end
@@ -771,11 +957,24 @@ local function run_worker(worker_id, num_workers)
 
     local raw, ops, input, tmp_path, res, interesting
 
-    raw = {}
-    gen_node(rules[start_rule], raw, 0, {max_depth=cfg.max_depth, max_repeat=cfg.max_repeat})
-    if #raw > 0 then
+    -- Generation mix: 50% templates, 30% grammar, 20% pure generation
+    local gen_type = rand(10)
+    if gen_type <= 5 then
+      -- Template-based (50%)
+      ops = gen_from_template()
+    elseif gen_type <= 8 then
+      -- Grammar-based (30%)
+      raw = {}
+      gen_node(rules[start_rule], raw, 0, {max_depth=cfg.max_depth, max_repeat=cfg.max_repeat})
       ops = rewrite_tokens(raw)
-      if #ops > 0 then
+    else
+      -- Pure generation (20%)
+      raw = {}
+      gen_node(rules[start_rule], raw, 0, {max_depth=cfg.max_depth, max_repeat=cfg.max_repeat})
+      ops = rewrite_tokens(raw)
+    end
+
+    if ops and #ops > 0 then
         input = gen_input()
         tmp_path = string.format("%s/tmp_%d_%d.bin", cfg.artifacts, worker_id, case_id)
         write_all(tmp_path, input)
@@ -806,7 +1005,6 @@ local function run_worker(worker_id, num_workers)
         else
           os.remove(tmp_path)
         end
-      end
     end
 
     case_iter = case_iter + 1

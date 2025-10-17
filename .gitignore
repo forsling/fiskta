@@ -4,6 +4,7 @@ bench/
 tests/fixtures/
 tests/__pycache__/
 
+artifacts/
 .zig-cache
 zig-out/
 .cache/
