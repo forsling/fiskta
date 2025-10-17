@@ -799,12 +799,13 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout)
             // For now, implement a simple approach: emit min_count atoms, then add optional ones
 
             // Cap expansion to prevent OOM with large quantifiers
-            // Return E_OOM because this is a resource limitation, not a syntax error
+            // Return E_PARSE because this is a policy decision - we choose not to support
+            // quantifiers this large, even though we could allocate the memory
             if (min_count > MAX_QUANTIFIER_EXPANSION) {
-                return E_OOM;
+                return E_PARSE;
             }
             if (max_count > 0 && (max_count - min_count) > MAX_QUANTIFIER_EXPANSION) {
-                return E_OOM;
+                return E_PARSE;
             }
 
             // Emit minimum required atoms

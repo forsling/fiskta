@@ -2355,7 +2355,7 @@ ERROR", exit = 0},
         id = "regex-065-long-pattern",
         tokens = {"find:re", "X{1000}", "take", "+1000b"},
         input_file = "large-lines.txt",
-        expect = {stdout = "", exit = 11},
+        expect = {stdout = "", exit = 13},
     },
     {
         id = "regex-066-crlf-pattern",
