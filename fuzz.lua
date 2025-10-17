@@ -91,6 +91,8 @@ local function parse_args()
     repro_input = nil,
     repro_ops = nil,
     is_asan = is_asan,
+    min_ops = nil,  -- nil = no minimum
+    max_ops = nil,  -- nil = no maximum
   }
 
   local i = 1
@@ -111,6 +113,8 @@ local function parse_args()
     elseif a == "--no-corpus" then cfg.use_corpus = false
     elseif a == "--corpus-dir" then i=i+1; cfg.corpus_dir = arg[i]
     elseif a == "--workers" then i=i+1; cfg.workers = tonumber(arg[i])
+    elseif a == "--min-ops" then i=i+1; cfg.min_ops = tonumber(arg[i])
+    elseif a == "--max-ops" then i=i+1; cfg.max_ops = tonumber(arg[i])
     elseif a == "--quick" then cfg.cases = 10000; cfg.workers = 2  -- quick mode
     elseif a == "--repro-case" then i=i+1; cfg.repro_case = tonumber(arg[i])
     elseif a == "--repro" then i=i+1; cfg.repro_input = arg[i]; i=i+1; cfg.repro_ops = arg[i]
@@ -138,11 +142,14 @@ Options:
   --timeout-ms N           Per-case timeout (default: 1500ms)
   --seed N                 RNG seed (default: current time)
   --workers N              Parallel workers (default: CPU count)
+  --min-ops N              Minimum operations per program (default: no limit)
+  --max-ops N              Maximum operations per program (default: no limit)
 
 Examples:
   ./fuzz                   # Continuous fuzzing, Ctrl-C to stop
   ./fuzz --cases 50000     # Run 50k cases then exit
   ./fuzz --quick           # Quick test (10k cases)
+  ./fuzz --min-ops 20 --max-ops 40   # Long operation chains
 
 ]])
       os.exit(0)
@@ -958,21 +965,39 @@ local function run_worker(worker_id, num_workers)
     local raw, ops, input, tmp_path, res, interesting
 
     -- Generation mix: 50% templates, 30% grammar, 20% pure generation
-    local gen_type = rand(10)
-    if gen_type <= 5 then
-      -- Template-based (50%)
-      ops = gen_from_template()
-    elseif gen_type <= 8 then
-      -- Grammar-based (30%)
-      raw = {}
-      gen_node(rules[start_rule], raw, 0, {max_depth=cfg.max_depth, max_repeat=cfg.max_repeat})
-      ops = rewrite_tokens(raw)
-    else
-      -- Pure generation (20%)
-      raw = {}
-      gen_node(rules[start_rule], raw, 0, {max_depth=cfg.max_depth, max_repeat=cfg.max_repeat})
-      ops = rewrite_tokens(raw)
-    end
+    -- With retry for min/max ops constraints
+    local max_retries = 50
+    local retry_count = 0
+    repeat
+      local gen_type = rand(10)
+      if gen_type <= 5 then
+        -- Template-based (50%)
+        ops = gen_from_template()
+      elseif gen_type <= 8 then
+        -- Grammar-based (30%)
+        raw = {}
+        gen_node(rules[start_rule], raw, 0, {max_depth=cfg.max_depth, max_repeat=cfg.max_repeat})
+        ops = rewrite_tokens(raw)
+      else
+        -- Pure generation (20%)
+        raw = {}
+        gen_node(rules[start_rule], raw, 0, {max_depth=cfg.max_depth, max_repeat=cfg.max_repeat})
+        ops = rewrite_tokens(raw)
+      end
+
+      retry_count = retry_count + 1
+
+      -- Check operation count constraints
+      local ops_ok = true
+      if ops and #ops > 0 then
+        if cfg.min_ops and #ops < cfg.min_ops then ops_ok = false end
+        if cfg.max_ops and #ops > cfg.max_ops then ops_ok = false end
+      else
+        ops_ok = false
+      end
+
+      if ops_ok or retry_count >= max_retries then break end
+    until false
 
     if ops and #ops > 0 then
         input = gen_input()
