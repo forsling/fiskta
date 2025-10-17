@@ -52,6 +52,10 @@ end
 
 local has_ffi, ffi = pcall(require, "ffi")
 
+if not has_ffi then
+    error("tests/run_tests.lua requires LuaJIT with FFI")
+end
+
 local bit_mod, bxor, band, bor, rshift, lshift, ror, bnot
 do
     local ok, mod = pcall(require, "bit")
@@ -74,7 +78,7 @@ do
 end
 
 if not (bxor and band and bor and rshift and lshift and bnot) then
-    error("requires LuaJIT bit library or Lua 5.2 bit32")
+    error("requires LuaJIT bit.* library")
 end
 
 local function mask32(x)
@@ -521,116 +525,16 @@ local function load_generated_tests()
     local generated_path = SCRIPT_DIR .. "/tests_generated.lua"
     local chunk, err = loadfile(generated_path)
     if not chunk then
-        return nil
+        error("tests/tests_generated.lua missing; regenerate the test table before running")
     end
     local ok, data = pcall(chunk)
     if not ok then
-        io.stderr:write("Failed to load generated tests: ", tostring(data), "\n")
-        return nil
+        error("failed to load tests/tests_generated.lua: " .. tostring(data))
     end
     return data
 end
 
-local builtin_tests = {
-    {
-        id = "gram-001-clause-sep",
-        tokens = {"take", "+3b", "THEN", "take", "+2b"},
-        input_file = "overlap.txt",
-        expect = { stdout = "abcde", exit = 0 },
-    },
-    {
-        id = "gram-002-signed-skip",
-        tokens = {"skip", "-5b"},
-        input_file = "overlap.txt",
-        expect = { stdout = "", exit = 0 },
-    },
-    {
-        id = "gram-005-view-inline-offsets",
-        tokens = {"view", "BOF+2b", "BOF+5b", "take", "+3b"},
-        input_file = "overlap.txt",
-        expect = { stdout = "cde", exit = 0 },
-    },
-    {
-        id = "take-stdout-len",
-        tokens = {"take", "+3b"},
-        input_file = "overlap.txt",
-        expect = { stdout_len = 3, exit = 0 },
-    },
-    {
-        id = "gram-008-print-hex",
-        tokens = {"print", [[\x00\xFA]]},
-        input_file = "overlap.txt",
-        expect = {
-            stdout_sha256 = "d96bdf2090bd7dafe1ab0d9f7ffc4720d002c07abbf48df3969af497b1edbfb9",
-            exit = 0,
-        },
-    },
-    {
-        id = "io-001-stdin-forward",
-        tokens = {"take", "+5b"},
-        input_file = "-",
-        stdin = "Hello\nWorld\n",
-        expect = { stdout = "Hello", exit = 0 },
-    },
-    {
-        id = "logic-023-or-second-executes",
-        tokens = {"find", "xyz", "take", "+2b", "OR", "take", "+2b"},
-        input_file = "overlap.txt",
-        expect = { stdout = "ab", exit = 0 },
-    },
-    {
-        id = "error-005-invalid-location",
-        tokens = {"skip", "to", "NOTEXIST"},
-        input_file = "small.txt",
-        expect = { stdout = "", exit = PROGRAM_FAIL_EXIT },
-    },
-    {
-        id = "logic-016-then-sequential",
-        tokens = {"find", "abc", "THEN", "skip", "3b", "THEN", "take", "+3b"},
-        input_file = "overlap.txt",
-        expect = { stdout = "def", exit = 0 },
-    },
-    {
-        id = "logic-017-then-with-failure",
-        tokens = {"find", "abc", "THEN", "find", "xyz", "THEN", "take", "+3b"},
-        input_file = "overlap.txt",
-        expect = { stdout = "abc", exit = 0 },
-    },
-    {
-        id = "loop-slow-follow-001-existing-data",
-        tokens = {"take", "1l"},
-        input_file = "small.txt",
-        extra_args = {"--follow", "-u", "50ms"},
-        expect = { stdout = "Header\n", exit = 0 },
-        slow = true,
-    },
-    {
-        id = "fail-005-then-continues",
-        tokens = {"fail", "Failed", "THEN", "take", "+3b"},
-        input_file = "overlap.txt",
-        expect = { stdout = "abc", stderr = "Failed", exit = 0 },
-    },
-    {
-        id = "edge-001-inline-offset-label",
-        tokens = {"label", "HERE", "THEN", "skip", "to", "HERE+2l", "THEN", "take", "1l"},
-        input_file = "label-offset.txt",
-        expect = { stdout = "X\n", exit = 0 },
-    },
-    {
-        id = "edge-003-take-until-empty-span",
-        tokens = {"take", "until", "HEAD", "THEN", "take", "4b"},
-        input_file = "take-until-empty.txt",
-        expect = { stdout = "HEAD", exit = 0 },
-    },
-    {
-        id = "lines-negative",
-        tokens = {"skip", "7b", "take", "-1l"},
-        input_file = "lines.txt",
-        expect = { stdout = "L01 a\n", exit = 0 },
-    },
-}
-
-local tests = load_generated_tests() or builtin_tests
+local tests = load_generated_tests()
 
 local function expect_stdout(actual, expect)
     if expect.stdout ~= nil then

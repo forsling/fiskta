@@ -216,7 +216,7 @@ fiskta --follow --every 1s --until-idle 0 --input service.log find "ERROR" take 
 ```bash
 ./build.sh              # Build optimized binary (./fiskta)
 ./build.sh --debug      # Build with debug symbols
-python3 tests/run_tests.py  # Run test suite
+./tests/run_tests.lua --exe ./fiskta  # Run test suite (requires luajit)
 tests/benchmark.sh ./fiskta  # Run performance benchmark
 ```
 
