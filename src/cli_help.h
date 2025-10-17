@@ -119,6 +119,6 @@ static inline void print_usage(void)
     printf("      --follow, -f             Re-run fiskta but process only new data since last iteration\n");
     printf("      --monitor, -m            Re-run fiskta and re-scan entire file each iteration\n");
     printf("      --every <time>           Interval between iterations (default 0 = tight loop)\n");
-    printf("      --until-idle <time>      Stop when input has not grown for specified duration\n");
+    printf("      -u, --until-idle <time>  Stop when input has not grown for specified duration\n");
     printf("\n");
 }

@@ -236,9 +236,9 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
             argi++;
             continue;
         }
-        if (strcmp(arg, "--until-idle") == 0) {
+        if (strcmp(arg, "-u") == 0 || strcmp(arg, "--until-idle") == 0) {
             if (argi + 1 >= argc) {
-                fprintf(stderr, "fiskta: --until-idle requires a value\n");
+                fprintf(stderr, "fiskta: -u/--until-idle requires a value\n");
                 *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
@@ -251,6 +251,23 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
         }
         if (strncmp(arg, "--until-idle=", 13) == 0) {
             if (parse_until_idle_option(arg + 13, &opt.idle_timeout_ms) != 0) {
+                *exit_code_out = FISKTA_EXIT_PARSE;
+                return false;
+            }
+            argi++;
+            continue;
+        }
+        if (strncmp(arg, "-u", 2) == 0 && arg[2] != '\0') {
+            const char* value = arg + 2;
+            if (value[0] == '=') {
+                value++;
+            }
+            if (value[0] == '\0') {
+                fprintf(stderr, "fiskta: -u/--until-idle requires a value\n");
+                *exit_code_out = FISKTA_EXIT_PARSE;
+                return false;
+            }
+            if (parse_until_idle_option(value, &opt.idle_timeout_ms) != 0) {
                 *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }

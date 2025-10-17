@@ -194,7 +194,7 @@ Evaluation is strictly left-to-right (no operator precedence).
 - `-f, --follow` - Process only new data appended since the previous iteration
 - `--every <time>` - Delay between loop iterations (`ms`, `s`, `m`, `h`; default `0` for a tight loop)
 - `--for <time>` - Stop after total wall-clock time elapses
-- `--until-idle <time>` - Stop once the input stops growing for the given duration (`0` exits immediately on idle)
+- `-u, --until-idle <time>` - Stop once the input stops growing for the given duration (`0` exits immediately on idle)
 - `-k, --ignore-failures` - Keep looping even if clause pipelines fail (suppresses program-failure exits)
 
 **Examples:**
@@ -476,7 +476,7 @@ fiskta can loop over your operations as files grow or change.
 
 - `--every <time>` — wait between iterations (`ms`, `s`, `m`, `h`; default `0` for a tight loop)
 - `--for <time>` — stop after the total run time hits the limit (also works for a single execution)
-- `--until-idle <time>` — stop once the input stops growing for the given period (`0` exits immediately on idle)
+- `-u, --until-idle <time>` — stop once the input stops growing for the given period (`0` exits immediately on idle)
 - `-k, --ignore-failures` — keep looping even if clauses fail (suppresses program-failure exit)
 
 Specifying `--every` alone enables looping in *continue* mode. Adding a mode flag lets you pick how the next iteration determines its starting point.
@@ -512,7 +512,7 @@ fiskta --monitor --every 5m --input status.txt \
 
 fiskta uses exit codes to indicate success, failure, and the type of error encountered.
 
-- **0**: Success (includes normal --until-idle stop)
+- **0**: Success (includes normal -u/--until-idle stop)
   - At least one clause succeeded in the final iteration
 - **1**: Program failure (no clause succeeded in final iteration)
   - Returned when every clause in the last iteration failed
