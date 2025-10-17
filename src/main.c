@@ -636,8 +636,8 @@ static void loop_init(LoopState* state, const CliOptions* opt, File* io)
         state->vm.label_pos[i] = -1;
     }
 
-    // FOLLOW: tail semantics—start at EOF
-    state->baseline = (state->enabled && state->mode == LOOP_MODE_FOLLOW) ? state->last_size : 0;
+    // All modes start at beginning; FOLLOW advances baseline to EOF after first successful iteration
+    state->baseline = 0;
 }
 
 // Compute the scan window for this iteration
