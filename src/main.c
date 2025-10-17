@@ -151,8 +151,8 @@ static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int 
 static int parse_until_idle_option(const char* value, i32* out);
 
 // Loop context helper functions
-static void loop_init(LoopState* state, const CliOptions* opt, File* io);
-static void loop_compute_window(LoopState* state, File* io, i64* lo, i64* hi);
+static void loop_init(LoopState* state, const CliOptions* opt);
+static void loop_compute_window(LoopState* state, File* io, i64* lo, i64* hi, bool* out_size_changed);
 static bool loop_should_wait_or_stop(LoopState* state, bool no_new_data, int* out_exit_reason);
 static void loop_commit(LoopState* state, i64 data_hi, IterResult result, bool ignore_fail);
 
@@ -624,7 +624,7 @@ static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int 
 }
 
 // Initialize loop context with default values
-static void loop_init(LoopState* state, const CliOptions* opt, File* io)
+static void loop_init(LoopState* state, const CliOptions* opt)
 {
     if (!state || !opt) {
         return;
@@ -645,8 +645,9 @@ static void loop_init(LoopState* state, const CliOptions* opt, File* io)
         .emitted_ranges = 0
     };
 
-    refresh_file_size(io);
-    state->last_size = io_size(io);
+    // Initialize last_size to -1 so first iteration sees file as "changed"
+    // This ensures MONITOR mode runs at least once before checking idle timeout
+    state->last_size = -1;
 
     state->vm.cursor = VM_CURSOR_UNSET; // replaces have_saved_vm
     for (i32 i = 0; i < MAX_LABELS; i++) {
@@ -658,13 +659,15 @@ static void loop_init(LoopState* state, const CliOptions* opt, File* io)
 }
 
 // Compute the scan window for this iteration
-static void loop_compute_window(LoopState* state, File* io, i64* lo, i64* hi)
+static void loop_compute_window(LoopState* state, File* io, i64* lo, i64* hi, bool* out_size_changed)
 {
+    bool size_changed = false;
     refresh_file_size(io);
     i64 size = io_size(io);
     if (size != state->last_size) {
         state->last_size = size;
         state->last_activity_ms = now_millis(); // data arrived/truncated
+        size_changed = true;
     }
     if (state->mode == LOOP_MODE_FOLLOW && size < state->baseline) {
         state->baseline = size; // file shrank: restart tail at new EOF
@@ -691,6 +694,9 @@ static void loop_compute_window(LoopState* state, File* io, i64* lo, i64* hi)
     }
     if (*lo > *hi) {
         *lo = *hi; // truncation safety
+    }
+    if (out_size_changed) {
+        *out_size_changed = size_changed;
     }
 }
 
@@ -1083,7 +1089,7 @@ int main(int argc, char** argv)
      * Run operations with optional looping for streaming
      *****************************************************/
     LoopState loop_state;
-    loop_init(&loop_state, &cli_opts, &io);
+    loop_init(&loop_state, &cli_opts);
 
     for (;;) {
         // Handle --for timeout even if no iteration has executed yet
@@ -1096,16 +1102,35 @@ int main(int argc, char** argv)
 
         i64 lo;
         i64 hi;
-        loop_compute_window(&loop_state, &io, &lo, &hi);
+        bool size_changed = false;
+        loop_compute_window(&loop_state, &io, &lo, &hi, &size_changed);
 
-        // FOLLOW/CONTINUE: nothing new? maybe wait/stop
-        if (loop_state.enabled && loop_state.idle_timeout_ms != 0 && (loop_state.mode == LOOP_MODE_FOLLOW || loop_state.mode == LOOP_MODE_CONTINUE) && lo >= hi) {
-            reason = 0;
-            if (loop_should_wait_or_stop(&loop_state, /*no_new_data=*/true, &reason)) {
-                continue; // just slept; try again
+        // Detect idle condition (mode-dependent)
+        bool no_new_data = false;
+        if (loop_state.mode == LOOP_MODE_MONITOR) {
+            // MONITOR: re-scans entire file, so idle = file unchanged
+            no_new_data = !size_changed;
+        } else {
+            // FOLLOW/CONTINUE: scan window [lo, hi), so idle = empty window
+            no_new_data = (lo >= hi);
+        }
+
+        // Handle idle timeout if enabled and no new data
+        if (loop_state.enabled && no_new_data) {
+            if (loop_state.idle_timeout_ms == 0) {
+                // -u 0: exit immediately on idle
+                loop_state.exit_reason = 0;
+                break;
             }
-            loop_state.exit_reason = reason; // 0 => idle stop, FISKTA_EXIT_TIMEOUT => exec timeout
-            break;
+            if (loop_state.idle_timeout_ms > 0) {
+                // -u <positive>: wait or stop based on timeout
+                reason = 0;
+                if (loop_should_wait_or_stop(&loop_state, /*no_new_data=*/true, &reason)) {
+                    continue; // just slept; try again
+                }
+                loop_state.exit_reason = reason; // 0 => idle stop, FISKTA_EXIT_TIMEOUT => exec timeout
+                break;
+            }
         }
 
         // CONTINUE passes saved VM; other modes run with ephemeral VM
@@ -1119,12 +1144,6 @@ int main(int argc, char** argv)
         fflush(stdout);
 
         if (!loop_state.enabled || loop_state.exit_code) {
-            break;
-        }
-
-        // Special case: --until-idle 0 => stop after a single iteration (all modes).
-        if (loop_state.idle_timeout_ms == 0) {
-            loop_state.exit_reason = 0; // normal stop
             break;
         }
 

@@ -2418,11 +2418,11 @@ def tests():
         dict(id="loop-001-basic",
              tokens=["take","+2b"], input_file="overlap.txt",
              extra_args=["--every","1ms","--until-idle","0"],
-             expect=dict(stdout="ab", exit=0)),
+             expect=dict(stdout="abcdefghij", exit=0)),  # consumes all data before idle
 
         dict(id="loop-010-follow-idle-empty",
              tokens=["take","0b"], input_file="empty.txt",
-             extra_args=["--follow","--until-idle","0"],
+             extra_args=["--follow","-u","0"],
              expect=dict(stdout="", exit=0)),
 
         dict(id="loop-011-ignore-failures-monitor",
@@ -2432,8 +2432,8 @@ def tests():
 
         dict(id="loop-012-naked-every-continue",
              tokens=["take","+1b"], input_file="overlap.txt",
-             extra_args=["--every","0","--until-idle","0"],
-             expect=dict(stdout="a", exit=0)),
+             extra_args=["--every","0","-u=0"],
+             expect=dict(stdout="abcdefghij", exit=0)),  # consumes all data before idle
 
         dict(id="loop-013-clause-failure-exits",
              tokens=["find","MISSING"], input_file="overlap.txt",
@@ -2444,6 +2444,96 @@ def tests():
              tokens=["take","+1b"], input_file="overlap.txt",
              extra_args=["--for","0"],
              expect=dict(stdout="", exit=2)),
+
+        dict(id="loop-015-monitor-until-idle",
+             tokens=["take","+1b"], input_file="overlap.txt",
+             extra_args=["--monitor","--every","1ms","-u","2ms"],
+             expect=dict(stdout="a", exit=0)),
+
+        # ---------- Slow iterative mode tests ----------
+        # FOLLOW mode: processes existing data first
+        dict(id="loop-slow-follow-001-existing-data",
+             tokens=["take","1l"], input_file="small.txt",
+             extra_args=["--follow","-u","50ms"],
+             expect=dict(stdout="Header\n", exit=0),
+             slow=True),
+
+        # FOLLOW mode: with --every and multiple iterations before idle
+        dict(id="loop-slow-follow-002-throttled",
+             tokens=["take","+1b"], input_file="overlap.txt",
+             extra_args=["--follow","--every","20ms","-u","100ms"],
+             expect=dict(stdout="a", exit=0),
+             slow=True),
+
+        # CONTINUE mode: processes file incrementally across iterations
+        dict(id="loop-slow-continue-001-incremental",
+             tokens=["take","+1b"], input_file="overlap.txt",
+             extra_args=["--continue","--every","20ms","-u","100ms"],
+             expect=dict(stdout="abcdefghij", exit=0),
+             slow=True),
+
+        # CONTINUE mode: -u 0 exits immediately when caught up
+        dict(id="loop-slow-continue-002-u0-immediate",
+             tokens=["take","+2b"], input_file="overlap.txt",
+             extra_args=["--continue","--every","10ms","-u","0"],
+             expect=dict(stdout="abcdefghij", exit=0),
+             slow=True),
+
+        # MONITOR mode: re-scans file multiple times
+        dict(id="loop-slow-monitor-001-rescan",
+             tokens=["take","+1b"], input_file="overlap.txt",
+             extra_args=["--monitor","--every","20ms","-u","100ms"],
+             expect=dict(stdout="a", exit=0),
+             slow=True),
+
+        # MONITOR mode: with --for timeout (exec timeout wins)
+        dict(id="loop-slow-monitor-002-for-timeout",
+             tokens=["take","+1b"], input_file="overlap.txt",
+             extra_args=["--monitor","--every","10ms","--for","80ms"],
+             expect=dict(stdout="aaaaaaaa", exit=2),  # ~8 iterations (80ms / 10ms)
+             slow=True),
+
+        # Idle timeout: -u 0 with FOLLOW exits immediately on idle
+        dict(id="loop-slow-idle-001-u0-follow",
+             tokens=["take","+3b"], input_file="overlap.txt",
+             extra_args=["--follow","-u","0"],
+             expect=dict(stdout="abc", exit=0),
+             slow=True),
+
+        # Idle timeout: -u with positive timeout waits then exits
+        dict(id="loop-slow-idle-002-positive-timeout",
+             tokens=["take","+1b"], input_file="overlap.txt",
+             extra_args=["--continue","--every","10ms","-u","80ms"],
+             expect=dict(stdout="abcdefghij", exit=0),
+             slow=True),
+
+        # Idle timeout: MONITOR with -u 0 exits after one scan if unchanged
+        dict(id="loop-slow-idle-003-monitor-u0",
+             tokens=["take","+2b"], input_file="overlap.txt",
+             extra_args=["--monitor","--every","10ms","-u","0"],
+             expect=dict(stdout="ab", exit=0),
+             slow=True),
+
+        # Mixed: --for and -u both active (--for wins)
+        dict(id="loop-slow-mixed-001-for-wins",
+             tokens=["take","+1b"], input_file="overlap.txt",
+             extra_args=["--continue","--every","10ms","--for","50ms","-u","200ms"],
+             expect=dict(stdout="abcde", exit=2),  # ~5 iterations (50ms / 10ms)
+             slow=True),
+
+        # MONITOR with ignore-failures: keeps running despite failures
+        dict(id="loop-slow-monitor-003-ignore-failures",
+             tokens=["find","NOTHERE"], input_file="overlap.txt",
+             extra_args=["--monitor","--every","20ms","-u","80ms","--ignore-failures"],
+             expect=dict(stdout="", exit=0),
+             slow=True),
+
+        # FOLLOW mode: exits cleanly with no data
+        dict(id="loop-slow-follow-003-empty-file",
+             tokens=["take","+1b"], input_file="empty.txt",
+             extra_args=["--follow","-u","50ms"],
+             expect=dict(stdout="", exit=0),
+             slow=True),
 
         # ---------- Stage-only execution tests ----------
         dict(id="stage-001-basic-staging",
@@ -2630,6 +2720,7 @@ def main():
     ap.add_argument("--filter", default="", help="Substring to filter test IDs")
     ap.add_argument("--list", action="store_true", help="List tests and exit")
     ap.add_argument("--no-fixtures", action="store_true", help="Do not regenerate fixtures")
+    ap.add_argument("--slow", action="store_true", help="Include slow tests (file growth, timing-sensitive)")
     args = ap.parse_args()
 
     exe = Path(args.exe)
@@ -2637,12 +2728,18 @@ def main():
         make_fixtures()
 
     all_tests = tests()
+
+    # Filter out slow tests unless --slow is passed
+    if not args.slow:
+        all_tests = [t for t in all_tests if not t.get("slow", False)]
+
     if args.filter:
         all_tests = [t for t in all_tests if args.filter in t["id"]]
 
     if args.list:
         for t in all_tests:
-            print(t["id"])
+            slow_marker = " [SLOW]" if t.get("slow", False) else ""
+            print(f"{t['id']}{slow_marker}")
         return 0
 
     failures = 0
