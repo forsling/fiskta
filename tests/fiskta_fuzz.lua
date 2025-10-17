@@ -83,6 +83,8 @@ local function parse_args()
     max_depth = 12,
     max_repeat = 3,
     minimize = true,  -- enabled by default
+    use_corpus = true,  -- corpus-based fuzzing enabled by default
+    corpus_dir = "tests/fixtures",
     workers = 1,  -- single-threaded for now (Phase 3 will add parallel)
     repro_case = nil,
     repro_input = nil,
@@ -104,6 +106,9 @@ local function parse_args()
     elseif a == "--max-repeat" then i=i+1; cfg.max_repeat = tonumber(arg[i])
     elseif a == "--minimize" then cfg.minimize = true
     elseif a == "--no-minimize" then cfg.minimize = false
+    elseif a == "--corpus" then cfg.use_corpus = true
+    elseif a == "--no-corpus" then cfg.use_corpus = false
+    elseif a == "--corpus-dir" then i=i+1; cfg.corpus_dir = arg[i]
     elseif a == "--workers" then i=i+1; cfg.workers = tonumber(arg[i])
     elseif a == "--quick" then cfg.cases = 10000; cfg.workers = 2  -- quick mode
     elseif a == "--repro-case" then i=i+1; cfg.repro_case = tonumber(arg[i])
@@ -126,6 +131,9 @@ Options:
   --cases N                Fixed case count (default: continuous)
   --minimize               Minimize crashes (default: enabled)
   --no-minimize            Disable minimization
+  --corpus                 Use corpus-based fuzzing (default: enabled)
+  --no-corpus              Pure generation mode (no corpus)
+  --corpus-dir <path>      Corpus directory (default: tests/fixtures/)
   --timeout-ms N           Per-case timeout (default: 1500ms)
   --seed N                 RNG seed (default: current time)
   --workers N              Parallel workers (default: 1, Phase 3 feature)
@@ -537,8 +545,130 @@ local function minimize_tokens(orig_tokens, input_path, want_res)
   return best
 end
 
+-- ========= Corpus loading =========
+local corpus = {}
+
+local function load_corpus()
+  if not cfg.use_corpus then return end
+
+  local max_size = 512 * 1024  -- Skip files > 512KB
+  local loaded = 0
+
+  local handle = io.popen("find " .. cfg.corpus_dir .. " -type f 2>/dev/null")
+  if not handle then return end
+
+  for path in handle:lines() do
+    local f = io.open(path, "rb")
+    if f then
+      local size = f:seek("end")
+      if size and size > 0 and size <= max_size then
+        f:seek("set", 0)
+        local content = f:read("*a")
+        if content and #content > 0 then
+          table.insert(corpus, content)
+          loaded = loaded + 1
+        end
+      end
+      f:close()
+    end
+  end
+  handle:close()
+
+  if loaded > 0 then
+    io.write(string.format("Loaded %d corpus files from %s\n", loaded, cfg.corpus_dir))
+  end
+end
+
+-- ========= Mutation strategies =========
+local function mutate_bit_flip(data)
+  if #data == 0 then return data end
+  local pos = rand(#data)
+  local bit_pos = rand(8) - 1
+  local byte = data:byte(pos)
+  local flipped = bit.bxor(byte, bit.lshift(1, bit_pos))
+  return data:sub(1, pos - 1) .. string.char(flipped) .. data:sub(pos + 1)
+end
+
+local function mutate_byte_flip(data)
+  if #data == 0 then return data end
+  local pos = rand(#data)
+  local new_byte = rand(256) - 1
+  return data:sub(1, pos - 1) .. string.char(new_byte) .. data:sub(pos + 1)
+end
+
+local function mutate_byte_insert(data)
+  local pos = rand(#data + 1)
+  local byte = string.char(rand(256) - 1)
+  return data:sub(1, pos - 1) .. byte .. data:sub(pos)
+end
+
+local function mutate_byte_delete(data)
+  if #data <= 1 then return data end
+  local pos = rand(#data)
+  return data:sub(1, pos - 1) .. data:sub(pos + 1)
+end
+
+local function mutate_chunk_insert(data)
+  local chunk_size = rand(16)
+  local chunk = {}
+  for i=1,chunk_size do chunk[i] = string.char(rand(256) - 1) end
+  local pos = rand(#data + 1)
+  return data:sub(1, pos - 1) .. table.concat(chunk) .. data:sub(pos)
+end
+
+local function mutate_chunk_delete(data)
+  if #data <= 1 then return data end
+  local chunk_size = math.min(rand(32), #data)
+  local pos = rand(#data - chunk_size + 1)
+  return data:sub(1, pos - 1) .. data:sub(pos + chunk_size)
+end
+
+local function mutate_splice(data)
+  if #corpus < 2 then return data end
+  local other = corpus[rand(#corpus)]
+  local split1 = rand(#data + 1)
+  local split2 = rand(#other + 1)
+  return data:sub(1, split1 - 1) .. other:sub(split2)
+end
+
+local function mutate_repeat(data)
+  if #data == 0 then return data end
+  local chunk_size = math.min(rand(16), #data)
+  local pos = rand(#data - chunk_size + 1)
+  local chunk = data:sub(pos, pos + chunk_size - 1)
+  local count = rand(4)
+  local insert_pos = rand(#data + 1)
+  return data:sub(1, insert_pos - 1) .. chunk:rep(count) .. data:sub(insert_pos)
+end
+
+local mutations = {
+  mutate_bit_flip,
+  mutate_byte_flip,
+  mutate_byte_insert,
+  mutate_byte_delete,
+  mutate_chunk_insert,
+  mutate_chunk_delete,
+  mutate_splice,
+  mutate_repeat,
+}
+
+local function apply_mutations(data, count)
+  for i=1,count do
+    local mutator = mutations[rand(#mutations)]
+    data = mutator(data)
+  end
+  return data
+end
+
 -- ========= Input generator =========
-local function gen_input()
+local function gen_input_from_corpus()
+  if #corpus == 0 then return nil end
+  local base = corpus[rand(#corpus)]
+  local mutation_count = 1 + rand(5)
+  return apply_mutations(base, mutation_count)
+end
+
+local function gen_input_random()
   local total = 64 + rand(4096)
   local t = {}
   local ascii_lines = {
@@ -564,6 +694,15 @@ local function gen_input()
     end
   end
   return table.concat(t)
+end
+
+local function gen_input()
+  -- Use corpus 80% of the time if available, pure generation 20%
+  if cfg.use_corpus and #corpus > 0 and rand(10) <= 8 then
+    local input = gen_input_from_corpus()
+    if input then return input end
+  end
+  return gen_input_random()
 end
 
 -- ========= Signal handling =========
@@ -624,6 +763,14 @@ local function run()
     cfg.is_asan and "ASAN" or "release", cfg.seed, cfg.minimize and "on" or "off"))
   io.write(string.format("Binary: %s\n", cfg.fiskta_path))
   io.write(string.format("Mode: %s\n", cfg.cases and (cfg.cases.." cases") or "continuous (Ctrl-C to stop)"))
+
+  -- Load corpus
+  load_corpus()
+  if cfg.use_corpus and #corpus > 0 then
+    io.write(string.format("Corpus: %d files (80%% mutations, 20%% generated)\n", #corpus))
+  else
+    io.write("Corpus: disabled (pure generation)\n")
+  end
   io.write("\n")
 
   local case_id = 0
