@@ -27,6 +27,27 @@ enum {
     IDX_SUB_MAX = IDX_BLOCK / IDX_SUB
 };
 
+// Search buffer size constants
+#ifndef FISKTA_FW_WIN
+#define FISKTA_FW_WIN (6 * 1024 * 1024)
+#endif
+#ifndef FISKTA_BK_BLK
+#define FISKTA_BK_BLK (3 * 1024 * 1024)
+#endif
+#ifndef FISKTA_OVERLAP_MIN
+#define FISKTA_OVERLAP_MIN (4 * 1024)
+#endif
+#ifndef FISKTA_OVERLAP_MAX
+#define FISKTA_OVERLAP_MAX (64 * 1024)
+#endif
+
+enum {
+    FW_WIN = FISKTA_FW_WIN,
+    BK_BLK = FISKTA_BK_BLK,
+    OVERLAP_MIN = FISKTA_OVERLAP_MIN,
+    OVERLAP_MAX = FISKTA_OVERLAP_MAX
+};
+
 // Line block index structure
 typedef struct {
     i64 block_lo; // file offset of block start (aligned to IDX_BLOCK)
@@ -39,7 +60,7 @@ typedef struct {
     bool in_use;
 } LineBlockIdx;
 
-typedef struct {
+typedef struct File {
     FILE* f;
     i64 size;
     // one reusable buffer for searching

@@ -1,5 +1,6 @@
 #include "error.h"
 #include "fiskta.h"
+#include "parse.h"
 #include "util.h"
 #include <ctype.h>
 #include <limits.h>

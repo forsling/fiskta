@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #endif
 
+#include "engine.h"
 #include "fiskta.h"
 #include "iosearch.h"
 #include "util.h"
@@ -92,214 +93,6 @@ static enum Err resolve_location(
     const LabelWrite* staged_labels, i32 staged_label_count,
     const View* c_view, ClampPolicy clamp, i64* out);
 
-enum Err engine_run(const Program* prg, const char* in_path, FILE* out)
-{
-    const i32 cc = prg->clause_count;
-    enum Err err = E_OK;
-
-    void* block = NULL;
-    File io = { 0 };
-    bool io_opened = false;
-
-    i32 max_r_cap = 0;
-    i32 max_l_cap = 0;
-    i32 max_inline_cap = 0;
-    for (i32 i = 0; i < cc; ++i) {
-        i32 rc = 0;
-        i32 lc = 0;
-        i32 ic = 0;
-        clause_caps(&prg->clauses[i], &rc, &lc, &ic);
-        if (rc > max_r_cap) {
-            max_r_cap = rc;
-        }
-        if (lc > max_l_cap) {
-            max_l_cap = lc;
-        }
-        if (ic > max_inline_cap) {
-            max_inline_cap = ic;
-        }
-    }
-
-    const size_t search_buf_cap = (FW_WIN > (BK_BLK + OVERLAP_MAX)) ? (size_t)FW_WIN : (size_t)(BK_BLK + OVERLAP_MAX);
-
-    int max_nins = 0;
-    for (i32 ci = 0; ci < prg->clause_count; ++ci) {
-        const Clause* c = &prg->clauses[ci];
-        for (i32 oi = 0; oi < c->op_count; ++oi) {
-            const Op* op = &c->ops[oi];
-            if (op->kind == OP_FIND_RE && op->u.findr.prog) {
-                if (op->u.findr.prog->nins > max_nins) {
-                    max_nins = op->u.findr.prog->nins;
-                }
-            }
-        }
-    }
-    int re_threads_cap = max_nins > 0 ? 2 * max_nins : 32;
-    if (re_threads_cap < 32) {
-        re_threads_cap = 32;
-    }
-    const size_t re_thr_bytes = (size_t)re_threads_cap * sizeof(ReThread);
-    const size_t re_seen_bytes_each = (size_t)(max_nins > 0 ? max_nins : 32);
-
-    size_t total = safe_align(search_buf_cap, 1);
-    if (total == SIZE_MAX) {
-        err = E_OOM;
-        goto cleanup;
-    }
-
-    size_t re_thr_size = safe_align(re_thr_bytes, alignof(ReThread)) * 2;
-    if (re_thr_size == SIZE_MAX) {
-        err = E_OOM;
-        goto cleanup;
-    }
-    if (add_overflow(total, re_thr_size, &total)) {
-        err = E_OOM;
-        goto cleanup;
-    }
-
-    size_t re_seen_size = safe_align(re_seen_bytes_each, 1) * 2;
-    if (re_seen_size == SIZE_MAX) {
-        err = E_OOM;
-        goto cleanup;
-    }
-    if (add_overflow(total, re_seen_size, &total)) {
-        err = E_OOM;
-        goto cleanup;
-    }
-
-    size_t ranges_bytes = (max_r_cap > 0) ? safe_align((size_t)max_r_cap * sizeof(Range), alignof(Range)) : 0;
-    if (ranges_bytes == SIZE_MAX || add_overflow(total, ranges_bytes, &total)) {
-        err = E_OOM;
-        goto cleanup;
-    }
-
-    size_t labels_bytes = (max_l_cap > 0) ? safe_align((size_t)max_l_cap * sizeof(LabelWrite), alignof(LabelWrite)) : 0;
-    if (labels_bytes == SIZE_MAX || add_overflow(total, labels_bytes, &total)) {
-        err = E_OOM;
-        goto cleanup;
-    }
-
-    size_t inline_bytes = (max_inline_cap > 0) ? safe_align((size_t)max_inline_cap * INLINE_LIT_CAP, alignof(char)) : 0;
-    if (inline_bytes == SIZE_MAX || add_overflow(total, inline_bytes, &total)) {
-        err = E_OOM;
-        goto cleanup;
-    }
-
-    if (add_overflow(total, 64, &total)) { // small cushion like main.c
-        err = E_OOM;
-        goto cleanup;
-    }
-
-    block = malloc(total);
-    if (!block) {
-        err = E_OOM;
-        goto cleanup;
-    }
-
-    Arena arena;
-    arena_init(&arena, block, total);
-
-    unsigned char* search_buf = (unsigned char*)arena_alloc(&arena, search_buf_cap, 1);
-    ReThread* re_curr_thr = (ReThread*)arena_alloc(&arena, re_thr_bytes, alignof(ReThread));
-    ReThread* re_next_thr = (ReThread*)arena_alloc(&arena, re_thr_bytes, alignof(ReThread));
-    unsigned char* seen_curr = (unsigned char*)arena_alloc(&arena, re_seen_bytes_each, 1);
-    unsigned char* seen_next = (unsigned char*)arena_alloc(&arena, re_seen_bytes_each, 1);
-    Range* ranges_buf = (max_r_cap > 0) ? (Range*)arena_alloc(&arena, (size_t)max_r_cap * sizeof(Range), alignof(Range)) : NULL;
-    LabelWrite* labels_buf = (max_l_cap > 0) ? (LabelWrite*)arena_alloc(&arena, (size_t)max_l_cap * sizeof(LabelWrite), alignof(LabelWrite)) : NULL;
-    char* inline_buf = (max_inline_cap > 0) ? (char*)arena_alloc(&arena, (size_t)max_inline_cap * INLINE_LIT_CAP, alignof(char)) : NULL;
-
-    if (!search_buf || !re_curr_thr || !re_next_thr || !seen_curr || !seen_next
-        || (max_r_cap > 0 && !ranges_buf) || (max_l_cap > 0 && !labels_buf)
-        || (max_inline_cap > 0 && !inline_buf)) {
-        err = E_OOM;
-        goto cleanup;
-    }
-
-    err = io_open(&io, in_path, search_buf, search_buf_cap);
-    if (err != E_OK) {
-        goto cleanup;
-    }
-    io_opened = true;
-    io_set_regex_scratch(&io, re_curr_thr, re_next_thr, re_threads_cap,
-        seen_curr, seen_next, (size_t)re_seen_bytes_each);
-
-    VM vm = { 0 };
-    vm.cursor = 0;
-    vm.last_match.valid = false;
-    for (i32 i = 0; i < MAX_LABELS; i++) {
-        vm.label_pos[i] = -1;
-    }
-
-    i32 successful_clauses = 0;
-    enum Err last_err = E_OK;
-
-    char* inline_cursor = inline_buf;
-    char* inline_end = NULL;
-    if (inline_buf && max_inline_cap > 0) {
-        inline_end = inline_buf + (size_t)max_inline_cap * INLINE_LIT_CAP;
-    }
-
-    for (i32 i = 0; i < cc; ++i) {
-        i32 rc = 0;
-        i32 lc = 0;
-        i32 ic = 0;
-        clause_caps(&prg->clauses[i], &rc, &lc, &ic);
-        Range* r_tmp = (rc > 0) ? ranges_buf : NULL;
-        LabelWrite* lw_tmp = (lc > 0) ? labels_buf : NULL;
-        char* inline_tmp = NULL;
-        if (ic > 0) {
-            if (!inline_cursor || !inline_end || inline_cursor + (size_t)ic * INLINE_LIT_CAP > inline_end) {
-                err = E_OOM;
-                break;
-            }
-            inline_tmp = inline_cursor;
-            inline_cursor += (size_t)ic * INLINE_LIT_CAP;
-        }
-
-        StagedResult result;
-        err = stage_clause(&prg->clauses[i], &io, &vm,
-            r_tmp, rc, lw_tmp, lc,
-            inline_tmp, ic,
-            &result);
-        if (err == E_OK) {
-            // Commit staged ranges to output
-            for (i32 j = 0; j < result.range_count; j++) {
-                if (result.ranges[j].kind == RANGE_FILE) {
-                    err = io_emit(&io, result.ranges[j].file.start, result.ranges[j].file.end, out);
-                } else {
-                    // RANGE_LIT: write literal bytes
-                    if ((size_t)fwrite(result.ranges[j].lit.bytes, 1, (size_t)result.ranges[j].lit.len, out) != (size_t)result.ranges[j].lit.len) {
-                        err = E_IO;
-                    }
-                }
-                if (err != E_OK) {
-                    break;
-                }
-            }
-            if (err == E_OK) {
-                // Commit staged VM state
-                commit_labels(&vm, result.label_writes, result.label_count);
-                vm.cursor = result.staged_vm.cursor;
-                vm.last_match = result.staged_vm.last_match;
-                vm.view = result.staged_vm.view;
-            }
-        }
-        if (err == E_OK) {
-            successful_clauses++;
-        } else {
-            last_err = err;
-        }
-    }
-
-    err = (successful_clauses == 0) ? last_err : E_OK;
-
-cleanup:
-    if (io_opened) {
-        io_close(&io);
-    }
-    free(block);
-    return err;
-}
 
 static enum Err stage_file_range(Range* ranges, i32* range_count, i32 range_cap, i64 start, i64 end)
 {
@@ -882,13 +675,12 @@ static enum Err take_until_bin_op(
 }
 
 enum Err stage_clause(const Clause* clause,
-    void* io_ptr, VM* vm,
+    File* io, VM* vm,
     Range* ranges, i32 ranges_cap,
     LabelWrite* label_writes, i32 label_cap,
     char* inline_buf, i32 inline_cap,
     StagedResult* result)
 {
-    File* io = (File*)io_ptr;
     i64 c_cursor = vm->cursor;
     Match c_last_match = vm->last_match;
     View c_view = vm->view;

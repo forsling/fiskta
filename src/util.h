@@ -19,6 +19,18 @@ size_t safe_align(size_t x, size_t align);
 int add_overflow(size_t a, size_t b, size_t* out);
 void sleep_msec(int msec);
 
+// Clamp value to range [lo, hi]
+static inline i64 clamp64(i64 x, i64 lo, i64 hi)
+{
+    if (x < lo) {
+        return lo;
+    }
+    if (x > hi) {
+        return hi;
+    }
+    return x;
+}
+
 bool string_eq(String a, String b);
 bool string_eq_cstr(String s, const char* literal);
 char string_first(String s);
