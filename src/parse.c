@@ -184,6 +184,61 @@ static bool loc_expr_contains_label(const String* token)
     return is_label_name_valid(*token);
 }
 
+// Estimate instruction count for regex pattern by accounting for quantifiers
+static i32 estimate_regex_instructions(String pattern)
+{
+    // Base: 2 instructions per character + overhead
+    i32 est = (i32)(2 * (size_t)pattern.len + 10);
+
+    // Scan for quantifiers and add their expansion cost
+    for (i32 i = 0; i < pattern.len; i++) {
+        if (pattern.bytes[i] == '\\' && i + 1 < pattern.len) {
+            i++; // skip escaped char
+            continue;
+        }
+
+        // Check for {n,m} quantifiers
+        if (pattern.bytes[i] == '{') {
+            i++; // skip '{'
+            i32 min_val = 0;
+            i32 max_val = 0;
+
+            // Parse min
+            while (i < pattern.len && isdigit(pattern.bytes[i])) {
+                min_val = min_val * 10 + (pattern.bytes[i] - '0');
+                i++;
+            }
+
+            if (i < pattern.len && pattern.bytes[i] == ',') {
+                i++; // skip ','
+                // Parse max (or unlimited if immediately followed by '}')
+                if (i < pattern.len && pattern.bytes[i] != '}') {
+                    while (i < pattern.len && isdigit(pattern.bytes[i])) {
+                        max_val = max_val * 10 + (pattern.bytes[i] - '0');
+                        i++;
+                    }
+                } else {
+                    max_val = -1; // unlimited
+                }
+            } else {
+                max_val = min_val; // {n} means exactly n
+            }
+
+            // Add expansion cost: each quantifier needs instructions for min copies + optional copies
+            // Account for the pattern character before the quantifier (rough estimate)
+            i32 expansion = min_val;
+            if (max_val > 0) {
+                expansion += (max_val - min_val);
+            } else if (max_val == -1) {
+                expansion += 10; // assume */{n,} adds ~10 instructions for loop
+            }
+            est += expansion * 2; // 2 instructions per repetition (SPLIT + atom)
+        }
+    }
+
+    return est;
+}
+
 enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_path, ParsePlan* plan, const char** in_path_out)
 {
     error_detail_reset();
@@ -255,7 +310,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                     const char* pat = pat_tok.bytes;
                     size_t l = (size_t)pat_tok.len;
                     plan->sum_findr_ops++;
-                    i32 est = (i32)(4 * l + 8);
+                    i32 est = estimate_regex_instructions(pat_tok);
                     plan->re_ins_estimate += est;
                     if (est > plan->re_ins_estimate_max) {
                         plan->re_ins_estimate_max = est;
@@ -355,7 +410,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                             const char* pat = pat_tok.bytes;
                             size_t l = (size_t)pat_tok.len;
                             plan->sum_findr_ops++;
-                            i32 est = (i32)(4 * l + 8);
+                            i32 est = estimate_regex_instructions(pat_tok);
                             plan->re_ins_estimate += est;
                             if (est > plan->re_ins_estimate_max) {
                                 plan->re_ins_estimate_max = est;

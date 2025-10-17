@@ -3,11 +3,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-// Maximum quantifier expansion to prevent OOM with large quantifiers like {1,1000}
-// Patterns like .{1,100} would naively expand to 199 instructions, exhausting buffers
-// The preflight estimator uses 4*len+8, which doesn't account for quantifier values,
-// so we cap quantifiers conservatively to ensure we don't exceed preallocated buffers
-#define MAX_QUANTIFIER_EXPANSION 10
+// Maximum quantifier expansion to prevent OOM with extremely large quantifiers
+// Preflight estimation now properly accounts for quantifier values, so we can support
+// reasonable quantifiers like {1,100} without exhausting preallocated buffers
+#define MAX_QUANTIFIER_EXPANSION 100
 
 /****************************
  * CHARACTER CLASS UTILITIES
