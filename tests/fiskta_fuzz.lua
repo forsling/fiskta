@@ -71,6 +71,7 @@ end
 local function parse_args()
   local binary, is_asan = auto_detect_binary()
   if is_asan then setup_asan_env() end
+  local cpu_count = get_cpu_count()
 
   local cfg = {
     fiskta_path = binary,
@@ -85,7 +86,7 @@ local function parse_args()
     minimize = true,  -- enabled by default
     use_corpus = true,  -- corpus-based fuzzing enabled by default
     corpus_dir = "tests/fixtures",
-    workers = 1,  -- single-threaded for now (Phase 3 will add parallel)
+    workers = cpu_count,  -- default to CPU count
     repro_case = nil,
     repro_input = nil,
     repro_ops = nil,
@@ -136,7 +137,7 @@ Options:
   --corpus-dir <path>      Corpus directory (default: tests/fixtures/)
   --timeout-ms N           Per-case timeout (default: 1500ms)
   --seed N                 RNG seed (default: current time)
-  --workers N              Parallel workers (default: 1, Phase 3 feature)
+  --workers N              Parallel workers (default: CPU count)
 
 Examples:
   ./fuzz                   # Continuous fuzzing, Ctrl-C to stop
@@ -750,21 +751,106 @@ local function write_summary()
   write_all(("%s/run_summary.txt"):format(cfg.artifacts), table.concat(lines, "\n").."\n")
 end
 
--- ========= Main fuzz loop =========
+-- ========= Main fuzz loop (single worker) =========
+local function run_worker(worker_id, num_workers)
+  install_signal_handlers()
+
+  -- Worker-specific seed
+  math.randomseed(cfg.seed + worker_id)
+
+  local start_time = os.time()
+  local local_stats = { total=0, saved=0, timeouts=0, crashed=0, exits={} }
+
+  -- Each worker processes: worker_id, worker_id + num_workers, worker_id + 2*num_workers, ...
+  local case_iter = 0
+  while true do
+    if interrupted then break end
+
+    local case_id = worker_id + case_iter * num_workers
+    if cfg.cases and case_id >= cfg.cases then break end
+
+    local raw, ops, input, tmp_path, res, interesting
+
+    raw = {}
+    gen_node(rules[start_rule], raw, 0, {max_depth=cfg.max_depth, max_repeat=cfg.max_repeat})
+    if #raw > 0 then
+      ops = rewrite_tokens(raw)
+      if #ops > 0 then
+        input = gen_input()
+        tmp_path = string.format("%s/tmp_%d_%d.bin", cfg.artifacts, worker_id, case_id)
+        write_all(tmp_path, input)
+
+        res = run_fiskta(ops, tmp_path, nil, nil)
+
+        local_stats.total = local_stats.total + 1
+        local_stats.exits[res.exit or -999] = (local_stats.exits[res.exit or -999] or 0) + 1
+        if res.timed_out then local_stats.timeouts = local_stats.timeouts + 1 end
+        if res.crashed then local_stats.crashed = local_stats.crashed + 1 end
+
+        interesting = res.timed_out or res.crashed or (res.exit == 11) or (res.exit == 10) or (res.exit == 2)
+
+        if interesting then
+          local base = string.format("%s/case_%d", cfg.artifacts, case_id)
+          local out_stdout = base..".stdout.txt"
+          local out_stderr = base..".stderr.txt"
+          res = run_fiskta(ops, tmp_path, out_stdout, out_stderr)
+
+          local final_ops = ops
+          if cfg.minimize then
+            final_ops = minimize_tokens(ops, tmp_path, res)
+          end
+
+          save_case(case_id, final_ops, input, res)
+          local_stats.saved = local_stats.saved + 1
+          os.remove(tmp_path)
+        else
+          os.remove(tmp_path)
+        end
+      end
+    end
+
+    case_iter = case_iter + 1
+  end
+
+  -- Worker saves its stats
+  local worker_summary = string.format("%s/worker_%d_summary.txt", cfg.artifacts, worker_id)
+  local lines = {
+    ("total=%d"):format(local_stats.total),
+    ("saved=%d"):format(local_stats.saved),
+    ("timeouts=%d"):format(local_stats.timeouts),
+    ("crashed=%d"):format(local_stats.crashed),
+  }
+  for code,count in pairs(local_stats.exits) do
+    lines[#lines+1] = ("exit[%s]=%d"):format(tostring(code), count)
+  end
+  write_all(worker_summary, table.concat(lines, "\n").."\n")
+
+  os.exit(0)
+end
+
+-- ========= Coordinator (multi-worker) =========
 local function run()
   ensure_dir(cfg.artifacts)
-  install_signal_handlers()
 
   -- Clean old artifacts
   os.execute(string.format("rm -f %s/case_*.{ops.txt,input.bin,meta.txt,stderr.txt,stdout.txt} 2>/dev/null", cfg.artifacts))
   os.execute(string.format("rm -f %s/tmp_*.bin 2>/dev/null", cfg.artifacts))
+  os.execute(string.format("rm -f %s/worker_*_summary.txt 2>/dev/null", cfg.artifacts))
 
   io.write(string.format("fiskta fuzzer [%s | seed=%d | minimize=%s]\n",
     cfg.is_asan and "ASAN" or "release", cfg.seed, cfg.minimize and "on" or "off"))
   io.write(string.format("Binary: %s\n", cfg.fiskta_path))
-  io.write(string.format("Mode: %s\n", cfg.cases and (cfg.cases.." cases") or "continuous (Ctrl-C to stop)"))
 
-  -- Load corpus
+  local num_workers = cfg.workers
+  if not cfg.cases then
+    -- Continuous mode: single worker only
+    num_workers = 1
+    io.write("Mode: continuous (Ctrl-C to stop, single worker)\n")
+  else
+    io.write(string.format("Mode: %d cases (%d workers)\n", cfg.cases, num_workers))
+  end
+
+  -- Load corpus before forking (shared read-only)
   load_corpus()
   if cfg.use_corpus and #corpus > 0 then
     io.write(string.format("Corpus: %d files (80%% mutations, 20%% generated)\n", #corpus))
@@ -773,86 +859,83 @@ local function run()
   end
   io.write("\n")
 
-  local case_id = 0
-  local last_save = 0
-  while true do
-    -- Check for interrupt
-    if interrupted then
-      io.write("\n\nInterrupted by user (Ctrl-C)\n")
-      break
+  stats.start_time = os.time()
+
+  -- Fork workers
+  local workers = {}
+  for i=0,num_workers-1 do
+    local pid = ffi.C.fork()
+    if pid == 0 then
+      -- Child: run worker
+      run_worker(i, num_workers)
+      os.exit(0)  -- Should never reach here
+    elseif pid > 0 then
+      workers[#workers+1] = pid
+    else
+      io.stderr:write("Failed to fork worker\n")
+      os.exit(1)
     end
+  end
 
-    if cfg.cases and case_id >= cfg.cases then break end
+  -- Parent: wait for workers and show progress
+  io.write(string.format("Spawned %d workers...\n\n", num_workers))
 
-    local raw, ops, input, tmp_path, res, interesting
-
-    -- Generate ops
-    raw = {}
-    gen_node(rules[start_rule], raw, 0, {max_depth=cfg.max_depth, max_repeat=cfg.max_repeat})
-    if #raw > 0 then
-      ops = rewrite_tokens(raw)
-      if #ops > 0 then
-        -- Generate input
-        input = gen_input()
-        tmp_path = string.format("%s/tmp_%d.bin", cfg.artifacts, case_id)
-        write_all(tmp_path, input)
-
-        -- Run
-        res = run_fiskta(ops, tmp_path, nil, nil)
-
-        -- Stats
-        stats.total = stats.total + 1
-        bump_exit(res.exit or -999)
-        if res.timed_out then stats.timeouts = stats.timeouts + 1 end
-        if res.crashed then stats.crashed = stats.crashed + 1 end
-
-        -- Check if interesting
-        interesting = res.timed_out or res.crashed or (res.exit == 11) or (res.exit == 10) or (res.exit == 2)
-
-        if interesting then
-          -- Capture evidence
-          local base = string.format("%s/case_%d", cfg.artifacts, case_id)
-          local out_stdout = base..".stdout.txt"
-          local out_stderr = base..".stderr.txt"
-          res = run_fiskta(ops, tmp_path, out_stdout, out_stderr)
-
-          -- Minimize if enabled
-          local final_ops = ops
-          if cfg.minimize then
-            final_ops = minimize_tokens(ops, tmp_path, res)
-          end
-
-          save_case(case_id, final_ops, input, res)
-          stats.saved = stats.saved + 1
-          os.remove(tmp_path)
-        else
-          os.remove(tmp_path)
-        end
-
-        -- Progress update every 100 cases
-        if case_id % 100 == 0 then
-          show_progress()
-        end
-
-        -- Save progress every 1000 cases
-        if case_id - last_save >= 1000 then
-          write_summary()
-          last_save = case_id
+  while #workers > 0 do
+    local status = ffi.new("int[1]", 0)
+    local pid = ffi.C.waitpid(-1, status, 0)
+    if pid > 0 then
+      -- Worker finished
+      for i=#workers,1,-1 do
+        if workers[i] == pid then
+          table.remove(workers, i)
+          break
         end
       end
     end
-
-    case_id = case_id + 1
+    ffi.C.usleep(100000)  -- 100ms
   end
 
-  show_progress()
-  io.write("\n\n")
+  -- Aggregate worker summaries
+  local agg_stats = { total=0, saved=0, timeouts=0, crashed=0, exits={} }
+  for i=0,num_workers-1 do
+    local summary_path = string.format("%s/worker_%d_summary.txt", cfg.artifacts, i)
+    local f = io.open(summary_path, "r")
+    if f then
+      for line in f:lines() do
+        local key, val = line:match("([^=]+)=(.+)")
+        if key == "total" then agg_stats.total = agg_stats.total + tonumber(val)
+        elseif key == "saved" then agg_stats.saved = agg_stats.saved + tonumber(val)
+        elseif key == "timeouts" then agg_stats.timeouts = agg_stats.timeouts + tonumber(val)
+        elseif key == "crashed" then agg_stats.crashed = agg_stats.crashed + tonumber(val)
+        elseif key:match("^exit%[") then
+          local code = key:match("exit%[([^%]]+)%]")
+          agg_stats.exits[code] = (agg_stats.exits[code] or 0) + tonumber(val)
+        end
+      end
+      f:close()
+    end
+  end
 
-  -- Final save
-  write_summary()
+  -- Write aggregated summary
+  local lines = {
+    ("total=%d"):format(agg_stats.total),
+    ("saved=%d"):format(agg_stats.saved),
+    ("timeouts=%d"):format(agg_stats.timeouts),
+    ("crashed=%d"):format(agg_stats.crashed),
+  }
+  for code,count in pairs(agg_stats.exits) do
+    lines[#lines+1] = ("exit[%s]=%d"):format(tostring(code), count)
+  end
+  write_all(("%s/run_summary.txt"):format(cfg.artifacts), table.concat(lines, "\n").."\n")
 
-  if stats.saved > 0 then
-    io.write(string.format("Found %d interesting case(s) in artifacts/\n", stats.saved))
+  -- Show results
+  local elapsed = os.time() - stats.start_time
+  local rate = elapsed > 0 and math.floor(agg_stats.total / elapsed) or 0
+  io.write(string.format("[%d cases | %d exec/s | %d crashes | %d timeouts | %s]\n\n",
+    agg_stats.total, rate, agg_stats.crashed, agg_stats.timeouts, format_time(elapsed)))
+
+  if agg_stats.saved > 0 then
+    io.write(string.format("Found %d interesting case(s) in artifacts/\n", agg_stats.saved))
     io.write("Reproduce: ./fuzz --repro-case N\n")
   else
     io.write("No crashes or interesting cases found\n")
