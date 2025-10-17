@@ -1,7 +1,7 @@
 #!/usr/bin/env luajit
--- Grammar-guided fuzzer for fiskta (LuaJIT only).
--- No external libraries; uses LuaJIT's built-in ffi/bit and POSIX syscalls.
--- POSIX targets (Linux/macOS). For Windows, run under WSL.
+-- fiskta grammar-guided fuzzer (standalone, no dependencies)
+-- Just run: ./fuzz
+-- Or with args: ./fuzz --cases 1000 --workers 2
 
 local ffi = require("ffi")
 local bit = require("bit")
@@ -9,6 +9,7 @@ local bit = require("bit")
 -- ========= POSIX FFI =========
 ffi.cdef[[
 typedef int pid_t;
+typedef long time_t;
 int     kill(pid_t pid, int sig);
 pid_t   fork(void);
 int     execvp(const char *file, char *const argv[]);
@@ -17,33 +18,75 @@ int     usleep(unsigned int usec);
 int     open(const char *pathname, int flags, ...);
 int     dup2(int oldfd, int newfd);
 int     close(int fd);
+time_t  time(time_t *t);
+int     sysconf(int name);
+char*   getenv(const char *name);
+int     setenv(const char *name, const char *value, int overwrite);
 extern int errno;
 const char *strerror(int errnum);
 ]]
 
 local SIGKILL = 9
 local WNOHANG = 1
--- open flags + modes
 local O_WRONLY, O_CREAT, O_TRUNC = 1, 64, 512
 local S_IRUSR, S_IWUSR, S_IRGRP, S_IROTH = 256,128,32,4 -- 0644
+local _SC_NPROCESSORS_ONLN = 84 -- Linux; macOS uses 58
+
+-- ========= System utils =========
+local function file_exists(path)
+  local f = io.open(path, "r")
+  if f then f:close(); return true end
+  return false
+end
+
+local function get_cpu_count()
+  local n = ffi.C.sysconf(_SC_NPROCESSORS_ONLN)
+  if n > 0 then return tonumber(n) end
+  -- Fallback: try macOS value
+  n = ffi.C.sysconf(58)
+  if n > 0 then return tonumber(n) end
+  return 1 -- default
+end
+
+local function auto_detect_binary()
+  if file_exists("./fiskta-asan") then return "./fiskta-asan", true end
+  if file_exists("./fiskta") then return "./fiskta", false end
+  io.stderr:write("Error: No fiskta binary found. Run ./build.sh first\n")
+  os.exit(2)
+end
+
+local function setup_asan_env()
+  if not ffi.C.getenv("ASAN_OPTIONS") then
+    ffi.C.setenv("ASAN_OPTIONS", "abort_on_error=1:detect_leaks=1:symbolize=1", 1)
+  end
+  if not ffi.C.getenv("UBSAN_OPTIONS") then
+    ffi.C.setenv("UBSAN_OPTIONS", "print_stacktrace=1", 1)
+  end
+end
 
 -- ========= Args =========
 local function parse_args()
+  local binary, is_asan = auto_detect_binary()
+  if is_asan then setup_asan_env() end
+
   local cfg = {
-    fiskta_path = nil,
+    fiskta_path = binary,
     artifacts = "artifacts",
+    readme = "README.md",
     grammar = nil,
-    readme = nil,
-    cases = 1000,
-    seed = os.time(),
+    cases = nil,  -- nil = continuous mode
+    seed = tonumber(ffi.C.time(nil)),
     timeout_ms = 1500,
     max_depth = 12,
     max_repeat = 3,
-    minimize = false,
+    minimize = true,  -- enabled by default
+    workers = 1,  -- single-threaded for now (Phase 3 will add parallel)
     repro_case = nil,
     repro_input = nil,
     repro_ops = nil,
+    is_asan = is_asan,
   }
+
   local i = 1
   while i <= #arg do
     local a = arg[i]
@@ -57,29 +100,47 @@ local function parse_args()
     elseif a == "--max-depth" then i=i+1; cfg.max_depth = tonumber(arg[i])
     elseif a == "--max-repeat" then i=i+1; cfg.max_repeat = tonumber(arg[i])
     elseif a == "--minimize" then cfg.minimize = true
+    elseif a == "--no-minimize" then cfg.minimize = false
+    elseif a == "--workers" then i=i+1; cfg.workers = tonumber(arg[i])
+    elseif a == "--quick" then cfg.cases = 10000; cfg.workers = 2  -- quick mode
     elseif a == "--repro-case" then i=i+1; cfg.repro_case = tonumber(arg[i])
     elseif a == "--repro" then i=i+1; cfg.repro_input = arg[i]; i=i+1; cfg.repro_ops = arg[i]
     elseif a == "-h" or a == "--help" then
-      io.stderr:write([[
+      io.write([[
+fiskta grammar-guided fuzzer
+
 Usage:
-  luajit tests/fiskta_fuzz.lua --fiskta-path ./fiskta [--grammar grammar.txt | --readme README.md]
-                               [--cases N] [--seed N] [--timeout-ms N]
-                               [--max-depth N] [--max-repeat N]
-                               [--artifacts DIR] [--minimize]
-  Reproduce:
-    --repro-case N
-    --repro <input.bin> <ops.txt>
+  ./fuzz                              Run with smart defaults (continuous mode)
+  ./fuzz --cases 10000                Run fixed number of cases
+  ./fuzz --quick                      Quick mode (10k cases, 2 workers)
+  ./fuzz --repro-case N               Reproduce crash case N
+  ./fuzz --repro <in.bin> <ops.txt>   Reproduce specific case
+
+Options:
+  --fiskta-path <path>     Binary to test (default: auto-detect)
+  --artifacts <dir>        Output directory (default: artifacts/)
+  --readme <path>          Grammar source (default: README.md)
+  --cases N                Fixed case count (default: continuous)
+  --minimize               Minimize crashes (default: enabled)
+  --no-minimize            Disable minimization
+  --timeout-ms N           Per-case timeout (default: 1500ms)
+  --seed N                 RNG seed (default: current time)
+  --workers N              Parallel workers (default: 1, Phase 3 feature)
+
+Examples:
+  ./fuzz                   # Continuous fuzzing, Ctrl-C to stop
+  ./fuzz --cases 50000     # Run 50k cases then exit
+  ./fuzz --quick           # Quick test (10k cases)
+
 ]])
+      os.exit(0)
+    else
+      io.stderr:write("Unknown arg: "..a.."\n")
       os.exit(1)
     end
     i = i + 1
   end
-  if not cfg.fiskta_path then io.stderr:write("--fiskta-path is required\n"); os.exit(2) end
-  if not (cfg.repro_case or cfg.repro_input) then
-    if not cfg.grammar and not cfg.readme then
-      io.stderr:write("Provide --grammar or --readme\n"); os.exit(2)
-    end
-  end
+
   return cfg
 end
 
@@ -92,14 +153,19 @@ local function ensure_dir(dir)
 end
 
 local function read_all(path)
-  local f, e = io.open(path, "rb"); if not f then return nil, e end
-  local s = f:read("*a"); f:close(); return s
+  local f, e = io.open(path, "rb")
+  if not f then return nil, e end
+  local s = f:read("*a")
+  f:close()
+  return s
 end
 
 local function write_all(path, data)
   ensure_dir(cfg.artifacts)
-  local f, e = io.open(path, "wb"); if not f then error(e) end
-  f:write(data); f:close()
+  local f, e = io.open(path, "wb")
+  if not f then error(e) end
+  f:write(data)
+  f:close()
 end
 
 local function read_lines(path)
@@ -110,7 +176,8 @@ end
 
 -- ========= Grammar extract (last fenced block) =========
 local function grammar_from_readme(readme_path)
-  local s, e = read_all(readme_path); if not s then error(e) end
+  local s, e = read_all(readme_path)
+  if not s then error(e) end
   local last_start, last_end
   local i = 1
   while true do
@@ -128,12 +195,11 @@ end
 local grammar_src = cfg.grammar and read_all(cfg.grammar) or grammar_from_readme(cfg.readme)
 
 -- ========= EBNF tokenize/parse (subset) =========
--- Tokens: Ident, Str (quoted), symbols: = . | : ( ) [ ] { }
 local function tokenize(src)
   local tokens = {}
   local i, n = 1, #src
   local function isalpha(c) return c:match("%a") end
-  local function isalnum_(c) return c:match("[%w_%-%/]") end -- allow - _ /
+  local function isalnum_(c) return c:match("[%w_%-%/]") end
   while i <= n do
     local c = src:sub(i,i)
     if c:match("[%s]") then
@@ -145,7 +211,8 @@ local function tokenize(src)
       table.insert(tokens, {kind="Str", lex=s})
       i = (j < n) and (j+1) or (n+1)
     elseif c == "=" or c == "." or c == "|" or c == ":" or c == "(" or c == ")" or c == "[" or c == "]" or c == "{" or c == "}" then
-      table.insert(tokens, {kind=c, lex=c}); i = i + 1
+      table.insert(tokens, {kind=c, lex=c})
+      i = i + 1
     elseif isalpha(c) then
       local j = i + 1
       while j <= n and isalnum_((src:sub(j,j))) do j = j + 1 end
@@ -160,7 +227,6 @@ local function tokenize(src)
 end
 
 local toks = tokenize(grammar_src)
-
 local pos = 1
 local function peek() return toks[pos] end
 local function take(k)
@@ -219,7 +285,7 @@ local function rand(n) return math.random(n) end
 local function rand_bool() return math.random(0,1)==1 end
 local function rand_from(t)
   if #t == 0 then return "x" end
-  return t[rand(#t)]           -- 1..#t inclusive
+  return t[rand(#t)]
 end
 local function pickchar(pool)
   local k = rand(#pool)
@@ -232,7 +298,7 @@ local function rand_digits(n)
 end
 local function rand_number() return rand_digits(1 + rand(5)) end
 local function rand_unit() return rand_from({"b","l","c"}) end
-local function rand_signed_number() -- FIX: SignedNumber is sign+digits only
+local function rand_signed_number()
   local sign = rand_bool() and "-" or ""
   return sign .. rand_number()
 end
@@ -245,7 +311,7 @@ local function rand_upper_letter()
 end
 local function rand_name()
   local len = rand(9)
-  local s = { string.char(string.byte('A') + rand(26)-1) } -- first must be A-Z
+  local s = { string.char(string.byte('A') + rand(26)-1) }
   local pool = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
   for i=1,len do
     s[#s+1] = pickchar(pool)
@@ -311,7 +377,8 @@ local function gen_node(node, out, depth, limits)
       return
     end
     if depth > limits.max_depth then return end
-    local sub = rules[nm]; if not sub then return end
+    local sub = rules[nm]
+    if not sub then return end
     return gen_node(sub, out, depth+1, limits)
   elseif tag == "Seq" then
     for _,p in ipairs(node.v) do gen_node(p, out, depth+1, limits) end
@@ -346,26 +413,20 @@ local function rewrite_tokens(toks)
     local a = toks[i]
     local b = toks[i+1]
     local c = toks[i+2]
-    -- Merge Location + Offset
     if a and is_location_base(a) and b and looks_like_offset(b) then
       table.insert(out, a .. b); i = i + 2
-    -- Merge AtBase + Offset
     elseif a and is_at_base(a) and b and looks_like_offset(b) then
       table.insert(out, a .. b); i = i + 2
-    -- take Number Unit -> take NU
     elseif a == "take" and b and is_num(b) and c and is_unit(c) then
       table.insert(out, a); table.insert(out, b..c); i = i + 3
-    -- take SignedNumber Unit -> take SNU
     elseif a == "take" and b and looks_like_signednum(b) and c and is_unit(c) then
       table.insert(out, a); table.insert(out, b..c); i = i + 3
-    -- general Number Unit adjacency (outside "take")
     elseif b and is_num(a) and is_unit(b) then
       table.insert(out, a..b); i = i + 2
     else
       table.insert(out, a or ""); i = i + 1
     end
   end
-  -- strip EBNF punctuation (if any leaked)
   local pruned = {}
   local drop = {["="]=1, ["."]=1, ["|"]=1, [":"]=1, ["("]=1, [")"]=1, ["["]=1, ["]"]=1, ["{"]=1, ["}"]=1, [""]=1}
   for _,x in ipairs(out) do if not drop[x] then table.insert(pruned, x) end end
@@ -373,9 +434,7 @@ local function rewrite_tokens(toks)
 end
 
 -- ========= fiskta exec =========
--- Quiet by default (child stdout/stderr -> /dev/null). If stdout_path/stderr_path provided, capture to files.
 local function run_fiskta(ops_tokens, input_path, stdout_path, stderr_path)
-  -- argv: fiskta --input <path> -- <ops...>
   local argc = 3 + 1 + #ops_tokens + 1
   local argv = ffi.new("char*[?]", argc)
   local idx = 0
@@ -386,9 +445,7 @@ local function run_fiskta(ops_tokens, input_path, stdout_path, stderr_path)
 
   local pid = ffi.C.fork()
   if pid == 0 then
-    -- child: setup stdout/stderr
-    local mode = bit.bor(S_IRUSR,S_IWUSR,S_IRGRP,S_IROTH) -- 0644
-    -- stdout
+    local mode = bit.bor(S_IRUSR,S_IWUSR,S_IRGRP,S_IROTH)
     do
       local fd
       if stdout_path and #stdout_path > 0 then
@@ -398,7 +455,6 @@ local function run_fiskta(ops_tokens, input_path, stdout_path, stderr_path)
       end
       if fd >= 0 then ffi.C.dup2(fd, 1); ffi.C.close(fd) end
     end
-    -- stderr
     do
       local fd
       if stderr_path and #stderr_path > 0 then
@@ -409,10 +465,9 @@ local function run_fiskta(ops_tokens, input_path, stdout_path, stderr_path)
       if fd >= 0 then ffi.C.dup2(fd, 2); ffi.C.close(fd) end
     end
     ffi.C.execvp(argv[0], argv)
-    os.exit(127) -- exec failed
+    os.exit(127)
   end
 
-  -- parent: wait with timeout
   local waited, status = 0, ffi.new("int[1]", 0)
   local deadline_us = cfg.timeout_ms * 1000
   while true do
@@ -422,7 +477,6 @@ local function run_fiskta(ops_tokens, input_path, stdout_path, stderr_path)
       if bit.band(st, 0x7f) == 0 then
         return {crashed=false, timed_out=false, exit=bit.rshift(bit.band(st, 0xff00), 8), signal=nil}
       else
-        -- signaled
         return {crashed=true, timed_out=false, exit=128 + bit.band(st, 0x7f), signal=bit.band(st, 0x7f)}
       end
     elseif r == 0 then
@@ -431,10 +485,9 @@ local function run_fiskta(ops_tokens, input_path, stdout_path, stderr_path)
         ffi.C.waitpid(pid, status, 0)
         return {crashed=false, timed_out=true, exit=-2, signal=nil}
       end
-      ffi.C.usleep(1000) -- 1ms
+      ffi.C.usleep(1000)
       waited = waited + 1000
     else
-      -- waitpid error
       return {crashed=true, timed_out=false, exit=-3, signal=nil}
     end
   end
@@ -443,18 +496,18 @@ end
 local function save_case(id, ops_tokens, input_data, res)
   local base = string.format("%s/case_%d", cfg.artifacts, id)
   ensure_dir(cfg.artifacts)
-  write_all(base..".ops.txt", table.concat(ops_tokens, "\n"))  -- one token per line
+  write_all(base..".ops.txt", table.concat(ops_tokens, "\n"))
   write_all(base..".input.bin", input_data)
   local meta = string.format("exit=%d\nsignal=%s\ntimed_out=%s\n",
     res.exit or -999, tostring(res.signal), tostring(res.timed_out))
   write_all(base..".meta.txt", meta)
 end
 
--- ========= Minimizer (greedy token deletion) =========
+-- ========= Minimizer =========
 local function same_failure(a, b)
   if a.timed_out and b.timed_out then return true end
   if a.crashed and b.crashed then return true end
-  return (a.exit == b.exit) -- allow matching specific exits like 10/11/2
+  return (a.exit == b.exit)
 end
 
 local function minimize_tokens(orig_tokens, input_path, want_res)
@@ -510,9 +563,25 @@ local function gen_input()
   return table.concat(t)
 end
 
--- ========= Stats =========
-local stats = { total=0, saved=0, timeouts=0, crashed=0, exits={} }
+-- ========= Stats & Progress =========
+local stats = { total=0, saved=0, timeouts=0, crashed=0, exits={}, start_time=os.time() }
 local function bump_exit(code) stats.exits[code] = (stats.exits[code] or 0) + 1 end
+
+local function format_time(seconds)
+  if seconds < 60 then return string.format("%ds", seconds) end
+  if seconds < 3600 then return string.format("%dm%ds", math.floor(seconds/60), seconds%60) end
+  return string.format("%dh%dm", math.floor(seconds/3600), math.floor((seconds%3600)/60))
+end
+
+local function show_progress()
+  local elapsed = os.time() - stats.start_time
+  local rate = elapsed > 0 and math.floor(stats.total / elapsed) or 0
+  local mode_str = cfg.cases and string.format("%d/%d", stats.total, cfg.cases) or string.format("%d", stats.total)
+  io.write(string.format("\r[%s cases | %d exec/s | %d crashes | %d timeouts | %s]",
+    mode_str, rate, stats.crashed, stats.timeouts, format_time(elapsed)))
+  io.flush()
+end
+
 local function write_summary()
   local lines = {
     ("total=%d"):format(stats.total),
@@ -529,53 +598,86 @@ end
 -- ========= Main fuzz loop =========
 local function run()
   ensure_dir(cfg.artifacts)
-  for case_id = 0, cfg.cases-1 do
-    -- 1) Generate ops
-    local raw = {}
+
+  -- Clean old artifacts
+  os.execute(string.format("rm -f %s/case_*.{ops.txt,input.bin,meta.txt,stderr.txt,stdout.txt} 2>/dev/null", cfg.artifacts))
+  os.execute(string.format("rm -f %s/tmp_*.bin 2>/dev/null", cfg.artifacts))
+
+  io.write(string.format("fiskta fuzzer [%s | seed=%d | minimize=%s]\n",
+    cfg.is_asan and "ASAN" or "release", cfg.seed, cfg.minimize and "on" or "off"))
+  io.write(string.format("Binary: %s\n", cfg.fiskta_path))
+  io.write(string.format("Mode: %s\n", cfg.cases and (cfg.cases.." cases") or "continuous (Ctrl-C to stop)"))
+  io.write("\n")
+
+  local case_id = 0
+  while true do
+    if cfg.cases and case_id >= cfg.cases then break end
+
+    local raw, ops, input, tmp_path, res, interesting
+
+    -- Generate ops
+    raw = {}
     gen_node(rules[start_rule], raw, 0, {max_depth=cfg.max_depth, max_repeat=cfg.max_repeat})
-    if #raw == 0 then goto cleanup end
-    local ops = rewrite_tokens(raw)
+    if #raw > 0 then
+      ops = rewrite_tokens(raw)
+      if #ops > 0 then
+        -- Generate input
+        input = gen_input()
+        tmp_path = string.format("%s/tmp_%d.bin", cfg.artifacts, case_id)
+        write_all(tmp_path, input)
 
-    -- 2) Input
-    local input = gen_input()
-    local tmp_path = string.format("%s/tmp_%d.bin", cfg.artifacts, case_id)
-    write_all(tmp_path, input)
+        -- Run
+        res = run_fiskta(ops, tmp_path, nil, nil)
 
-    -- 3) Quiet probe run
-    local res = run_fiskta(ops, tmp_path, nil, nil)
+        -- Stats
+        stats.total = stats.total + 1
+        bump_exit(res.exit or -999)
+        if res.timed_out then stats.timeouts = stats.timeouts + 1 end
+        if res.crashed then stats.crashed = stats.crashed + 1 end
 
-    -- 4) Stats
-    stats.total = stats.total + 1
-    bump_exit(res.exit or -999)
-    if res.timed_out then stats.timeouts = stats.timeouts + 1 end
-    if res.crashed then stats.crashed = stats.crashed + 1 end
+        -- Check if interesting
+        interesting = res.timed_out or res.crashed or (res.exit == 11) or (res.exit == 10) or (res.exit == 2)
 
-    -- 5) Decide interesting
-    local interesting = res.timed_out or res.crashed or (res.exit == 11) or (res.exit == 10) or (res.exit == 2)
+        if interesting then
+          -- Capture evidence
+          local base = string.format("%s/case_%d", cfg.artifacts, case_id)
+          local out_stdout = base..".stdout.txt"
+          local out_stderr = base..".stderr.txt"
+          res = run_fiskta(ops, tmp_path, out_stdout, out_stderr)
 
-    if interesting then
-      -- Capture evidence (rerun to files)
-      local base = string.format("%s/case_%d", cfg.artifacts, case_id)
-      local out_stdout = base..".stdout.txt"
-      local out_stderr = base..".stderr.txt"
-      res = run_fiskta(ops, tmp_path, out_stdout, out_stderr)
+          -- Minimize if enabled
+          local final_ops = ops
+          if cfg.minimize then
+            final_ops = minimize_tokens(ops, tmp_path, res)
+          end
 
-      -- Minimize ops if requested
-      local final_ops = ops
-      if cfg.minimize then
-        final_ops = minimize_tokens(ops, tmp_path, res)
+          save_case(case_id, final_ops, input, res)
+          stats.saved = stats.saved + 1
+          os.remove(tmp_path)
+        else
+          os.remove(tmp_path)
+        end
+
+        -- Progress update every 100 cases
+        if case_id % 100 == 0 then
+          show_progress()
+        end
       end
-
-      -- Save case
-      save_case(case_id, final_ops, input, res)
-      stats.saved = stats.saved + 1
-      os.remove(tmp_path) -- remove tmp after saving
-    else
-      -- Not interesting; delete tmp
-      os.remove(tmp_path)
     end
 
-    ::cleanup::
+    case_id = case_id + 1
+  end
+
+  show_progress()
+  io.write("\n\n")
+
+  write_summary()
+
+  if stats.saved > 0 then
+    io.write(string.format("Found %d interesting case(s) in artifacts/\n", stats.saved))
+    io.write("Reproduce: ./fuzz --repro-case N\n")
+  else
+    io.write("No crashes or interesting cases found\n")
   end
 end
 
@@ -589,6 +691,8 @@ local function repro_case(n)
   local stderr_path = base..".repro.stderr.txt"
   local res = run_fiskta(ops, input, stdout_path, stderr_path)
   io.stderr:write(string.format("exit=%d signal=%s timed_out=%s\n", res.exit or -999, tostring(res.signal), tostring(res.timed_out)))
+  io.stderr:write(string.format("stdout: %s\n", stdout_path))
+  io.stderr:write(string.format("stderr: %s\n", stderr_path))
 end
 
 local function repro_paths(input, opsf)
@@ -597,6 +701,8 @@ local function repro_paths(input, opsf)
   local stderr_path = opsf..".repro.stderr.txt"
   local res = run_fiskta(ops, input, stdout_path, stderr_path)
   io.stderr:write(string.format("exit=%d signal=%s timed_out=%s\n", res.exit or -999, tostring(res.signal), tostring(res.timed_out)))
+  io.stderr:write(string.format("stdout: %s\n", stdout_path))
+  io.stderr:write(string.format("stderr: %s\n", stderr_path))
 end
 
 -- ========= Entry =========
@@ -606,6 +712,4 @@ elseif cfg.repro_input and cfg.repro_ops then
   repro_paths(cfg.repro_input, cfg.repro_ops)
 else
   run()
-  write_summary()
 end
-
