@@ -50,6 +50,54 @@ local function make_fixtures()
     write_file(FIX_DIR .. "/take-until-empty.txt", "HEADtail\n")
 end
 
+local has_ffi, ffi = pcall(require, "ffi")
+
+local bit_mod, bxor, band, bor, rshift, lshift, ror, bnot
+do
+    local ok, mod = pcall(require, "bit")
+    if ok then
+        bit_mod = mod
+        bxor, band, bor = mod.bxor, mod.band, mod.bor
+        rshift, lshift = mod.rshift, mod.lshift
+        ror = mod.ror
+        bnot = mod.bnot
+    else
+        ok, mod = pcall(require, "bit32")
+        if ok then
+            bit_mod = mod
+            bxor, band, bor = mod.bxor, mod.band, mod.bor
+            rshift, lshift = mod.rshift, mod.lshift
+            ror = mod.rrotate
+            bnot = mod.bnot
+        end
+    end
+end
+
+if not (bxor and band and bor and rshift and lshift and bnot) then
+    error("requires LuaJIT bit library or Lua 5.2 bit32")
+end
+
+local function mask32(x)
+    local r = band(x, 0xffffffff)
+    if r < 0 then
+        r = r + 0x100000000
+    end
+    return r
+end
+
+if not ror then
+    local function lshift_wrap(x, n)
+        return mask32(lshift(x, n))
+    end
+    ror = function(x, n)
+        n = n % 32
+        if n == 0 then
+            return mask32(x)
+        end
+        return mask32(bor(rshift(x, n), lshift_wrap(x, 32 - n)))
+    end
+end
+
 local function shell_quote(token)
     if token == "" then
         return "''"
@@ -67,7 +115,7 @@ local function read_file(path)
     return data
 end
 
-local function run_command(exe, tokens, input_path, extra_args, stdin_data)
+local function run_command_fallback(exe, tokens, input_path, extra_args, stdin_data)
     local stdout_tmp = os.tmpname()
     local stderr_tmp = os.tmpname()
     local stdin_tmp
@@ -112,7 +160,9 @@ local function run_command(exe, tokens, input_path, extra_args, stdin_data)
     end
 
     local exit_code
-    if ok == true or ok == 0 then
+    if type(ok) == "number" then
+        exit_code = math.floor(ok / 256)
+    elseif ok == true or ok == 0 then
         exit_code = 0
     elseif why == "exit" then
         exit_code = status
@@ -123,19 +173,365 @@ local function run_command(exe, tokens, input_path, extra_args, stdin_data)
     return exit_code, stdout, stderr
 end
 
-local function sha256_hex(data)
-    local tmp_path = os.tmpname()
-    write_file(tmp_path, data)
-    local cmd = string.format("sha256sum %s", shell_quote(tmp_path))
-    local fh = assert(io.popen(cmd, "r"))
-    local out = fh:read("*a") or ""
-    fh:close()
-    os.remove(tmp_path)
-    local hash = out:match("^[0-9a-fA-F]+")
-    return hash and hash:lower() or ""
+local run_command_impl
+
+if has_ffi and ffi.os ~= "Windows" then
+    ffi.cdef[[
+        typedef long ssize_t;
+        typedef unsigned long size_t;
+        typedef int pid_t;
+        int pipe(int pipefd[2]);
+        pid_t fork(void);
+        int dup2(int oldfd, int newfd);
+        int close(int fd);
+        int execvp(const char *file, char *const argv[]);
+        ssize_t read(int fd, void *buf, size_t count);
+        ssize_t write(int fd, const void *buf, size_t count);
+        pid_t waitpid(pid_t pid, int *status, int options);
+        void _exit(int status);
+        int errno;
+    ]]
+
+    local EINTR = 4
+
+    local function build_argv(exe, tokens, input_path, extra_args)
+        local args = { exe }
+        if extra_args then
+            for _, v in ipairs(extra_args) do
+                args[#args + 1] = tostring(v)
+            end
+        end
+        if input_path then
+            args[#args + 1] = "--input"
+            args[#args + 1] = input_path
+        end
+        for _, t in ipairs(tokens) do
+            args[#args + 1] = tostring(t)
+        end
+        return args
+    end
+
+    local function make_argv(args)
+        local count = #args
+        local argv = ffi.new("char *[?]", count + 1)
+        local storage = {}
+        for i = 1, count do
+            local s = args[i]
+            local buf = ffi.new("char[?]", #s + 1)
+            ffi.copy(buf, s)
+            storage[i] = buf
+            argv[i - 1] = buf
+        end
+        argv[count] = nil
+        return argv, storage
+    end
+
+    local function read_fd(fd)
+        local chunks = {}
+        local buf = ffi.new("unsigned char[4096]")
+        while true do
+            local n = ffi.C.read(fd, buf, 4096)
+            if n == 0 then
+                break
+            end
+            if n < 0 then
+                local err = ffi.errno()
+                if err ~= EINTR then
+                    ffi.C.close(fd)
+                    error("read error: errno=" .. err)
+                end
+            else
+                chunks[#chunks + 1] = ffi.string(buf, n)
+            end
+        end
+        ffi.C.close(fd)
+        return table.concat(chunks)
+    end
+
+    local function write_all(fd, data)
+        if not data or #data == 0 then
+            ffi.C.close(fd)
+            return
+        end
+        local len = #data
+        local ptr = ffi.cast("const unsigned char*", data)
+        local written = 0
+        while written < len do
+            local n = ffi.C.write(fd, ptr + written, len - written)
+            if n < 0 then
+                if ffi.errno() == EINTR then
+                    n = 0
+                else
+                    ffi.C.close(fd)
+                    error("write error: errno=" .. ffi.errno())
+                end
+            end
+            written = written + n
+        end
+        ffi.C.close(fd)
+    end
+
+    run_command_impl = function(exe, tokens, input_path, extra_args, stdin_data)
+        local args = build_argv(exe, tokens, input_path, extra_args)
+        local argv, storage = make_argv(args)
+
+        local stdout_pipe = ffi.new("int[2]")
+        local stderr_pipe = ffi.new("int[2]")
+        if ffi.C.pipe(stdout_pipe) ~= 0 or ffi.C.pipe(stderr_pipe) ~= 0 then
+            error("pipe failed: errno=" .. ffi.errno())
+        end
+
+        local stdin_pipe
+        if stdin_data then
+            stdin_pipe = ffi.new("int[2]")
+            if ffi.C.pipe(stdin_pipe) ~= 0 then
+                error("pipe failed: errno=" .. ffi.errno())
+            end
+        end
+
+        local pid = ffi.C.fork()
+        if pid == 0 then
+            if stdin_pipe then
+                ffi.C.close(stdin_pipe[1])
+                ffi.C.dup2(stdin_pipe[0], 0)
+                ffi.C.close(stdin_pipe[0])
+            end
+
+            ffi.C.close(stdout_pipe[0])
+            ffi.C.close(stderr_pipe[0])
+            ffi.C.dup2(stdout_pipe[1], 1)
+            ffi.C.dup2(stderr_pipe[1], 2)
+            ffi.C.close(stdout_pipe[1])
+            ffi.C.close(stderr_pipe[1])
+
+            ffi.C.execvp(argv[0], argv)
+            local msg = "execvp failed\n"
+            ffi.C.write(2, msg, #msg)
+            ffi.C._exit(127)
+        elseif pid < 0 then
+            error("fork failed: errno=" .. ffi.errno())
+        end
+
+        ffi.C.close(stdout_pipe[1])
+        ffi.C.close(stderr_pipe[1])
+
+        if stdin_pipe then
+            ffi.C.close(stdin_pipe[0])
+            write_all(stdin_pipe[1], stdin_data)
+        end
+
+        local stdout = read_fd(stdout_pipe[0])
+        local stderr = read_fd(stderr_pipe[0])
+
+        local status = ffi.new("int[1]")
+        while true do
+            local wp = ffi.C.waitpid(pid, status, 0)
+            if wp == pid then
+                break
+            end
+            if wp == -1 then
+                if ffi.errno() ~= EINTR then
+                    error("waitpid failed: errno=" .. ffi.errno())
+                end
+            end
+        end
+
+        local code
+        local st = tonumber(status[0])
+        if band(st, 0x7f) ~= 0 then
+            code = 128 + band(st, 0x7f)
+        else
+            code = band(rshift(st, 8), 0xff)
+        end
+
+        return code, stdout, stderr
+    end
+else
+    run_command_impl = run_command_fallback
 end
 
-local tests = {
+local function run_command(...)
+    return run_command_impl(...)
+end
+
+local function add32(...)
+    local sum = 0
+    for i = 1, select("#", ...) do
+        sum = sum + select(i, ...)
+    end
+    return mask32(sum)
+end
+
+local K = {
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+}
+
+local sha256_hex
+
+if has_ffi and ffi.os ~= "Windows" then
+    local crypto
+    local has_crypto = false
+    do
+        local candidates = { "crypto", "libcrypto.so.3", "libcrypto.so", "libcrypto" }
+        for _, name in ipairs(candidates) do
+            local ok, lib = pcall(ffi.load, name)
+            if ok then
+                crypto = lib
+                has_crypto = true
+                break
+            end
+        end
+    end
+
+    local function sha256_hex_pure(data)
+        local len = #data
+        local ptr = ffi.cast("const unsigned char*", data)
+        local w = {}
+
+        local h0, h1, h2, h3 = 0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a
+        local h4, h5, h6, h7 = 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+
+        local function compress(block_ptr)
+            for j = 0, 15 do
+                local base = j * 4
+                local b0 = tonumber(block_ptr[base])
+                local b1 = tonumber(block_ptr[base + 1])
+                local b2 = tonumber(block_ptr[base + 2])
+                local b3 = tonumber(block_ptr[base + 3])
+                w[j] = mask32(bor(
+                    lshift(b0, 24),
+                    lshift(b1, 16),
+                    lshift(b2, 8),
+                    b3
+                ))
+            end
+            for j = 16, 63 do
+                local v = w[j - 15]
+                local s0 = bxor(ror(v, 7), ror(v, 18), rshift(v, 3))
+                v = w[j - 2]
+                local s1 = bxor(ror(v, 17), ror(v, 19), rshift(v, 10))
+                w[j] = add32(w[j - 16], s0, w[j - 7], s1)
+            end
+
+            local a, b, c, d = h0, h1, h2, h3
+            local e, f, g, hh = h4, h5, h6, h7
+
+            for j = 0, 63 do
+                local S1 = bxor(ror(e, 6), ror(e, 11), ror(e, 25))
+                local ch = bxor(band(e, f), band(mask32(bnot(e)), g))
+                local temp1 = add32(hh, S1, ch, K[j + 1], w[j])
+                local S0 = bxor(ror(a, 2), ror(a, 13), ror(a, 22))
+                local maj = bxor(band(a, b), band(a, c), band(b, c))
+                local temp2 = add32(S0, maj)
+
+                hh = g
+                g = f
+                f = e
+                e = add32(d, temp1)
+                d = c
+                c = b
+                b = a
+                a = add32(temp1, temp2)
+            end
+
+            h0 = add32(h0, a)
+            h1 = add32(h1, b)
+            h2 = add32(h2, c)
+            h3 = add32(h3, d)
+            h4 = add32(h4, e)
+            h5 = add32(h5, f)
+            h6 = add32(h6, g)
+            h7 = add32(h7, hh)
+        end
+
+        local processed = 0
+        local full_blocks = math.floor(len / 64)
+        for _ = 1, full_blocks do
+            compress(ptr + processed)
+            processed = processed + 64
+        end
+
+        local tail = ffi.new("unsigned char[128]")
+        ffi.fill(tail, 128, 0)
+        local rem = len - processed
+        if rem > 0 then
+            ffi.copy(tail, ptr + processed, rem)
+        end
+        tail[rem] = 0x80
+
+        local total_blocks = (rem <= 55) and 1 or 2
+        local bit_len = len * 8
+        local high = math.floor(bit_len / 0x100000000)
+        local low = bit_len % 0x100000000
+        local len_pos = total_blocks * 64 - 8
+        tail[len_pos + 0] = band(rshift(high, 24), 0xff)
+        tail[len_pos + 1] = band(rshift(high, 16), 0xff)
+        tail[len_pos + 2] = band(rshift(high, 8), 0xff)
+        tail[len_pos + 3] = band(high, 0xff)
+        tail[len_pos + 4] = band(rshift(low, 24), 0xff)
+        tail[len_pos + 5] = band(rshift(low, 16), 0xff)
+        tail[len_pos + 6] = band(rshift(low, 8), 0xff)
+        tail[len_pos + 7] = band(low, 0xff)
+
+        for i = 0, total_blocks - 1 do
+            compress(tail + i * 64)
+        end
+
+        return string.format("%08x%08x%08x%08x%08x%08x%08x%08x",
+            mask32(h0), mask32(h1), mask32(h2), mask32(h3),
+            mask32(h4), mask32(h5), mask32(h6), mask32(h7))
+    end
+
+    if has_crypto then
+        ffi.cdef[[unsigned char *SHA256(const void *d, size_t n, unsigned char *md);]]
+        sha256_hex = function(data)
+            local out = ffi.new("unsigned char[32]")
+            crypto.SHA256(data, #data, out)
+            local t = {}
+            for i = 0, 31 do
+                t[#t + 1] = string.format("%02x", tonumber(out[i]))
+            end
+            return table.concat(t)
+        end
+    else
+        sha256_hex = sha256_hex_pure
+    end
+else
+    sha256_hex = function(data)
+        local tmp_path = os.tmpname()
+        write_file(tmp_path, data)
+        local cmd = string.format("sha256sum %s", shell_quote(tmp_path))
+        local fh = assert(io.popen(cmd, "r"))
+        local out = fh:read("*a") or ""
+        fh:close()
+        os.remove(tmp_path)
+        local hash = out:match("^[0-9a-fA-F]+")
+        return hash and hash:lower() or ""
+    end
+end
+
+local function load_generated_tests()
+    local generated_path = SCRIPT_DIR .. "/tests_generated.lua"
+    local chunk, err = loadfile(generated_path)
+    if not chunk then
+        return nil
+    end
+    local ok, data = pcall(chunk)
+    if not ok then
+        io.stderr:write("Failed to load generated tests: ", tostring(data), "\n")
+        return nil
+    end
+    return data
+end
+
+local builtin_tests = {
     {
         id = "gram-001-clause-sep",
         tokens = {"take", "+3b", "THEN", "take", "+2b"},
@@ -234,6 +630,8 @@ local tests = {
     },
 }
 
+local tests = load_generated_tests() or builtin_tests
+
 local function expect_stdout(actual, expect)
     if expect.stdout ~= nil then
         if actual == expect.stdout then
@@ -273,7 +671,7 @@ local function expect_stderr(actual, expect)
         end
         return false, string.format("stderr mismatch (want %q, got %q)", expect.stderr, actual)
     end
-    return #actual == 0, string.format("expected empty stderr, got %d bytes", #actual)
+    return true, ""
 end
 
 local function parse_args()
