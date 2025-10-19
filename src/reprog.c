@@ -252,25 +252,24 @@ static enum Err compile_alt_sequence(ReB* b, String pat, int len)
         return E_OK;
     }
 
-    // 2) Record (lo,len) for each alt
-    int* lo = NULL;
-    int* alen = NULL;
-    int* split_pc = NULL;
-    int* alt_start_pc = NULL;
-    int* jmp_pc = NULL;
-    enum Err err = E_OK;
+    // Prevent stack overflow with too many alternatives
+    if (nalt > MAX_ALTS) {
+        return E_PARSE;  // Too many alternations
+    }
 
-    int split_cap = (nalt > 1) ? (nalt - 1) : 1;
-    int lo_arr[nalt];
-    int alen_arr[nalt];
-    int split_pc_arr[split_cap];
-    int alt_start_pc_arr[nalt];
-    int jmp_pc_arr[nalt];
-    lo = lo_arr;
-    alen = alen_arr;
-    split_pc = split_pc_arr;
-    alt_start_pc = alt_start_pc_arr;
-    jmp_pc = jmp_pc_arr;
+    // 2) Record (lo,len) for each alt using fixed-size arrays
+    int lo_arr[MAX_ALTS];
+    int alen_arr[MAX_ALTS];
+    int split_pc_arr[MAX_ALTS];
+    int alt_start_pc_arr[MAX_ALTS];
+    int jmp_pc_arr[MAX_ALTS];
+
+    int* lo = lo_arr;
+    int* alen = alen_arr;
+    int* split_pc = split_pc_arr;
+    int* alt_start_pc = alt_start_pc_arr;
+    int* jmp_pc = jmp_pc_arr;
+    enum Err err = E_OK;
 
     int k = 0;
     int start = 0;

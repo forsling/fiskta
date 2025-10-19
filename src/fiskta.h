@@ -13,7 +13,8 @@ typedef uint32_t u32;
 
 // Constants
 enum { MAX_LABELS = 128,
-    MAX_LABEL_LEN = 15 };
+    MAX_LABEL_LEN = 15,
+    MAX_ALTS = 256 }; // Maximum alternations in regex (a|b|c|...)
 
 typedef struct {
     const char* bytes;
