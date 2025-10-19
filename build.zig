@@ -52,6 +52,18 @@ pub fn build(b: *std.Build) !void {
 
     b.getInstallStep().dependOn(host_step);
 
+    const asan_step = b.step("asan", "Build fiskta with AddressSanitizer (for fuzzing)");
+    const asan_cmd = createAsanBuildStep(
+        b,
+        &mkdir_step.step,
+        host_triple,
+        host_os,
+        version,
+        "fiskta-asan",
+        "",
+    );
+    asan_step.dependOn(&asan_cmd.step);
+
     const run_cmd = b.addSystemCommand(&.{"zig-out/bin/fiskta"});
     if (b.args) |args| {
         run_cmd.addArgs(args);
@@ -180,6 +192,68 @@ fn createBuildStep(
 
     if (linkage == .static) {
         cmd.addArg("-static");
+    }
+
+    cmd.step.dependOn(mkdir_step);
+    return cmd;
+}
+
+fn createAsanBuildStep(
+    b: *std.Build,
+    mkdir_step: *std.Build.Step,
+    target_triple: []const u8,
+    target_os: std.Target.Os.Tag,
+    version: []const u8,
+    out_name: []const u8,
+    out_ext: []const u8,
+) *std.Build.Step.Run {
+    const cmd = b.addSystemCommand(&.{
+        "zig",
+        "cc",
+        "-std=c11",
+        "-Wall",
+        "-Wextra",
+        "-Wconversion",
+        "-Wshadow",
+        "-Wcast-qual",
+        "-Wpointer-arith",
+        "-Wbad-function-cast",
+        "-Wundef",
+        "-pedantic",
+        "-Wcast-align",
+        "-Wmissing-declarations",
+        "-Wwrite-strings",
+        "-Wstrict-aliasing=2",
+        "-I",
+        "src",
+        "src/main.c",
+        "src/parse.c",
+        "src/runtime.c",
+        "src/engine.c",
+        "src/iosearch.c",
+        "src/reprog.c",
+        "src/util.c",
+        "src/error.c",
+        "-o",
+        b.fmt("zig-out/bin/{s}{s}", .{ out_name, out_ext }),
+    });
+
+    cmd.addArg(b.fmt("-DFISKTA_VERSION=\"{s}\"", .{version}));
+    cmd.addArgs(&.{ "-target", target_triple });
+
+    // ASAN build: optimized with sanitizers
+    cmd.addArgs(&.{
+        "-g",
+        "-O1",
+        "-DDEBUG",
+        "-fsanitize=address,undefined",
+        "-fno-omit-frame-pointer",
+    });
+
+    if (target_os == .macos) {
+        cmd.addArg("-Wl,-dead_strip");
+    } else {
+        cmd.addArg("-Wl,--gc-sections");
     }
 
     cmd.step.dependOn(mkdir_step);
