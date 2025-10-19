@@ -251,15 +251,9 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
 
     *in_path_out = in_path;
 
-    plan->clause_count = 1;
-    for (i32 i = 0; i < token_count; i++) {
-        if (is_keyword(tokens[i], &kw_then) || is_keyword(tokens[i], &kw_or)) {
-            plan->clause_count++;
-        }
-    }
-
     i32 idx = 0;
     while (idx < token_count) {
+        plan->clause_count++;  // Count each clause as we process it
         while (idx < token_count && !is_keyword(tokens[idx], &kw_then) && !is_keyword(tokens[idx], &kw_or)) {
             const String cmd_tok = tokens[idx];
             plan->total_ops++;
@@ -284,7 +278,8 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                 }
                 if (idx < token_count) {
                     plan->needle_count++;
-                    plan->needle_bytes += (size_t)tokens[idx].len;
+                    size_t escaped_len = calculate_escaped_string_length(tokens[idx]);
+                    plan->needle_bytes += escaped_len;
                     idx++;
                 }
             } else if (is_keyword(cmd_tok, &kw_find_re)) {
@@ -308,7 +303,6 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                 if (idx < token_count) {
                     const String pat_tok = tokens[idx];
                     const char* pat = pat_tok.bytes;
-                    size_t l = (size_t)pat_tok.len;
                     plan->sum_findr_ops++;
                     i32 est = estimate_regex_instructions(pat_tok);
                     plan->re_ins_estimate += est;
@@ -328,7 +322,8 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                         }
                     }
                     plan->needle_count++;
-                    plan->needle_bytes += l;
+                    size_t escaped_len = calculate_escaped_string_length(pat_tok);
+                    plan->needle_bytes += escaped_len;
                     idx++;
                 }
             } else if (is_keyword(cmd_tok, &kw_find_bin)) {
@@ -408,7 +403,6 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                         if (idx < token_count) {
                             const String pat_tok = tokens[idx];
                             const char* pat = pat_tok.bytes;
-                            size_t l = (size_t)pat_tok.len;
                             plan->sum_findr_ops++;
                             i32 est = estimate_regex_instructions(pat_tok);
                             plan->re_ins_estimate += est;
@@ -428,7 +422,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                                 }
                             }
                             plan->needle_count++;
-                            plan->needle_bytes += l;
+                            plan->needle_bytes += calculate_escaped_string_length(pat_tok);
                             idx++;
                         }
                         if (idx < token_count && is_keyword(tokens[idx], &kw_at_keyword)) {
@@ -476,7 +470,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                         idx++;
                         if (idx < token_count) {
                             plan->needle_count++;
-                            plan->needle_bytes += (size_t)tokens[idx].len;
+                            plan->needle_bytes += calculate_escaped_string_length(tokens[idx]);
                             idx++;
                         }
                         if (idx < token_count && is_keyword(tokens[idx], &kw_at_keyword)) {
@@ -566,7 +560,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                 idx++;
                 if (idx < token_count) {
                     plan->needle_count++;
-                    plan->needle_bytes += (size_t)tokens[idx].len;
+                    plan->needle_bytes += calculate_escaped_string_length(tokens[idx]);
                     idx++;
                 }
             } else {
@@ -719,7 +713,7 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
         }
 
         prg->clause_count++;
-        op_cursor += clause_op_count;
+        op_cursor += clause->op_count;  // Use actual parsed count, not pre-count
 
         // Check for link keywords
         if (idx < token_count) {

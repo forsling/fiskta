@@ -225,6 +225,47 @@ bad_hex:
     return out;
 }
 
+// Calculate the length of a string after escape sequence processing
+// without actually allocating or processing it
+size_t calculate_escaped_string_length(String str)
+{
+    if (str.len < 0) {
+        return 0;
+    }
+
+    size_t src_len = (size_t)str.len;
+    size_t dst_len = 0;
+
+    for (size_t i = 0; i < src_len; i++) {
+        if (str.bytes[i] == '\\' && i + 1 < src_len) {
+            char esc = str.bytes[i + 1];
+            if (esc == 'n' || esc == 't' || esc == 'r' || esc == '0' || esc == '\\' || esc == 'c' || esc == 'C') {
+                dst_len++;
+                i++;
+                continue;
+            }
+            if (esc == 'x') {
+                // Check if there are enough characters for \xHH
+                if (i + 3 < src_len) {
+                    int hi = hex_value(str.bytes[i + 2]);
+                    int lo = hex_value(str.bytes[i + 3]);
+                    if (hi >= 0 && lo >= 0) {
+                        dst_len++;
+                        i += 3;
+                        continue;
+                    }
+                }
+            }
+            // Backslash followed by something else - count as single character
+            dst_len++;
+            continue;
+        }
+        dst_len++;
+    }
+
+    return dst_len;
+}
+
 String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum Err* err_out, i32* cursor_marks_out)
 {
     String out = { 0 };
