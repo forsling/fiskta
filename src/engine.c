@@ -781,6 +781,10 @@ static enum Err resolve_location(
         base = view_eof(c_view, io);
         break;
     case LOC_NAME: {
+        // Validate label index bounds
+        if (loc->name_idx < 0 || loc->name_idx >= MAX_LABELS) {
+            return E_PARSE;
+        }
         // Check staged labels first (overrides committed)
         bool found = false;
         for (i32 i = 0; i < staged_label_count; i++) {
