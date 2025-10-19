@@ -80,7 +80,7 @@ static inline void print_usage(void)
     printf("REGEX SYNTAX:\n");
     printf("  Character Classes: \\d (digits), \\D (non-digits), \\w (word), \\W (non-word),\n");
     printf("                     \\s (space), \\S (non-space), [a-z], [^0-9]\n");
-    printf("  Quantifiers: * (0+), + (1+), ? (0-1), {n} (exactly n), {n,m} (n to m)\n");
+    printf("  Quantifiers: * (0+), + (1+), ? (0-1), {n} (exactly n), {n,m} (n to m; max 100)\n");
     printf("  Grouping: ( ... ) (group subpatterns), (a|b)+ (quantified groups)\n");
     printf("  Anchors: ^ (line start), $ (line end)\n");
     printf("  Alternation: | (OR)\n");

@@ -537,7 +537,7 @@ i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens)
         unsigned char c = (unsigned char)*p;
 
         if (st == S_WS) {
-            if (c == ' ' || c == '\t') {
+            if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
                 p++;
                 continue;
             }
@@ -559,7 +559,7 @@ i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens)
             continue;
         }
         if (st == S_TOKEN) {
-            if (c == ' ' || c == '\t') {
+            if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
                 // End token
                 out[ntok].bytes = buf + token_start;
                 out[ntok].len = (i32)boff - token_start;

@@ -400,13 +400,6 @@ static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int 
             return FISKTA_EXIT_PARSE;
         }
 
-        // Replace newlines with spaces
-        for (size_t i = 0; i < total; ++i) {
-            if (file_content_buf[i] == '\n' || file_content_buf[i] == '\r') {
-                file_content_buf[i] = ' ';
-            }
-        }
-
         i32 n = tokenize_ops_string(file_content_buf, tokens_view, MAX_TOKENS);
         if (n == -1) {
             fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
