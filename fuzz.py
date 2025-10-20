@@ -282,7 +282,8 @@ def gen_random_regex() -> str:
             if class_type == 1:
                 return f"[{random.choice(['a-z', '0-9', 'A-Z', 'a-zA-Z'])}]"
             elif class_type == 2:
-                return f"[^{random.choice(['0-9', 'a-z', ' \t'])}]"
+                negated_choices = ['0-9', 'a-z', ' \t']
+                return f"[^{random.choice(negated_choices)}]"
             elif class_type == 3:
                 chars = ''.join(random.sample('abcxyz0123', random.randint(2, 5)))
                 return f"[{chars}]"
