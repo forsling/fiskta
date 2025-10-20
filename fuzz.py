@@ -235,6 +235,149 @@ def rand_string_token() -> str:
     s = s.strip(' \n\r\t')
     return s if s else 'x'
 
+def gen_random_regex() -> str:
+    """Generate random regex pattern using all supported features"""
+    complexity = random.choice(['simple', 'medium', 'complex', 'pathological'])
+
+    def atom():
+        """Generate regex atom (character, class, or group)"""
+        choice = random.randint(1, 15)
+        if choice == 1:
+            return random.choice(['a', 'b', 'x', '1', '0', ' ', '\n'])
+        elif choice == 2:
+            return '.'
+        elif choice == 3:
+            return '\\d'
+        elif choice == 4:
+            return '\\D'
+        elif choice == 5:
+            return '\\w'
+        elif choice == 6:
+            return '\\W'
+        elif choice == 7:
+            return '\\s'
+        elif choice == 8:
+            return '\\S'
+        elif choice <= 11:
+            # Character class [...]
+            class_type = random.randint(1, 4)
+            if class_type == 1:
+                return f"[{random.choice(['a-z', '0-9', 'A-Z', 'a-zA-Z'])}]"
+            elif class_type == 2:
+                return f"[^{random.choice(['0-9', 'a-z', ' \t'])}]"
+            elif class_type == 3:
+                chars = ''.join(random.sample('abcxyz0123', random.randint(2, 5)))
+                return f"[{chars}]"
+            else:
+                return "[\\d\\w]"
+        else:
+            # Empty or single char
+            return random.choice(['', 'a', 'x'])
+
+    def quantifier():
+        """Generate quantifier"""
+        q_type = random.randint(1, 10)
+        if q_type <= 3:
+            return random.choice(['*', '+', '?'])
+        elif q_type <= 6:
+            # Safe quantifiers within limits
+            min_val = random.randint(0, 20)
+            max_val = min_val + random.randint(1, 30)
+            return f"{{{min_val},{max_val}}}"
+        elif q_type <= 8:
+            # Edge case quantifiers near limits
+            return random.choice(['{0,100}', '{99,100}', '{50,100}', '{0,1}', '{1,2}'])
+        else:
+            # Extreme quantifiers (may cause resource exhaustion)
+            return random.choice(['{0,999999}', '{999,}', '{40,80}', '{70,99}'])
+
+    def term(depth=0):
+        """Generate regex term (atom + optional quantifier)"""
+        if depth > 3:  # Limit nesting depth
+            return atom() + (quantifier() if random.random() < 0.3 else '')
+
+        term_type = random.randint(1, 10)
+        if term_type <= 6:
+            # Simple atom with optional quantifier
+            return atom() + (quantifier() if random.random() < 0.5 else '')
+        elif term_type <= 8 and depth < 2:
+            # Grouped term with quantifier
+            inner = term(depth + 1)
+            return f"({inner})" + (quantifier() if random.random() < 0.7 else '')
+        else:
+            # Nested group (potential for catastrophic backtracking)
+            inner = atom() + quantifier()
+            return f"({inner})" + (quantifier() if random.random() < 0.5 else '')
+
+    def alternation(depth=0):
+        """Generate alternation (a|b|c)"""
+        num_alts = random.randint(2, random.choice([3, 5, 10, 50, 200]))
+        if num_alts > 256:  # Respect MAX_ALTS limit
+            num_alts = random.randint(200, 256)
+
+        parts = [term(depth) for _ in range(num_alts)]
+        result = '|'.join(parts)
+
+        # Sometimes wrap in group with quantifier
+        if random.random() < 0.3:
+            result = f"({result})" + quantifier()
+
+        return result
+
+    # Build regex based on complexity
+    if complexity == 'simple':
+        # Single term
+        return term()
+
+    elif complexity == 'medium':
+        # Few terms or small alternation
+        if random.random() < 0.5:
+            return ''.join(term() for _ in range(random.randint(1, 3)))
+        else:
+            return alternation()
+
+    elif complexity == 'complex':
+        # Multiple terms, groups, alternations
+        parts = []
+        for _ in range(random.randint(2, 4)):
+            if random.random() < 0.3:
+                parts.append(alternation(1))
+            else:
+                parts.append(term(1))
+        result = ''.join(parts)
+
+        # Sometimes add anchors
+        if random.random() < 0.2:
+            result = '^' + result
+        if random.random() < 0.2:
+            result = result + '$'
+
+        return result
+
+    else:  # pathological
+        # Patterns designed to trigger edge cases
+        pattern_type = random.randint(1, 10)
+        if pattern_type <= 2:
+            # Nested quantifiers: ((a+)+)+
+            base = atom()
+            for _ in range(random.randint(2, 4)):
+                base = f"({base}{quantifier()})"
+            return base
+        elif pattern_type <= 4:
+            # Many alternations near limit
+            num = random.randint(200, 256)
+            return '|'.join(atom() for _ in range(num))
+        elif pattern_type <= 6:
+            # Empty patterns
+            return random.choice(['()*', '(|a)*', '(a|)*', '()*?', '()+', '()'])
+        elif pattern_type <= 8:
+            # Extreme quantifiers
+            return atom() + random.choice(['{0,999999}', '{999,}', '{100,}'])
+        else:
+            # Mixed: group with alternation and quantifier
+            alts = '|'.join(atom() for _ in range(random.randint(5, 20)))
+            return f"({alts}){quantifier()}"
+
 def rand_hex_string() -> str:
     """Generate random hex string like '0A 1F 2C'"""
     pairs = random.randint(1, 13)
@@ -337,12 +480,11 @@ def mutate_program(ops: list[str]) -> list[str]:
                         break
 
         elif mutation_type == 3 and len(mutated) > 2:
-            # Inject pathological regex
-            extreme_regexes = ['()', 'a*', '.*$', '.{0,999999}', 'a{999,}', '((((a))))', '(a|){100}']
+            # Inject generated regex (all supported features)
             for i in range(1, len(mutated)):
                 if mutated[i-1] == 'find:re':
                     if random.random() < 0.5:
-                        mutated[i] = random.choice(extreme_regexes)
+                        mutated[i] = gen_random_regex()
                         break
 
         elif mutation_type == 4 and len(mutated) > 1:
