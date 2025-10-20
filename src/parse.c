@@ -610,12 +610,10 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
         clause->op_count = 0;
         clause->link = LINK_NONE; // Default to no link
 
-        // Count ops in this clause first
+        // Parse operations in this clause
         i32 clause_start = idx;
-        i32 clause_op_count = 0;
         while (idx < token_count && !is_keyword(tokens[idx], &kw_then) && !is_keyword(tokens[idx], &kw_or)) {
             String cmd_tok = tokens[idx];
-            clause_op_count++;
             idx++;
 
             // Skip command-specific tokens
