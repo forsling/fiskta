@@ -107,7 +107,7 @@ def parse_args() -> Config:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Strategy:
-  • Commands: 50%% pure random generation, 50%% mutated (14 mutation types)
+  • Commands: 50%% pure random generation, 50%% mutated (13 mutation types)
   • Input data: 80%% corpus mutations from seed files, 20%% pure random
   • Parallel workers scale to CPU count
   • Auto crash minimization
@@ -304,15 +304,15 @@ def gen_random_program(min_ops: int, max_ops: int) -> list[str]:
 
     return tokens
 
-# ========= Program mutations (14 types) =========
+# ========= Program mutations (13 types) =========
 
 def mutate_program(ops: list[str]) -> list[str]:
-    """Apply 1-3 mutations to operation program"""
+    """Apply 0-2 mutations to operation program"""
     mutated = ops.copy()
-    num_mutations = random.randint(1, 3)
+    num_mutations = random.randint(0, 2)
 
     for _ in range(num_mutations):
-        mutation_type = random.randint(1, 14)
+        mutation_type = random.randint(1, 13)
 
         if mutation_type == 1 and mutated:
             # Replace size with extreme value
@@ -386,14 +386,6 @@ def mutate_program(ops: list[str]) -> list[str]:
                         break
 
         elif mutation_type == 10 and len(mutated) > 1:
-            # Delete sequence of 2-3 tokens
-            start = random.randrange(len(mutated) - 1)
-            count = min(random.randint(2, 3), len(mutated) - start)
-            for _ in range(count):
-                if len(mutated) > 1:
-                    mutated.pop(start)
-
-        elif mutation_type == 11 and len(mutated) > 1:
             # Inject invalid hex patterns
             invalid_hex = ['G', 'ZZ', '0G', '1H', 'XY', '  ', '0', '000', 'FFFFF']
             for i in range(1, len(mutated)):
@@ -402,7 +394,7 @@ def mutate_program(ops: list[str]) -> list[str]:
                         mutated[i] = random.choice(invalid_hex)
                         break
 
-        elif mutation_type == 12 and mutated:
+        elif mutation_type == 11 and mutated:
             # Off-by-one: increment/decrement numbers
             for i, token in enumerate(mutated):
                 if token and token.lstrip('-').isdigit():
@@ -411,7 +403,7 @@ def mutate_program(ops: list[str]) -> list[str]:
                         mutated[i] = str(n + random.choice([-1, 1]))
                         break
 
-        elif mutation_type == 13 and mutated:
+        elif mutation_type == 12 and mutated:
             # Remove clause links
             for i in range(len(mutated) - 1, -1, -1):
                 if mutated[i] in ['THEN', 'OR', 'AND']:
@@ -419,7 +411,7 @@ def mutate_program(ops: list[str]) -> list[str]:
                         mutated.pop(i)
                         break
 
-        elif mutation_type == 14 and len(mutated) > 2:
+        elif mutation_type == 13 and len(mutated) > 2:
             # Duplicate sequence of 2-3 tokens
             start = random.randrange(len(mutated) - 1)
             count = min(random.randint(2, 3), len(mutated) - start)
@@ -435,7 +427,7 @@ def mutate_for_input_mismatch(ops: list[str], input_data: bytes) -> tuple[list[s
     mutated_ops = ops.copy()
     mutated_input = input_data
 
-    mismatch_type = random.randint(1, 4)
+    mismatch_type = random.randint(1, 5)
 
     if mismatch_type == 1:
         # LONG PATTERN + SHORT INPUT (BUG-1: buffer underflow)
@@ -480,6 +472,15 @@ def mutate_for_input_mismatch(ops: list[str], input_data: bytes) -> tuple[list[s
         mutated_ops.insert(0, 'view')
         mutated_ops.insert(1, fake_label)
         mutated_ops.insert(2, fake_label)
+
+    elif mismatch_type == 5:
+        # KEYWORDS AS ARGUMENTS (op counting mismatch bug - ccf0759)
+        # Replace operation arguments with clause keywords
+        for i in range(1, len(mutated_ops)):
+            if mutated_ops[i-1] in ['find', 'find:re', 'find:bin', 'skip', 'take', 'print', 'fail']:
+                # Replace the argument with a keyword
+                mutated_ops[i] = random.choice(['THEN', 'OR', 'AND'])
+                break
 
     return mutated_ops, mutated_input
 
@@ -778,7 +779,7 @@ def worker_fn(args: tuple) -> dict:
         stats['exits'][res.exit_code] = stats['exits'].get(res.exit_code, 0) + 1
         if res.timed_out:
             stats['timeouts'] += 1
-        if res.crashed:
+        if res.crashed or res.exit_code in [10, 11]:
             stats['crashed'] += 1
 
         # Check if interesting
@@ -832,7 +833,7 @@ def run_fuzzer(cfg: Config):
     # Load corpus
     corpus_count = load_corpus(cfg.corpus_dir) if cfg.use_corpus else 0
     print("Strategy:")
-    print("  Commands: 40% pure random, 40% mutated (14 types), 20% targeted mismatches")
+    print("  Commands: 40% pure random, 40% mutated (13 types), 20% targeted mismatches")
     print("  Targeted: long patterns + short inputs, extreme quantifiers, deep nesting")
     if corpus_count > 0:
         print(f"  Input data: 80% corpus mutations ({corpus_count} seed files), 20% pure random")
