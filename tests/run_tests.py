@@ -1694,7 +1694,7 @@ def tests():
         # Edge case: very long pattern
         dict(id="regex-065-long-pattern",
              tokens=["find:re","X{1000}","take","+1000b"], input_file="large-lines.txt",
-             expect=dict(stdout="", exit=11)),  # Large quantifiers cause memory issues (1000 individual instructions)
+             expect=dict(stdout="", exit=13)),  # Quantifiers > 100 rejected during parse (v1.2+)
 
         # Regex with CRLF
         dict(id="regex-066-crlf-pattern",
