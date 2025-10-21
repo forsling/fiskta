@@ -5,8 +5,16 @@ pub fn build(b: *std.Build) !void {
     const optimize = b.standardOptimizeOption(.{});
 
     const version = b.option([]const u8, "version", "FISKTA version string") orelse blk: {
-        const version_file = std.fs.cwd().readFileAlloc(b.allocator, "VERSION", 100) catch break :blk "dev";
-        break :blk std.mem.trim(u8, version_file, &std.ascii.whitespace);
+        // Try git describe (shows commits since last tag + dirty state)
+        var code: u8 = undefined;
+        const git_describe = b.runAllowFail(
+            &.{ "git", "describe", "--tags", "--dirty", "--always" },
+            &code,
+            .Ignore,
+        ) catch break :blk "unknown";
+        const trimmed = std.mem.trim(u8, git_describe, &std.ascii.whitespace);
+        // Strip leading 'v' if present (git tags are usually v1.2, v1.3, etc)
+        break :blk if (trimmed.len > 0 and trimmed[0] == 'v') trimmed[1..] else trimmed;
     };
 
     const out_dir = "zig-out/bin";

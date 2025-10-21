@@ -8,12 +8,22 @@ FIX = ROOT / "tests" / "fixtures"
 
 
 def repo_version() -> str:
-    version_file = ROOT / "VERSION"
+    """Get version from git describe, matching build.zig behavior"""
     try:
-        return version_file.read_text().strip()
-    except OSError:
+        result = subprocess.run(
+            ["git", "describe", "--tags", "--dirty", "--always"],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+            check=False
+        )
+        if result.returncode == 0:
+            version = result.stdout.strip()
+            # Strip leading 'v' if present (git tags are usually v1.2, v1.3, etc)
+            return version[1:] if version.startswith('v') else version
+    except Exception:
         pass
-    return "dev"
+    return "unknown"
 
 
 VERSION = repo_version()
