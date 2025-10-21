@@ -2,7 +2,7 @@ ignore/
 bench/
 
 tests/fixtures/
-tests/__pycache__/
+__pycache__/
 
 .zig-cache
 zig-out/

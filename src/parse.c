@@ -10,6 +10,9 @@
 #define TOK_BYTES(tokens, idx) ((tokens)[idx].bytes)
 #define TOK_FIRST(tokens, idx) string_first((tokens)[idx])
 
+// Maximum pattern/needle length (16KB - generous for any legitimate pattern)
+#define MAX_PATTERN_LENGTH 16384
+
 // Helper function to skip optional token
 static void skip_optional_token(i32* idx, i32 token_count)
 {
@@ -806,6 +809,11 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
             return E_BAD_NEEDLE;
         }
 
+        if (needle_tok.len > MAX_PATTERN_LENGTH) {
+            error_detail_set(E_PARSE, *idx - 1, "pattern too long (max %d bytes)", MAX_PATTERN_LENGTH);
+            return E_PARSE;
+        }
+
         enum Err err = E_OK;
         op->u.find.needle = parse_string_to_bytes(needle_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
         if (err != E_OK) {
@@ -833,6 +841,12 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         }
         const String pat_tok = tokens[*idx];
         (*idx)++;
+
+        if (pat_tok.len > MAX_PATTERN_LENGTH) {
+            error_detail_set(E_PARSE, *idx - 1, "pattern too long (max %d bytes)", MAX_PATTERN_LENGTH);
+            return E_PARSE;
+        }
+
         enum Err err = E_OK;
         op->u.findr.pattern = parse_string_to_bytes(pat_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
         if (err != E_OK) {
@@ -867,6 +881,11 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         if (hex_tok.len == 0) {
             return E_BAD_NEEDLE;
+        }
+
+        if (hex_tok.len > MAX_PATTERN_LENGTH) {
+            error_detail_set(E_PARSE, *idx - 1, "pattern too long (max %d bytes)", MAX_PATTERN_LENGTH);
+            return E_PARSE;
         }
 
         enum Err err = E_OK;
@@ -938,6 +957,11 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
                 return E_BAD_NEEDLE;
             }
 
+            if (pattern_tok.len > MAX_PATTERN_LENGTH) {
+                error_detail_set(E_PARSE, *idx - 1, "pattern too long (max %d bytes)", MAX_PATTERN_LENGTH);
+                return E_PARSE;
+            }
+
             enum Err err = E_OK;
             op->u.take_until_re.pattern = parse_string_to_bytes(pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
             if (err != E_OK) {
@@ -972,6 +996,11 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
                 return E_BAD_NEEDLE;
             }
 
+            if (hex_tok.len > MAX_PATTERN_LENGTH) {
+                error_detail_set(E_PARSE, *idx - 1, "pattern too long (max %d bytes)", MAX_PATTERN_LENGTH);
+                return E_PARSE;
+            }
+
             enum Err err = E_OK;
             op->u.take_until_bin.needle = parse_hex_to_bytes(hex_tok, str_pool, str_pool_off, str_pool_cap, &err);
             if (err != E_OK) {
@@ -1003,6 +1032,11 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
             if (needle_tok.len == 0) {
                 return E_BAD_NEEDLE;
+            }
+
+            if (needle_tok.len > MAX_PATTERN_LENGTH) {
+                error_detail_set(E_PARSE, *idx - 1, "pattern too long (max %d bytes)", MAX_PATTERN_LENGTH);
+                return E_PARSE;
             }
 
             enum Err err = E_OK;
