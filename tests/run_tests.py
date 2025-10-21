@@ -2712,6 +2712,43 @@ def tests():
              tokens=["skip","7b","take","-1l"], input_file="lines.txt",
              expect=dict(stdout="L01 a\n", exit=0)),
 
+        # Pattern length limits (MAX_PATTERN_LENGTH = 16384)
+        dict(id="edge-006-find-pattern-max-length",
+             tokens=["find","A"*16384,"take","+1b"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=1)),  # No match expected, but should parse
+
+        dict(id="edge-007-find-pattern-too-long",
+             tokens=["find","A"*16385], input_file="overlap.txt",
+             expect=dict(stdout="", exit=12, stderr_contains="pattern too long")),
+
+        dict(id="edge-008-find-re-pattern-max-length",
+             tokens=["find:re","A"*16384], input_file="overlap.txt",
+             expect=dict(stdout="", exit=1)),  # No match expected, but should parse
+
+        dict(id="edge-009-find-re-pattern-too-long",
+             tokens=["find:re","A"*16385], input_file="overlap.txt",
+             expect=dict(stdout="", exit=12, stderr_contains="pattern too long")),
+
+        dict(id="edge-010-find-bin-pattern-max-length",
+             tokens=["find:bin"," ".join(["FF"]*5461)], input_file="overlap.txt",
+             expect=dict(stdout="", exit=1)),  # No match expected, but should parse (5461*3-1=16382 bytes)
+
+        dict(id="edge-011-find-bin-pattern-too-long",
+             tokens=["find:bin"," ".join(["FF"]*5462)], input_file="overlap.txt",
+             expect=dict(stdout="", exit=12, stderr_contains="pattern too long")),  # 5462*3-1=16385 bytes
+
+        dict(id="edge-012-take-until-pattern-too-long",
+             tokens=["take","until","A"*16385], input_file="overlap.txt",
+             expect=dict(stdout="", exit=12, stderr_contains="pattern too long")),
+
+        dict(id="edge-013-take-until-re-pattern-too-long",
+             tokens=["take","until:re","A"*16385], input_file="overlap.txt",
+             expect=dict(stdout="", exit=12, stderr_contains="pattern too long")),
+
+        dict(id="edge-014-take-until-bin-pattern-too-long",
+             tokens=["take","until:bin"," ".join(["FF"]*5462)], input_file="overlap.txt",
+             expect=dict(stdout="", exit=12, stderr_contains="pattern too long")),  # 5462*3-1=16385 bytes
+
     ]
 
 def main():
