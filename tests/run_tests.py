@@ -2754,6 +2754,14 @@ def tests():
              tokens=["find:re","x{50,2}"], input_file="overlap.txt",
              expect=dict(stdout="", exit=13, stderr_contains="parse error")),
 
+        dict(id="edge-016-regex-quantifier-missing-closing-brace",
+             tokens=["find:re","{{99"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=13, stderr_contains="parse error")),
+
+        dict(id="edge-017-regex-quantifier-missing-brace-after-comma",
+             tokens=["find:re","x{5,"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=13, stderr_contains="parse error")),
+
     ]
 
 def main():

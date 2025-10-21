@@ -650,13 +650,19 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout)
             i++;
         }
 
-        if (i >= pat.len || pat.bytes[i] == '}') {
+        if (i >= pat.len) {
+            return E_PARSE; // missing closing '}'
+        }
+        if (pat.bytes[i] == '}') {
             // {n} - exactly n times
             max_count = min_count;
             i++;
         } else if (pat.bytes[i] == ',') {
             i++; // skip ','
-            if (i >= pat.len || pat.bytes[i] == '}') {
+            if (i >= pat.len) {
+                return E_PARSE; // missing closing '}'
+            }
+            if (pat.bytes[i] == '}') {
                 // {n,} - n or more times
                 max_count = -1; // unlimited
                 i++;
