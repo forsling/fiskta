@@ -101,6 +101,7 @@ def parse_args() -> Config:
         setup_asan_env()
 
     cpu_count = get_cpu_count()
+    default_workers = max(1, cpu_count // 2)
 
     parser = argparse.ArgumentParser(
         description="fiskta fuzzer - Find crashes, hangs, and memory errors",
@@ -144,8 +145,8 @@ Examples:
                         help="Per-case timeout in milliseconds (default: 1500)")
     parser.add_argument("--seed", type=int, default=int(time.time()),
                         help="RNG seed (default: current time)")
-    parser.add_argument("--workers", type=int, default=cpu_count, metavar="N",
-                        help=f"Parallel workers (default: {cpu_count})")
+    parser.add_argument("--workers", type=int, default=default_workers, metavar="N",
+                        help=f"Parallel workers (default: {default_workers})")
     parser.add_argument("--min-ops", type=int, default=3, metavar="N",
                         help="Min operations per command (default: 3)")
     parser.add_argument("--max-ops", type=int, default=15, metavar="N",
