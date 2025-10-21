@@ -254,7 +254,7 @@ static enum Err compile_alt_sequence(ReB* b, String pat, int len)
 
     // Prevent stack overflow with too many alternatives
     if (nalt > MAX_ALTS) {
-        return E_PARSE;  // Too many alternations
+        return E_PARSE; // Too many alternations
     }
 
     // 2) Record (lo,len) for each alt using fixed-size arrays

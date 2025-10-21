@@ -12,12 +12,12 @@ typedef struct {
 
 // Staged execution result
 typedef struct {
-    VM staged_vm;        // Staged VM state (cursor, last_match, view)
-    Range* ranges;       // Staged output ranges
-    i32 range_count;     // Number of staged ranges
+    VM staged_vm; // Staged VM state (cursor, last_match, view)
+    Range* ranges; // Staged output ranges
+    i32 range_count; // Number of staged ranges
     LabelWrite* label_writes; // Staged label writes
-    i32 label_count;     // Number of staged labels
-    enum Err err;        // Execution result
+    i32 label_count; // Number of staged labels
+    enum Err err; // Execution result
 } StagedResult;
 
 // Determine clause resource requirements

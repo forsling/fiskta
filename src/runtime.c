@@ -28,7 +28,7 @@
 #endif
 
 // Sentinel: means "no saved VM yet"
-#define VM_CURSOR_UNSET ((i64)-1)
+#define VM_CURSOR_UNSET ((i64) - 1)
 
 // Iteration result status
 typedef enum {

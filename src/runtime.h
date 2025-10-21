@@ -4,9 +4,9 @@
 
 // Loop execution modes
 typedef enum {
-    LOOP_MODE_FOLLOW,   // --follow, -f: only new data (delta)
-    LOOP_MODE_MONITOR,  // --monitor, -m: restart from BOF (rescan)
-    LOOP_MODE_CONTINUE  // --continue, -c: resume from cursor (default)
+    LOOP_MODE_FOLLOW, // --follow, -f: only new data (delta)
+    LOOP_MODE_MONITOR, // --monitor, -m: restart from BOF (rescan)
+    LOOP_MODE_CONTINUE // --continue, -c: resume from cursor (default)
 } LoopMode;
 
 // Runtime configuration from CLI

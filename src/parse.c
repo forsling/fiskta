@@ -1,6 +1,6 @@
+#include "parse.h"
 #include "error.h"
 #include "fiskta.h"
-#include "parse.h"
 #include "util.h"
 #include <ctype.h>
 #include <limits.h>
@@ -256,7 +256,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
 
     i32 idx = 0;
     while (idx < token_count) {
-        plan->clause_count++;  // Count each clause as we process it
+        plan->clause_count++; // Count each clause as we process it
         while (idx < token_count && !is_keyword(tokens[idx], &kw_then) && !is_keyword(tokens[idx], &kw_or)) {
             const String cmd_tok = tokens[idx];
             plan->total_ops++;
@@ -714,7 +714,7 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
         }
 
         prg->clause_count++;
-        op_cursor += clause->op_count;  // Use actual parsed count, not pre-count
+        op_cursor += clause->op_count; // Use actual parsed count, not pre-count
 
         // Check for link keywords
         if (idx < token_count) {

@@ -93,7 +93,6 @@ static enum Err resolve_location(
     const LabelWrite* staged_labels, i32 staged_label_count,
     const View* c_view, ClampPolicy clamp, i64* out);
 
-
 static enum Err stage_file_range(Range* ranges, i32* range_count, i32 range_cap, i64 start, i64 end)
 {
     if (*range_count >= range_cap) {
