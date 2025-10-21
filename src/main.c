@@ -22,19 +22,6 @@
 #include <io.h>
 #endif
 
-// CLI-specific types
-typedef struct {
-    const char* input_path;
-    const char* ops_arg;
-    const char* ops_file;
-    i32 loop_ms;
-    bool loop_enabled;
-    bool ignore_loop_failures;
-    i32 idle_timeout_ms;
-    i32 exec_timeout_ms;
-    LoopMode loop_mode;
-} CliOptions;
-
 typedef struct {
     String* tokens;
     i32 token_count;
@@ -43,19 +30,22 @@ typedef struct {
 
 // Forward declarations
 static int parse_time_option(const char* value, const char* opt_name, i32* out);
-static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int argc, char** argv, Operations* out);
+static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, int ops_index, int argc, char** argv, Operations* out);
 static int parse_until_idle_option(const char* value, i32* out);
 
-static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_index, int* exit_code_out)
+static bool parse_cli_args(int argc, char** argv,
+    RuntimeConfig* config_out,
+    const char** ops_arg_out,
+    const char** ops_file_out,
+    int* ops_index,
+    int* exit_code_out)
 {
-    if (!out || !ops_index || !exit_code_out) {
+    if (!config_out || !ops_arg_out || !ops_file_out || !ops_index || !exit_code_out) {
         return false;
     }
 
-    CliOptions opt = {
+    RuntimeConfig cfg = {
         .input_path = "-",
-        .ops_arg = NULL,
-        .ops_file = NULL,
         .loop_ms = 0,
         .loop_enabled = false,
         .ignore_loop_failures = false,
@@ -63,6 +53,8 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
         .exec_timeout_ms = -1,
         .loop_mode = LOOP_MODE_CONTINUE
     };
+    const char* ops_arg = NULL;
+    const char* ops_file = NULL;
 
     *exit_code_out = -1;
 
@@ -89,7 +81,7 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
                 *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
-            opt.input_path = argv[argi + 1];
+            cfg.input_path = argv[argi + 1];
             argi += 2;
             continue;
         }
@@ -99,18 +91,18 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
                 *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
-            opt.input_path = arg + 8;
+            cfg.input_path = arg + 8;
             argi++;
             continue;
         }
         if (strcmp(arg, "--every") == 0) {
-            opt.loop_enabled = true;
+            cfg.loop_enabled = true;
             if (argi + 1 >= argc) {
                 fprintf(stderr, "fiskta: --every requires a time value\n");
                 *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
-            if (parse_time_option(argv[argi + 1], "--every", &opt.loop_ms) != 0) {
+            if (parse_time_option(argv[argi + 1], "--every", &cfg.loop_ms) != 0) {
                 *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
@@ -118,8 +110,8 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
             continue;
         }
         if (strncmp(arg, "--every=", 8) == 0) {
-            opt.loop_enabled = true;
-            if (parse_time_option(arg + 8, "--every", &opt.loop_ms) != 0) {
+            cfg.loop_enabled = true;
+            if (parse_time_option(arg + 8, "--every", &cfg.loop_ms) != 0) {
                 *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
@@ -132,7 +124,7 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
                 *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
-            if (parse_until_idle_option(argv[argi + 1], &opt.idle_timeout_ms) != 0) {
+            if (parse_until_idle_option(argv[argi + 1], &cfg.idle_timeout_ms) != 0) {
                 *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
@@ -140,7 +132,7 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
             continue;
         }
         if (strncmp(arg, "--until-idle=", 13) == 0) {
-            if (parse_until_idle_option(arg + 13, &opt.idle_timeout_ms) != 0) {
+            if (parse_until_idle_option(arg + 13, &cfg.idle_timeout_ms) != 0) {
                 *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
@@ -157,7 +149,7 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
                 *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
-            if (parse_until_idle_option(value, &opt.idle_timeout_ms) != 0) {
+            if (parse_until_idle_option(value, &cfg.idle_timeout_ms) != 0) {
                 *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
@@ -170,7 +162,7 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
                 *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
-            if (parse_time_option(argv[argi + 1], "--for", &opt.exec_timeout_ms) != 0) {
+            if (parse_time_option(argv[argi + 1], "--for", &cfg.exec_timeout_ms) != 0) {
                 *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
@@ -178,7 +170,7 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
             continue;
         }
         if (strncmp(arg, "--for=", 6) == 0) {
-            if (parse_time_option(arg + 6, "--for", &opt.exec_timeout_ms) != 0) {
+            if (parse_time_option(arg + 6, "--for", &cfg.exec_timeout_ms) != 0) {
                 *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
             }
@@ -186,30 +178,30 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
             continue;
         }
         if (strcmp(arg, "-m") == 0 || strcmp(arg, "--monitor") == 0) {
-            opt.loop_mode = LOOP_MODE_MONITOR;
-            opt.loop_enabled = true;
+            cfg.loop_mode = LOOP_MODE_MONITOR;
+            cfg.loop_enabled = true;
             argi++;
             continue;
         }
         if (strcmp(arg, "-c") == 0 || strcmp(arg, "--continue") == 0) {
-            opt.loop_mode = LOOP_MODE_CONTINUE;
-            opt.loop_enabled = true;
+            cfg.loop_mode = LOOP_MODE_CONTINUE;
+            cfg.loop_enabled = true;
             argi++;
             continue;
         }
         if (strcmp(arg, "-f") == 0 || strcmp(arg, "--follow") == 0) {
-            opt.loop_mode = LOOP_MODE_FOLLOW;
-            opt.loop_enabled = true;
+            cfg.loop_mode = LOOP_MODE_FOLLOW;
+            cfg.loop_enabled = true;
             argi++;
             continue;
         }
         if (strcmp(arg, "-k") == 0 || strcmp(arg, "--ignore-failures") == 0) {
-            opt.ignore_loop_failures = true;
+            cfg.ignore_loop_failures = true;
             argi++;
             continue;
         }
         if (strcmp(arg, "--ops") == 0) {
-            if (opt.ops_arg || opt.ops_file) {
+            if (ops_arg || ops_file) {
                 fprintf(stderr, "fiskta: --ops specified multiple times\n");
                 *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
@@ -223,15 +215,15 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
             FILE* test = fopen(value, "rb");
             if (test) {
                 fclose(test);
-                opt.ops_file = value;
+                ops_file = value;
             } else {
-                opt.ops_arg = value;
+                ops_arg = value;
             }
             argi += 2;
             continue;
         }
         if (strncmp(arg, "--ops=", 6) == 0) {
-            if (opt.ops_arg || opt.ops_file) {
+            if (ops_arg || ops_file) {
                 fprintf(stderr, "fiskta: --ops specified multiple times\n");
                 *exit_code_out = FISKTA_EXIT_PARSE;
                 return false;
@@ -245,9 +237,9 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
             FILE* test = fopen(value, "rb");
             if (test) {
                 fclose(test);
-                opt.ops_file = value;
+                ops_file = value;
             } else {
-                opt.ops_arg = value;
+                ops_arg = value;
             }
             argi++;
             continue;
@@ -263,7 +255,9 @@ static bool parse_cli_args(int argc, char** argv, CliOptions* out, int* ops_inde
         break;
     }
 
-    *out = opt;
+    *config_out = cfg;
+    *ops_arg_out = ops_arg;
+    *ops_file_out = ops_file;
     *ops_index = argi;
     return true;
 }
@@ -355,9 +349,9 @@ static int parse_until_idle_option(const char* value, i32* out)
 
 // Load operations from CLI options (--ops string, --ops-file, or positional args)
 // Returns exit code on error, 0 on success
-static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int argc, char** argv, Operations* out)
+static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, int ops_index, int argc, char** argv, Operations* out)
 {
-    if (!opts || !out) {
+    if (!out) {
         return FISKTA_EXIT_PARSE;
     }
 
@@ -365,26 +359,23 @@ static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int 
     static char file_content_buf[MAX_NEEDLE_BYTES];
     static String tokens_view[MAX_TOKENS];
 
-    const char* command_file = opts->ops_file;
-    const char* command_arg = opts->ops_arg;
-
-    if (command_file) {
+    if (ops_file) {
         // Load operations from file
         if (ops_index < argc) {
             fprintf(stderr, "fiskta: --ops cannot be combined with positional operations\n");
             return FISKTA_EXIT_PARSE;
         }
 
-        FILE* cf = fopen(command_file, "rb");
+        FILE* cf = fopen(ops_file, "rb");
         if (!cf) {
-            fprintf(stderr, "fiskta: unable to open ops file %s\n", command_file);
+            fprintf(stderr, "fiskta: unable to open ops file %s\n", ops_file);
             return FISKTA_EXIT_PARSE;
         }
 
         size_t total = fread(file_content_buf, 1, sizeof(file_content_buf) - 1, cf);
         if (ferror(cf)) {
             fclose(cf);
-            fprintf(stderr, "fiskta: error reading ops file %s\n", command_file);
+            fprintf(stderr, "fiskta: error reading ops file %s\n", ops_file);
             return FISKTA_EXIT_PARSE;
         }
         if (!feof(cf)) {
@@ -414,14 +405,14 @@ static int load_ops_from_cli_options(const CliOptions* opts, int ops_index, int 
         out->token_count = n;
         out->tokens_need_conversion = false;
 
-    } else if (command_arg) {
+    } else if (ops_arg) {
         // Load operations from --ops string
         if (ops_index < argc) {
             fprintf(stderr, "fiskta: --ops cannot be combined with positional operations\n");
             return FISKTA_EXIT_PARSE;
         }
 
-        i32 n = tokenize_ops_string(command_arg, tokens_view, MAX_TOKENS);
+        i32 n = tokenize_ops_string(ops_arg, tokens_view, MAX_TOKENS);
         if (n == -1) {
             fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
             return FISKTA_EXIT_PARSE;
@@ -480,10 +471,12 @@ int main(int argc, char** argv)
     /***********************
      * CLI ARGUMENT PARSING
      ***********************/
-    CliOptions cli_opts;
+    RuntimeConfig config;
+    const char* ops_arg = NULL;
+    const char* ops_file = NULL;
     int ops_index = 0;
     int parse_exit = -1;
-    if (!parse_cli_args(argc, argv, &cli_opts, &ops_index, &parse_exit)) {
+    if (!parse_cli_args(argc, argv, &config, &ops_arg, &ops_file, &ops_index, &parse_exit)) {
         return (parse_exit >= 0) ? parse_exit : FISKTA_EXIT_OK;
     }
 
@@ -491,23 +484,10 @@ int main(int argc, char** argv)
      * OPERATION TOKEN PARSING
      **************************/
     Operations ops;
-    int ops_result = load_ops_from_cli_options(&cli_opts, ops_index, argc, argv, &ops);
+    int ops_result = load_ops_from_cli_options(ops_arg, ops_file, ops_index, argc, argv, &ops);
     if (ops_result != FISKTA_EXIT_OK) {
         return ops_result;
     }
-
-    /*************************************
-     * DELEGATE TO RUNTIME ORCHESTRATION
-     *************************************/
-    RuntimeConfig config = {
-        .input_path = cli_opts.input_path,
-        .loop_ms = cli_opts.loop_ms,
-        .loop_enabled = cli_opts.loop_enabled,
-        .ignore_loop_failures = cli_opts.ignore_loop_failures,
-        .idle_timeout_ms = cli_opts.idle_timeout_ms,
-        .exec_timeout_ms = cli_opts.exec_timeout_ms,
-        .loop_mode = cli_opts.loop_mode
-    };
 
     return run_program(ops.token_count, ops.tokens, &config);
 }
