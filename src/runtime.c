@@ -689,6 +689,10 @@ int run_program(i32 token_count, const String* tokens, const RuntimeConfig* conf
     free(block);
 
     if (loop_state.exit_code) {
+        // Print error details before returning for non-OK exit codes
+        if (loop_state.exit_code == FISKTA_EXIT_PROGRAM_FAIL && error_detail_has()) {
+            print_err(loop_state.last_result.last_err, NULL);
+        }
         return loop_state.exit_code;
     }
     if (loop_state.exit_reason == FISKTA_EXIT_TIMEOUT) {
@@ -704,6 +708,10 @@ int run_program(i32 token_count, const String* tokens, const RuntimeConfig* conf
     case ITER_RESOURCE_ERROR:
         return (loop_state.last_result.last_err == E_OOM) ? FISKTA_EXIT_RESOURCE : FISKTA_EXIT_CAPACITY;
     case ITER_PROGRAM_FAIL:
+        // Print error details if available for helpful diagnostics
+        if (error_detail_has()) {
+            print_err(loop_state.last_result.last_err, NULL);
+        }
         return FISKTA_EXIT_PROGRAM_FAIL;
     default:
         return FISKTA_EXIT_IO;

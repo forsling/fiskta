@@ -3,6 +3,7 @@
 #endif
 
 #include "engine.h"
+#include "error.h"
 #include "fiskta.h"
 #include "iosearch.h"
 #include "util.h"
@@ -321,7 +322,11 @@ static enum Err skip_op(
         }
 
         // Check if target is outside view bounds
+        // Note: cursor positions range [lo, hi] while view data is [lo, hi)
+        // Cursor at hi is valid (points after last byte, like EOF)
         if (c_view->active && (*c_cursor < c_view->lo || *c_cursor > c_view->hi)) {
+            error_detail_set(E_LOC_RESOLVE, -1, "skip to: target location (%lld) outside view bounds [%lld, %lld]",
+                (long long)*c_cursor, (long long)c_view->lo, (long long)c_view->hi);
             return E_LOC_RESOLVE;
         }
 
