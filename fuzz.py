@@ -20,6 +20,16 @@ from multiprocessing import Pool, Queue, TimeoutError as MPTimeoutError
 from pathlib import Path
 from typing import Optional
 
+# ========= Tunable Constants =========
+
+# Strategy: command generation distribution
+RANDOM_GENERATION_PCT = 0.40      # 40% pure random programs
+MUTATED_PROGRAMS_PCT = 0.40       # 40% mutated programs
+TARGETED_MISMATCH_PCT = 0.20      # 20% targeted mismatches (remaining)
+
+# Strategy: input generation
+CORPUS_MUTATION_PCT = 0.80        # 80% corpus mutations when corpus enabled
+
 # ========= Types =========
 
 @dataclass
@@ -781,7 +791,7 @@ def gen_input_random() -> bytes:
 
 def gen_input(use_corpus: bool) -> bytes:
     """Generate input data (corpus or random)"""
-    if use_corpus and _corpus and random.random() < 0.8:
+    if use_corpus and _corpus and random.random() < CORPUS_MUTATION_PCT:
         return gen_input_from_corpus()
     return gen_input_random()
 
@@ -878,8 +888,9 @@ def worker_fn(args: tuple) -> dict:
     stats = {'total': 0, 'saved': 0, 'timeouts': 0, 'crashed': 0, 'exits': {}}
 
     def write_worker_stats():
-        """Write current stats to file for coordinator to read"""
+        """Write current stats to file for coordinator to read (atomic)"""
         stats_path = cfg.run_dir / f"worker_{worker_id}_stats.txt"
+        temp_path = cfg.run_dir / f"worker_{worker_id}_stats.tmp"
         lines = [
             f"total={stats['total']}",
             f"saved={stats['saved']}",
@@ -888,7 +899,9 @@ def worker_fn(args: tuple) -> dict:
         ]
         for code, count in stats['exits'].items():
             lines.append(f"exit[{code}]={count}")
-        stats_path.write_text('\n'.join(lines) + '\n')
+        # Atomic write: write to temp, then rename
+        temp_path.write_text('\n'.join(lines) + '\n')
+        temp_path.rename(stats_path)
 
     case_iter = 0
     while True:
@@ -896,12 +909,12 @@ def worker_fn(args: tuple) -> dict:
         if cfg.cases and case_id >= cfg.cases:
             break
 
-        # Generate operations (40% random, 40% mutated, 20% mismatch-targeted)
+        # Generate operations using configured distribution
         roll = random.random()
-        if roll < 0.4:
+        if roll < RANDOM_GENERATION_PCT:
             ops = gen_random_program(cfg.min_ops, cfg.max_ops)
             input_data = gen_input(cfg.use_corpus)
-        elif roll < 0.8:
+        elif roll < RANDOM_GENERATION_PCT + MUTATED_PROGRAMS_PCT:
             ops = mutate_program(gen_random_program(cfg.min_ops, cfg.max_ops))
             input_data = gen_input(cfg.use_corpus)
         else:
@@ -975,14 +988,6 @@ def run_fuzzer(cfg: Config):
 
     # Load corpus
     corpus_count = load_corpus(cfg.corpus_dir) if cfg.use_corpus else 0
-    print("Strategy:")
-    print("  Commands: 40% pure random, 40% mutated (13 types), 20% targeted mismatches")
-    print("  Targeted: long patterns + short inputs, extreme quantifiers, deep nesting")
-    if corpus_count > 0:
-        print(f"  Input data: 80% corpus mutations ({corpus_count} seed files), 20% pure random")
-    else:
-        print("  Input data: 100% pure random (corpus disabled)")
-    print()
 
     start_time = time.time()
 
@@ -1023,6 +1028,7 @@ def run_fuzzer(cfg: Config):
         result = pool.map_async(worker_fn, worker_args)
 
         # Poll for completion with live stats display
+        last_agg = {'total': 0, 'saved': 0, 'timeouts': 0, 'crashed': 0}
         while True:
             try:
                 worker_stats = result.get(timeout=1)
@@ -1041,6 +1047,12 @@ def run_fuzzer(cfg: Config):
                                         agg[key] = agg.get(key, 0) + int(val)
                         except:
                             pass
+
+                # Only update display if stats increased (prevent backwards jumps)
+                if agg['total'] >= last_agg['total']:
+                    last_agg = agg
+                else:
+                    agg = last_agg
 
                 elapsed = int(time.time() - start_time)
                 rate = agg['total'] // elapsed if elapsed > 0 else 0
