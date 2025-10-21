@@ -4,6 +4,13 @@
 // Forward declaration for File type (defined in iosearch.h)
 typedef struct File File;
 
+// Clamping policy for location resolution
+typedef enum {
+    CLAMP_NONE,
+    CLAMP_FILE,
+    CLAMP_VIEW
+} ClampPolicy;
+
 // Label write staging
 typedef struct {
     i64 pos;

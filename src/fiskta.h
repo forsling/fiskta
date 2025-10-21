@@ -12,9 +12,12 @@ typedef int32_t i32;
 typedef uint32_t u32;
 
 // Constants
-enum { MAX_LABELS = 128,
+enum {
+    MAX_LABELS = 128,
     MAX_LABEL_LEN = 15,
-    MAX_ALTS = 256 }; // Maximum alternations in regex (a|b|c|...)
+    MAX_ALTS = 256, // Maximum alternations in regex (a|b|c|...)
+    INLINE_LIT_CAP = 24 // Inline literal capacity for Range.literal
+};
 
 typedef struct {
     const char* bytes;
@@ -59,12 +62,6 @@ enum {
     LOC_LINE_END
 };
 
-typedef uint8_t LocRef;
-enum {
-    REF_CURSOR, // resolve relative to staged cursor
-    REF_MATCH // resolve relative to last match (used by 'at' expressions)
-};
-
 enum Err {
     E_OK = 0,
     E_PARSE,
@@ -105,12 +102,6 @@ typedef struct {
     i64 lo, hi; // half-open [lo, hi)
     bool active;
 } View;
-
-typedef enum {
-    CLAMP_NONE,
-    CLAMP_FILE,
-    CLAMP_VIEW
-} ClampPolicy;
 
 typedef struct {
     OpKind kind;
@@ -227,5 +218,3 @@ typedef struct {
         String lit; // used when kind == RANGE_LIT
     };
 } Range;
-
-enum { INLINE_LIT_CAP = 24 };
