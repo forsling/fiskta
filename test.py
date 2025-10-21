@@ -3,8 +3,8 @@
 import subprocess, sys, os, hashlib, argparse, json
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-FIX = ROOT / "tests" / "fixtures"
+ROOT = Path(__file__).resolve().parent
+FIX = ROOT / "fixtures"
 
 
 def repo_version() -> str:

@@ -80,7 +80,7 @@ pub fn build(b: *std.Build) !void {
     run_step.dependOn(host_step);
     run_step.dependOn(&run_cmd.step);
 
-    const test_cmd = b.addSystemCommand(&.{ "python3", "tests/run_tests.py" });
+    const test_cmd = b.addSystemCommand(&.{ "python3", "test.py" });
     test_cmd.setCwd(b.path("."));
     test_cmd.setEnvironmentVariable("PATH", b.pathJoin(&.{ b.pathFromRoot(out_dir), ":", std.posix.getenv("PATH") orelse "" }));
     test_cmd.step.dependOn(host_step);

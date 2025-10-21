@@ -1,6 +1,6 @@
 #!/bin/bash
 # fiskta benchmark - comprehensive performance and memory testing
-# Usage: tests/benchmark.sh [options] [fiskta_binary]
+# Usage: ./benchmark.sh [options] [fiskta_binary]
 # Options:
 #   -s, --summary-only    Show only summary (suppress individual test output)
 #   -n, --iterations N    Run benchmark N times and show aggregate statistics
