@@ -155,16 +155,22 @@ static const String kw_match_end = { "match-end", 9 };
 static const String kw_line_start = { "line-start", 10 };
 static const String kw_line_end = { "line-end", 8 };
 
+typedef struct LabelTable {
+    i32 count;
+    char names[MAX_LABELS][MAX_LABEL_LEN + 1];
+} LabelTable;
+
 static inline bool is_keyword(String token, const String* kw)
 {
     return string_eq(token, *kw);
 }
 static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op, Program* prg,
+    LabelTable* labels,
     char* str_pool, size_t* str_pool_off, size_t str_pool_cap);
-static enum Err parse_loc_expr(const String* tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg);
+static enum Err parse_loc_expr(const String* tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg, LabelTable* labels);
 static enum Err parse_at_expr(const String* tokens, i32* idx, i32 token_count, LocExpr* at);
 static enum Err parse_offset(String token, i64* offset, Unit* unit);
-static i32 find_or_add_label(Program* prg, String name);
+static i32 find_or_add_label(Program* prg, LabelTable* labels, String name);
 static bool is_label_name_valid(String name);
 
 // Helper function to check if a location expression contains a valid label name
@@ -607,6 +613,7 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
 
     // Track string pool usage
     size_t str_pool_off = 0;
+    LabelTable labels = { 0 };
 
     // Parse clauses separated by "THEN"
     i32 idx = 0;
@@ -711,7 +718,7 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
         idx = clause_start;
         while (idx < token_count && !is_keyword(tokens[idx], &kw_then) && !is_keyword(tokens[idx], &kw_or)) {
             Op* op = &clause->ops[clause->op_count];
-            enum Err err = parse_op(tokens, &idx, token_count, op, prg, str_pool, &str_pool_off, str_pool_cap);
+            enum Err err = parse_op(tokens, &idx, token_count, op, prg, &labels, str_pool, &str_pool_off, str_pool_cap);
             if (err != E_OK) {
                 return err;
             }
@@ -733,6 +740,8 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
         }
     }
 
+    prg->name_count = labels.count;
+
     // Check for trailing link operators (OR, THEN, AND without following clause)
     if (prg->clause_count > 0) {
         const Clause* last_clause = &prg->clauses[prg->clause_count - 1];
@@ -750,27 +759,34 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
     return E_OK;
 }
 
-static i32 find_or_add_label(Program* prg, String name)
+static i32 find_or_add_label(Program* prg, LabelTable* labels, String name)
 {
-    // Linear search for existing name
-    for (i32 i = 0; i < prg->name_count; i++) {
-        if (string_eq_cstr(name, prg->names[i])) {
+    if (!labels) {
+        return -1;
+    }
+
+    for (i32 i = 0; i < labels->count; i++) {
+        if (string_eq_cstr(name, labels->names[i])) {
             return i;
         }
     }
 
-    // Add new name if space available
-    if (prg->name_count < MAX_LABELS) {
-        if (!string_copy_to_buffer(name, prg->names[prg->name_count], sizeof(prg->names[0]))) {
-            return -1; // Copy failed
-        }
-        return prg->name_count++;
+    if (labels->count >= MAX_LABELS) {
+        return -1;
     }
 
-    return -1; // No space
+    if (!string_copy_to_buffer(name, labels->names[labels->count], sizeof(labels->names[0]))) {
+        return -1;
+    }
+
+    i32 idx = labels->count++;
+    if (prg) {
+        prg->name_count = labels->count;
+    }
+    return idx;
 }
 
-static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op, Program* prg,
+static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op, Program* prg, LabelTable* labels,
     char* str_pool, size_t* str_pool_off, size_t str_pool_cap)
 {
     if (*idx >= token_count) {
@@ -790,7 +806,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         if (*idx < token_count && is_keyword(tokens[*idx], &kw_to)) {
             (*idx)++;
-            enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.find.to, prg);
+            enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.find.to, prg, labels);
             if (err != E_OK) {
                 return err;
             }
@@ -830,7 +846,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         if (*idx < token_count && is_keyword(tokens[*idx], &kw_to)) {
             (*idx)++;
-            enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.findr.to, prg);
+            enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.findr.to, prg, labels);
             if (err != E_OK) {
                 return err;
             }
@@ -864,7 +880,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         if (*idx < token_count && is_keyword(tokens[*idx], &kw_to)) {
             (*idx)++;
-            enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.findbin.to, prg);
+            enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.findbin.to, prg, labels);
             if (err != E_OK) {
                 return err;
             }
@@ -914,7 +930,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         if (is_keyword(tokens[*idx], &kw_to)) {
             (*idx)++; // consume "to"
             op->u.skip.is_location = true;
-            enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.skip.to_location.to, prg);
+            enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.skip.to_location.to, prg, labels);
             if (err != E_OK) {
                 return err;
             }
@@ -942,7 +958,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         if (is_keyword(next_tok, &kw_to)) {
             op->kind = OP_TAKE_TO;
             (*idx)++;
-            enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.take_to.to, prg);
+            enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.take_to.to, prg, labels);
             if (err != E_OK) {
                 return err;
             }
@@ -1096,7 +1112,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
             return E_LABEL_FMT;
         }
 
-        i32 name_idx = find_or_add_label(prg, name_tok);
+        i32 name_idx = find_or_add_label(prg, labels, name_tok);
         if (name_idx < 0) {
             return E_CAPACITY;
         }
@@ -1112,7 +1128,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
             error_detail_set(E_PARSE, cmd_idx, "missing start location for 'view'");
             return E_PARSE;
         }
-        enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.viewset.a, prg);
+        enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.viewset.a, prg, labels);
         if (err != E_OK) {
             return err;
         }
@@ -1121,7 +1137,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
             error_detail_set(E_PARSE, cmd_idx, "missing end location for 'view'");
             return E_PARSE;
         }
-        err = parse_loc_expr(tokens, idx, token_count, &op->u.viewset.b, prg);
+        err = parse_loc_expr(tokens, idx, token_count, &op->u.viewset.b, prg, labels);
         if (err != E_OK) {
             return err;
         }
@@ -1200,7 +1216,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
     return E_OK;
 }
 
-static enum Err parse_loc_expr(const String* tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg)
+static enum Err parse_loc_expr(const String* tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg, LabelTable* labels)
 {
     if (*idx >= token_count) {
         error_detail_set(E_PARSE, token_count, "expected location expression");
@@ -1265,7 +1281,7 @@ static enum Err parse_loc_expr(const String* tokens, i32* idx, i32 token_count, 
         loc->base = LOC_LINE_END;
     } else if (is_label_name_valid(base_tok)) {
         loc->base = LOC_NAME;
-        i32 name_idx = find_or_add_label(prg, base_tok);
+        i32 name_idx = find_or_add_label(prg, labels, base_tok);
         if (name_idx < 0) {
             return E_CAPACITY;
         }

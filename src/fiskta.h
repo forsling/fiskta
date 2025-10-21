@@ -94,7 +94,7 @@ enum FisktaExitCode {
 
 typedef struct {
     i64 offset;
-    i32 name_idx; // index into program->names[], -1 otherwise
+    i32 name_idx; // index into label table assigned at parse time (-1 otherwise)
     LocBase base;
     Unit unit;
 } LocExpr;
@@ -199,7 +199,6 @@ typedef struct {
 typedef struct {
     Clause* clauses;
     i32 clause_count;
-    char names[MAX_LABELS][MAX_LABEL_LEN + 1];
     i32 name_count;
 } Program;
 
