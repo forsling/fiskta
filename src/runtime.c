@@ -34,7 +34,8 @@
 typedef enum {
     ITER_OK,
     ITER_PROGRAM_FAIL,
-    ITER_IO_ERROR
+    ITER_IO_ERROR,
+    ITER_RESOURCE_ERROR
 } IterStatus;
 
 typedef struct {
@@ -82,6 +83,8 @@ static const char* err_str(enum Err e)
         return "bad label (A-Z0-9_-; first A-Z; <16)";
     case E_IO:
         return "I/O error";
+    case E_CAPACITY:
+        return "buffer capacity exceeded";
     case E_OOM:
         return "out of memory";
     default:
@@ -290,6 +293,10 @@ static void loop_commit(LoopState* state, i64 data_hi, IterResult result, bool i
     case ITER_IO_ERROR:
         state->exit_code = FISKTA_EXIT_IO;
         break;
+    case ITER_RESOURCE_ERROR:
+        // Map based on specific error type
+        state->exit_code = (result.last_err == E_OOM) ? FISKTA_EXIT_RESOURCE : FISKTA_EXIT_CAPACITY;
+        break;
     }
 }
 
@@ -351,8 +358,8 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
         char* inline_tmp = NULL;
         if (ic > 0) {
             if (!inline_cursor || !inline_end || inline_cursor + (size_t)ic * INLINE_LIT_CAP > inline_end) {
-                iter_result.status = ITER_IO_ERROR;
-                iter_result.last_err = E_OOM;
+                iter_result.status = ITER_RESOURCE_ERROR;
+                iter_result.last_err = E_CAPACITY;
                 return iter_result;
             }
             inline_tmp = inline_cursor;
@@ -403,10 +410,15 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
                 iter_result.last_err = E_IO;
                 break;
             }
+            if (e == E_OOM || e == E_CAPACITY) {
+                iter_result.status = ITER_RESOURCE_ERROR;
+                iter_result.last_err = e;
+                break;
+            }
         }
     }
 
-    if (iter_result.status == ITER_IO_ERROR) {
+    if (iter_result.status == ITER_IO_ERROR || iter_result.status == ITER_RESOURCE_ERROR) {
         return iter_result;
     }
     if (any_success) {
@@ -689,6 +701,8 @@ int run_program(i32 token_count, const String* tokens, const RuntimeConfig* conf
         return FISKTA_EXIT_OK;
     case ITER_IO_ERROR:
         return FISKTA_EXIT_IO;
+    case ITER_RESOURCE_ERROR:
+        return (loop_state.last_result.last_err == E_OOM) ? FISKTA_EXIT_RESOURCE : FISKTA_EXIT_CAPACITY;
     case ITER_PROGRAM_FAIL:
         return FISKTA_EXIT_PROGRAM_FAIL;
     default:

@@ -1,7 +1,8 @@
 #!/bin/bash
 set -e
 
-VERSION=$(cat VERSION 2>/dev/null || echo "dev")
+VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+VERSION=${VERSION#v}  # Strip leading 'v' if present
 CC=${CC:-cc}
 
 DEBUG=0

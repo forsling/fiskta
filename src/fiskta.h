@@ -75,6 +75,7 @@ enum Err {
     E_FAIL_OP,
     E_LABEL_FMT,
     E_IO,
+    E_CAPACITY,
     E_OOM
 };
 
@@ -88,6 +89,7 @@ enum FisktaExitCode {
     FISKTA_EXIT_RESOURCE = 11,
     FISKTA_EXIT_PARSE = 12,
     FISKTA_EXIT_REGEX = 13,
+    FISKTA_EXIT_CAPACITY = 14,
 };
 
 typedef struct {

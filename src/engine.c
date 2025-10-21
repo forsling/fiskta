@@ -96,7 +96,7 @@ static enum Err resolve_location(
 static enum Err stage_file_range(Range* ranges, i32* range_count, i32 range_cap, i64 start, i64 end)
 {
     if (*range_count >= range_cap) {
-        return E_OOM;
+        return E_CAPACITY;
     }
     ranges[*range_count].kind = RANGE_FILE;
     ranges[*range_count].file.start = start;
@@ -108,7 +108,7 @@ static enum Err stage_file_range(Range* ranges, i32* range_count, i32 range_cap,
 static enum Err stage_lit_range(Range* ranges, i32* range_count, i32 range_cap, String lit)
 {
     if (*range_count >= range_cap) {
-        return E_OOM;
+        return E_CAPACITY;
     }
     ranges[*range_count].kind = RANGE_LIT;
     ranges[*range_count].lit = lit;
@@ -144,7 +144,7 @@ static enum Err print_literal_op(
             }
             if (is_sentinel) {
                 if (!inline_ptr || !*inline_ptr || !inline_end || *inline_ptr + INLINE_LIT_CAP > inline_end) {
-                    return E_OOM;
+                    return E_CAPACITY;
                 }
                 char* slot = *inline_ptr;
                 int written = snprintf(slot, INLINE_LIT_CAP, "%lld", (long long)clamped);
@@ -188,7 +188,7 @@ static enum Err label_op(
 {
     // Stage label write
     if (*label_count >= label_cap) {
-        return E_OOM;
+        return E_CAPACITY;
     }
     label_writes[*label_count].name_idx = op->u.label.name_idx;
     label_writes[*label_count].pos = *c_cursor;

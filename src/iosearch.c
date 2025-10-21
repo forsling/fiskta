@@ -876,7 +876,7 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
             }
             // Add the thread to the list so consumption step can detect it
             if (l->n >= l->cap) {
-                return E_OOM; // Thread list is full
+                return E_CAPACITY; // Thread list is full
             }
             l->v[l->n].pc = pc;
             l->v[l->n].start = start;
@@ -888,7 +888,7 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
         case RI_CLASS:
             // consuming; add once
             if (l->n >= l->cap) {
-                return E_OOM; // Thread list is full
+                return E_CAPACITY; // Thread list is full
             }
             l->v[l->n].pc = pc;
             l->v[l->n].start = start;
@@ -929,7 +929,7 @@ enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
         return E_OOM;
     }
     if ((size_t)nins > io->re.seen_bytes) {
-        return E_OOM;
+        return E_CAPACITY;  // Seen buffer not large enough for regex
     }
 
     ReThread* curr_buf = io->re.curr;

@@ -953,12 +953,12 @@ def worker_fn(args: tuple) -> dict:
         stats['exits'][res.exit_code] = stats['exits'].get(res.exit_code, 0) + 1
         if res.timed_out:
             stats['timeouts'] += 1
-        if res.crashed or res.exit_code in [10, 11]:
+        if res.crashed or res.exit_code in [10, 11, 14]:
             stats['crashed'] += 1
 
         # Check if interesting
         interesting = (res.timed_out or res.crashed or
-                      res.exit_code in [2, 10, 11] or cfg.save_all)
+                      res.exit_code in [2, 10, 11, 14] or cfg.save_all)
 
         if interesting:
             final_ops = ops

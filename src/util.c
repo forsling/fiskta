@@ -185,7 +185,7 @@ String parse_hex_to_bytes(String hex_str, char* str_pool, size_t* str_pool_off, 
     size_t byte_count = hex_digit_count / 2;
     if (*str_pool_off + byte_count > str_pool_cap) {
         if (err_out) {
-            *err_out = E_OOM;
+            *err_out = E_CAPACITY;
         }
         return out;
     }
@@ -317,7 +317,7 @@ String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, s
 
     if (*str_pool_off + dst_len > str_pool_cap) {
         if (err_out) {
-            *err_out = E_OOM;
+            *err_out = E_CAPACITY;
         }
         return out;
     }

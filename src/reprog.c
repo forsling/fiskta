@@ -61,7 +61,7 @@ typedef struct {
 static enum Err emit_inst(ReB* b, ReOp op, int x, int y, unsigned char ch, int cls_idx, int* out_idx)
 {
     if (b->nins >= b->ins_cap) {
-        return E_OOM;
+        return E_CAPACITY;
     }
     int idx = b->nins++;
     b->ins[idx].op = op;
@@ -78,7 +78,7 @@ static enum Err emit_inst(ReB* b, ReOp op, int x, int y, unsigned char ch, int c
 static enum Err emit_class(ReB* b, const ReClass* src, int* idx_out)
 {
     if (b->ncls >= b->cls_cap) {
-        return E_OOM;
+        return E_CAPACITY;
     }
     b->cls[b->ncls] = *src;
     *idx_out = b->ncls++;
@@ -921,7 +921,7 @@ enum Err re_compile_into(String pattern,
     int ins_start = (ins_used && *ins_used >= 0) ? *ins_used : 0;
     int cls_start = (cls_used && *cls_used >= 0) ? *cls_used : 0;
     if (ins_start > ins_cap || cls_start > cls_cap) {
-        return E_OOM;
+        return E_CAPACITY;
     }
     b.ins = ins_base + ins_start;
     b.ins_cap = ins_cap - ins_start;
