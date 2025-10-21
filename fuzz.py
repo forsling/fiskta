@@ -252,7 +252,7 @@ def gen_random_regex() -> str:
 
     def atom():
         """Generate regex atom (character, class, or group)"""
-        choice = random.randint(1, 15)
+        choice = random.randint(1, 20)
         if choice == 1:
             return random.choice(['a', 'b', 'x', '1', '0', ' ', '\n'])
         elif choice == 2:
@@ -269,7 +269,14 @@ def gen_random_regex() -> str:
             return '\\s'
         elif choice == 8:
             return '\\S'
-        elif choice <= 11:
+        elif choice == 9:
+            # Escape sequences: \n \t \r \f \v \0
+            return random.choice(['\\n', '\\t', '\\r', '\\f', '\\v', '\\0'])
+        elif choice == 10:
+            # Escaped meta-characters
+            return random.choice(['\\.', '\\*', '\\+', '\\?', '\\[', '\\]',
+                                  '\\(', '\\)', '\\{', '\\}', '\\|', '\\^', '\\$'])
+        elif choice <= 14:
             # Character class [...]
             class_type = random.randint(1, 4)
             if class_type == 1:
@@ -281,23 +288,30 @@ def gen_random_regex() -> str:
                 return f"[{chars}]"
             else:
                 return "[\\d\\w]"
+        elif choice <= 16:
+            # Anchors (sometimes as atoms in sequences)
+            return random.choice(['^', '$'])
         else:
             # Empty or single char
             return random.choice(['', 'a', 'x'])
 
     def quantifier():
         """Generate quantifier"""
-        q_type = random.randint(1, 10)
+        q_type = random.randint(1, 11)
         if q_type <= 3:
             return random.choice(['*', '+', '?'])
-        elif q_type <= 6:
-            # Safe quantifiers within limits
+        elif q_type <= 5:
+            # Exact count {n}
+            n = random.choice([0, 1, 2, 3, 5, 10, 20, 50, 99])
+            return f"{{{n}}}"
+        elif q_type <= 7:
+            # Safe quantifiers within limits {n,m}
             min_val = random.randint(0, 20)
             max_val = min_val + random.randint(1, 30)
             return f"{{{min_val},{max_val}}}"
-        elif q_type <= 8:
+        elif q_type <= 9:
             # Edge case quantifiers near limits
-            return random.choice(['{0,100}', '{99,100}', '{50,100}', '{0,1}', '{1,2}'])
+            return random.choice(['{0,100}', '{99,100}', '{50,100}', '{0,1}', '{1,2}', '{100}'])
         else:
             # Extreme quantifiers (may cause resource exhaustion)
             return random.choice(['{0,999999}', '{999,}', '{40,80}', '{70,99}'])
@@ -406,10 +420,14 @@ def gen_random_op() -> list[str]:
     """Generate a single random operation"""
     ops = [
         ('find', lambda: [rand_string_token()]),
-        ('find:re', lambda: [rand_string_token()]),
+        ('find:re', lambda: [gen_random_regex()]),
         ('find:bin', lambda: [rand_hex_string()]),
         ('skip', lambda: [rand_number() + rand_unit()]),
-        ('take', lambda: [rand_signed_number() + rand_unit()] if random.random() < 0.7 else ['to', gen_location_expr()]),
+        ('take', lambda: [rand_signed_number() + rand_unit()] if random.random() < 0.5 else
+                        (['until:re', gen_random_regex()] if random.random() < 0.4 else
+                         ['until', rand_string_token()] if random.random() < 0.5 else
+                         ['until:bin', rand_hex_string()] if random.random() < 0.5 else
+                         ['to', gen_location_expr()])),
         ('label', lambda: [rand_name()]),
         ('view', lambda: [gen_location_expr(), gen_location_expr()]),
         ('clear', lambda: ['view']),
