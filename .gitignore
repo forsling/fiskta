@@ -1,12 +1,12 @@
 ignore/
 bench/
 
-tests/fixtures/
-__pycache__/
-
+fixtures/
+artifacts/
 .zig-cache
 zig-out/
 .cache/
+__pycache__/
 
 # Build artifacts
 build/

@@ -680,6 +680,11 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout)
         is_quantified = 1;
     }
 
+    // Validate quantifier bounds: min must not exceed max (when max is not unlimited)
+    if (is_quantified && max_count > 0 && min_count > max_count) {
+        return E_PARSE;
+    }
+
     // Emit sequence based on (ak, q)
     enum Err e = E_OK;
     if (!is_quantified) {

@@ -2749,6 +2749,11 @@ def tests():
              tokens=["take","until:bin"," ".join(["FF"]*5462)], input_file="overlap.txt",
              expect=dict(stdout="", exit=12, stderr_contains="pattern too long")),  # 5462*3-1=16385 bytes
 
+        # Regex quantifier validation
+        dict(id="edge-015-regex-quantifier-inverted-bounds",
+             tokens=["find:re","x{50,2}"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=13, stderr_contains="parse error")),
+
     ]
 
 def main():

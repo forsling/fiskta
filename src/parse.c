@@ -231,7 +231,12 @@ static i32 estimate_regex_instructions(String pattern)
             // Account for the pattern character before the quantifier (rough estimate)
             i32 expansion = min_val;
             if (max_val > 0) {
-                expansion += (max_val - min_val);
+                // If min > max, the pattern is invalid and will be rejected during compilation,
+                // but use max(0, max - min) to avoid underestimating buffer size
+                i32 optional = max_val - min_val;
+                if (optional > 0) {
+                    expansion += optional;
+                }
             } else if (max_val == -1) {
                 expansion += 10; // assume */{n,} adds ~10 instructions for loop
             }
