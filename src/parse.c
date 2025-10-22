@@ -172,6 +172,7 @@ static enum Err parse_at_expr(const String* tokens, i32* idx, i32 token_count, L
 static enum Err parse_offset(String token, i64* offset, Unit* unit);
 static i32 find_or_add_label(Program* prg, LabelTable* labels, String name);
 static bool is_label_name_valid(String name);
+static bool has_empty_quantified_group(const char* pattern, i32 len);
 
 // Helper function to check if a location expression contains a valid label name
 static bool loc_expr_contains_label(const String* token)
@@ -591,9 +592,61 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
     return E_OK;
 }
 
+// Check if regex pattern contains empty alternative in quantified group
+// Patterns like (|a)*, (a|)*, (||)+ cause exponential expansion
+static bool has_empty_quantified_group(const char* pattern, i32 len)
+{
+    i32 depth = 0;
+    bool in_group = false;
+    bool group_has_empty_alt = false;
+
+    for (i32 i = 0; i < len; i++) {
+        char c = pattern[i];
+
+        if (c == '\\' && i + 1 < len) {
+            i++; // Skip escaped character
+            continue;
+        }
+
+        if (c == '(') {
+            depth++;
+            in_group = true;
+            group_has_empty_alt = false;
+        } else if (c == ')' && depth > 0) {
+            depth--;
+            // Check if group is followed by quantifier
+            if (i + 1 < len && group_has_empty_alt) {
+                char next = pattern[i + 1];
+                if (next == '*' || next == '+' || next == '?') {
+                    return true;
+                }
+                if (next == '{') {
+                    return true; // {n,m} quantifier
+                }
+            }
+            in_group = (depth > 0);
+            group_has_empty_alt = false;
+        } else if (c == '|' && in_group) {
+            // Check if this is an empty alternative
+            // Empty if: |(  or  ||  or  |)
+            if (i + 1 < len) {
+                char next = pattern[i + 1];
+                if (next == '|' || next == ')') {
+                    group_has_empty_alt = true;
+                }
+            }
+            // Check previous character for (|
+            if (i > 0 && pattern[i - 1] == '(') {
+                group_has_empty_alt = true;
+            }
+        }
+    }
+
+    return false;
+}
+
 enum Err parse_build(i32 token_count, const String* tokens, const char* in_path, Program* prg, const char** in_path_out,
-    Clause* clauses_buf, Op* ops_buf,
-    char* str_pool, size_t str_pool_cap)
+    Clause* clauses_buf, Op* ops_buf, char* str_pool, size_t str_pool_cap)
 {
     error_detail_reset();
     memset(prg, 0, sizeof(*prg));
@@ -873,6 +926,13 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         if (err != E_OK) {
             return err;
         }
+
+        // Check for patterns that cause exponential expansion
+        if (has_empty_quantified_group(op->u.findr.pattern.bytes, op->u.findr.pattern.len)) {
+            error_detail_set(E_PARSE, *idx - 1, "regex pattern contains empty alternative in quantified group (e.g. '(|a)*')");
+            return E_PARSE;
+        }
+
         op->u.findr.prog = NULL;
 
     } else if (is_keyword(cmd_tok, &kw_find_bin)) {
@@ -987,6 +1047,12 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
             op->u.take_until_re.pattern = parse_string_to_bytes(pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
             if (err != E_OK) {
                 return err;
+            }
+
+            // Check for patterns that cause exponential expansion
+            if (has_empty_quantified_group(op->u.take_until_re.pattern.bytes, op->u.take_until_re.pattern.len)) {
+                error_detail_set(E_PARSE, *idx - 1, "regex pattern contains empty alternative in quantified group (e.g. '(|a)*')");
+                return E_PARSE;
             }
 
             // Parse "at" expression if present

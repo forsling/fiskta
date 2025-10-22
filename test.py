@@ -2772,6 +2772,22 @@ def tests():
              tokens=["find:re","x{5,"], input_file="overlap.txt",
              expect=dict(stdout="", exit=13, stderr_contains="parse error")),
 
+        dict(id="edge-018-regex-empty-alternative-quantified-leading",
+             tokens=["find:re","(|a)*"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=12, stderr_contains="empty alternative in quantified group")),
+
+        dict(id="edge-019-regex-empty-alternative-quantified-trailing",
+             tokens=["find:re","(a|)*"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=12, stderr_contains="empty alternative in quantified group")),
+
+        dict(id="edge-020-regex-empty-alternative-quantified-double",
+             tokens=["find:re","(||)*"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=12, stderr_contains="empty alternative in quantified group")),
+
+        dict(id="edge-021-regex-empty-alternative-take-until",
+             tokens=["take","until:re","(|x)+"], input_file="overlap.txt",
+             expect=dict(stdout="", exit=12, stderr_contains="empty alternative in quantified group")),
+
     ]
 
 def main():
