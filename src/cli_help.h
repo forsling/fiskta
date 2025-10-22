@@ -21,6 +21,8 @@ static inline void print_usage(void)
     printf("\n");
     printf("  fiskta -i image.bin find:bin \"89 50 4E 47 0D 0A 1A 0A\" print \"PNG\" OR fail \"Not a PNG file\"\n");
     printf("\n");
+    printf("  fiskta -i data.txt take to EOF-10b\n");
+    printf("\n");
     printf("OPERATIONS:\n");
     printf("  take <n><unit>              Extract n units from current position\n");
     printf("  take to <location>          Order-normalized: emits [min(cursor,L), max(cursor,L));\n");
@@ -50,7 +52,6 @@ static inline void print_usage(void)
     printf("                              Participates in clause atomicity\n");
     printf("  fail <message>              Write message to stderr and fail clause\n");
     printf("                              Message written immediately (not staged)\n");
-    printf("                              Useful with OR for error messages\n");
     printf("\n");
     printf("UNITS:\n");
     printf("  b                           Bytes\n");
@@ -58,7 +59,8 @@ static inline void print_usage(void)
     printf("  c                           UTF-8 code points\n");
     printf("\n");
     printf("LABELS:\n");
-    printf("  NAME                        Uppercase, <16 chars, [A-Z0-9_-], starts with letter\n");
+    printf("  NAME                        Must be UPPERCASE, <16 chars, [A-Z0-9_-], starts with A-Z\n");
+    printf("                              Maximum 128 labels\n");
     printf("\n");
     printf("LOCATIONS:\n");
     printf("  cursor                      Current cursor position\n");
@@ -68,7 +70,7 @@ static inline void print_usage(void)
     printf("  match-end                   End of last match\n");
     printf("  line-start                  Start of current line\n");
     printf("  line-end                    End of current line\n");
-    printf("  <label>                     Named label position\n");
+    printf("  <LABEL>                     Named label position.\n");
     printf("  Note: line-start/line-end are relative to the cursor here; in \"at\" (for\n");
     printf("  \"take until\") they're relative to the last match.\n");
     printf("\n");

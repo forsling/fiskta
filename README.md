@@ -177,8 +177,6 @@ Use OR when you want to try multiple alternatives - only the first successful cl
 
 Evaluation is strictly left-to-right (no operator precedence).
 
-**Why no AND?** Operations within a single clause already have implicit AND semantics (all must succeed). Use a single clause for atomic all-or-nothing execution, or `THEN` for sequential execution with commits between clauses.
-
 ### Command-Line Options
 
 **Input/Output:**
@@ -402,7 +400,7 @@ Mark the current cursor position with a label. Labels can be used with `skip to`
 - Names must be UPPERCASE
 - Start with A-Z, contain A-Z0-9_-
 - Maximum 15 characters
-- Maximum 32 labels (LRU eviction after that)
+- Maximum 128 labels
 
 ```bash
 label START
