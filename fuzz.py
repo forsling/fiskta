@@ -480,9 +480,10 @@ def gen_random_program(min_ops: int, max_ops: int) -> list[str]:
 # ========= Program mutations (13 types) =========
 
 def mutate_program(ops: list[str]) -> list[str]:
-    """Apply 0-2 mutations to operation program"""
+    """Apply 0-4 mutations to operation program (weighted distribution)"""
     mutated = ops.copy()
-    num_mutations = random.randint(0, 2)
+    # Distribution: 20% 0, 25% 1, 25% 2, 20% 3, 10% 4
+    num_mutations = random.choices([0, 1, 2, 3, 4], weights=[20, 25, 25, 20, 10])[0]
 
     for _ in range(num_mutations):
         mutation_type = random.randint(1, 13)
@@ -571,9 +572,12 @@ def mutate_program(ops: list[str]) -> list[str]:
             for i, token in enumerate(mutated):
                 if token and token.lstrip('-').isdigit():
                     if random.random() < 0.5:
-                        n = int(token)
-                        mutated[i] = str(n + random.choice([-1, 1]))
-                        break
+                        try:
+                            n = int(token)
+                            mutated[i] = str(n + random.choice([-1, 1]))
+                            break
+                        except ValueError:
+                            pass  # Skip malformed numbers like '--2'
 
         elif mutation_type == 12 and mutated:
             # Remove clause links
