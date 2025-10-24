@@ -4,9 +4,12 @@
 #include <stdio.h>
 
 // Regex thread state (exposed so startup code can size/allocate scratch)
+// counters[] track bounded quantifier state (e.g., {n,m} on groups)
+#define MAX_RE_COUNTERS 16
 typedef struct {
     int pc;
     i64 start;
+    int counters[MAX_RE_COUNTERS];
 } ReThread;
 
 #ifndef FISKTA_IDX_BLOCK

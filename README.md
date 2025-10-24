@@ -518,8 +518,10 @@ fiskta uses exit codes to indicate success, failure, and the type of error encou
 - **2**: Execution timeout (`--for` elapsed)
 - **10**: I/O error (open/read/write failure)
   - File not found, permission denied, read/write errors
-- **11**: Resource limit (program too large, out of memory)
-  - Out of memory during startup or program too large
+- **11**: Resource limit (out of memory, buffer capacity exceeded)
+  - Out of memory
+  - Regex pattern too complex (exceeds instruction/counter limits)
+  - Too many operations or labels
 - **12**: Parse error (invalid syntax, unknown operation)
   - Invalid syntax, unknown operation, missing arguments
   - Caught during program parsing, before execution

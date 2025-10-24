@@ -86,7 +86,6 @@ enum FisktaExitCode {
     FISKTA_EXIT_RESOURCE = 11,
     FISKTA_EXIT_PARSE = 12,
     FISKTA_EXIT_REGEX = 13,
-    FISKTA_EXIT_CAPACITY = 14,
 };
 
 typedef struct {

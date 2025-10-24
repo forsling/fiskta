@@ -103,10 +103,9 @@ static inline void print_usage(void)
     printf("  1               Program failure (no clause succeeded in only/final iteration)\n");
     printf("  2               Execution timeout (--for elapsed)\n");
     printf("  10              I/O error (open/read/write failure)\n");
-    printf("  11              Out of memory (allocation failure)\n");
+    printf("  11              Resource limit (OOM, regex too complex, too many operations)\n");
     printf("  12              Parse error (invalid syntax, unknown operation)\n");
     printf("  13              Regex error (invalid regex pattern)\n");
-    printf("  14              Capacity exceeded (buffer/array limits)\n");
     printf("\n");
     printf("OPTIONS:\n");
     printf("  -i, --input <path>          Read input from path (default: stdin)\n");

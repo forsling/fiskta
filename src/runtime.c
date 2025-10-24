@@ -294,8 +294,7 @@ static void loop_commit(LoopState* state, i64 data_hi, IterResult result, bool i
         state->exit_code = FISKTA_EXIT_IO;
         break;
     case ITER_RESOURCE_ERROR:
-        // Map based on specific error type
-        state->exit_code = (result.last_err == E_OOM) ? FISKTA_EXIT_RESOURCE : FISKTA_EXIT_CAPACITY;
+        state->exit_code = FISKTA_EXIT_RESOURCE;
         break;
     }
 }
@@ -450,6 +449,10 @@ int run_program(i32 token_count, const String* tokens, const RuntimeConfig* conf
     enum Err e = parse_preflight(token_count, tokens, config->input_path, &plan, &path);
     if (e != E_OK) {
         print_err(e, "parse preflight");
+        // E_CAPACITY during preflight means regex pattern is too complex - treat as regex error
+        if (e == E_CAPACITY) {
+            return FISKTA_EXIT_REGEX;
+        }
         return FISKTA_EXIT_PARSE;
     }
 
@@ -485,7 +488,9 @@ int run_program(i32 token_count, const String* tokens, const RuntimeConfig* conf
     size_t re_cls_size = align_or_die(re_cls_bytes, alignof(ReClass));
     size_t str_pool_size = align_or_die(str_pool_bytes, alignof(char));
     // Two thread buffers + two seen arrays sized to max estimated nins
-    size_t re_seen_bytes_each = (size_t)(plan.re_ins_estimate_max > 0 ? plan.re_ins_estimate_max : 32);
+    // Seen arrays use RE_SEEN_SLOTS (8) * sizeof(u32) per instruction for counter signatures
+    size_t max_nins = (size_t)(plan.re_ins_estimate_max > 0 ? plan.re_ins_estimate_max : 32);
+    size_t re_seen_bytes_each = max_nins * 8 * sizeof(u32); // RE_SEEN_SLOTS=8
     size_t re_seen_size;
     if (add_overflow(re_seen_bytes_each, re_seen_bytes_each, &re_seen_size)) {
         print_err(E_OOM, "regex 'seen' size overflow");
@@ -520,8 +525,8 @@ int run_program(i32 token_count, const String* tokens, const RuntimeConfig* conf
     Op* ops_buf = arena_alloc(&arena, ops_bytes, alignof(Op));
     ReThread* re_curr_thr = arena_alloc(&arena, re_threads_bytes, alignof(ReThread));
     ReThread* re_next_thr = arena_alloc(&arena, re_threads_bytes, alignof(ReThread));
-    unsigned char* seen_curr = arena_alloc(&arena, re_seen_bytes_each, 1);
-    unsigned char* seen_next = arena_alloc(&arena, re_seen_bytes_each, 1);
+    unsigned char* seen_curr = arena_alloc(&arena, re_seen_bytes_each, alignof(u32));
+    unsigned char* seen_next = arena_alloc(&arena, re_seen_bytes_each, alignof(u32));
     ReProg* re_progs = arena_alloc(&arena, re_prog_bytes, alignof(ReProg));
     ReInst* re_ins = arena_alloc(&arena, re_ins_bytes, alignof(ReInst));
     ReClass* re_cls = arena_alloc(&arena, re_cls_bytes, alignof(ReClass));
@@ -706,7 +711,7 @@ int run_program(i32 token_count, const String* tokens, const RuntimeConfig* conf
     case ITER_IO_ERROR:
         return FISKTA_EXIT_IO;
     case ITER_RESOURCE_ERROR:
-        return (loop_state.last_result.last_err == E_OOM) ? FISKTA_EXIT_RESOURCE : FISKTA_EXIT_CAPACITY;
+        return FISKTA_EXIT_RESOURCE;
     case ITER_PROGRAM_FAIL:
         // Print error details if available for helpful diagnostics
         if (error_detail_has()) {

@@ -11,6 +11,10 @@ typedef enum {
     RI_EOL, // '$'  (true at win_hi or before \n)
     RI_SPLIT, // ordered epsilon: x then y (order encodes greediness)
     RI_JMP,
+    RI_COUNTER_RESET, // Reset counter[x] = 0; continue to next instruction
+    RI_COUNTER_INC,   // Increment counter[x]; continue to next instruction
+    RI_COUNTER_CHECK, // If counter[x] >= y, fail thread; else continue
+    RI_COUNTER_CHECK_MIN, // If counter[x] < y, fail thread; else continue
     RI_MATCH
 } ReOp;
 

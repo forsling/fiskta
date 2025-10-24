@@ -1,6 +1,7 @@
 #include "parse.h"
 #include "error.h"
 #include "fiskta.h"
+#include "iosearch.h"
 #include "util.h"
 #include <ctype.h>
 #include <limits.h>
@@ -194,64 +195,260 @@ static bool loc_expr_contains_label(const String* token)
     return is_label_name_valid(*token);
 }
 
-// Estimate instruction count for regex pattern by accounting for quantifiers
-static i32 estimate_regex_instructions(String pattern)
+// Count total number of counter-using quantifiers in a pattern
+// Counters are allocated permanently (never released), so we count total usage
+// Counter-using quantifiers are: {n}, {n,}, {n,m} where n >= 2
+// Returns -1 on error, otherwise count
+static i32 count_counter_quantifiers_in_pattern(String pattern)
 {
-    // Base: 2 instructions per character + overhead
-    i32 est = (i32)(2 * (size_t)pattern.len + 10);
+    i32 counter_count = 0;
+    bool in_escape = false;
+    bool in_charclass = false;
 
-    // Scan for quantifiers and add their expansion cost
     for (i32 i = 0; i < pattern.len; i++) {
-        if (pattern.bytes[i] == '\\' && i + 1 < pattern.len) {
-            i++; // skip escaped char
+        char c = pattern.bytes[i];
+
+        if (in_escape) {
+            in_escape = false;
             continue;
         }
 
-        // Check for {n,m} quantifiers
-        if (pattern.bytes[i] == '{') {
-            i++; // skip '{'
+        if (c == '\\') {
+            in_escape = true;
+            continue;
+        }
+
+        if (in_charclass) {
+            if (c == ']') {
+                in_charclass = false;
+            }
+            continue;
+        }
+
+        if (c == '[') {
+            in_charclass = true;
+            continue;
+        }
+
+        // Check for counter-using quantifiers: {n}, {n,}, {n,m}
+        // Skip {0} and {1} as they don't allocate counters
+        if (c == '{') {
+            i32 j = i + 1;
             i32 min_val = 0;
             i32 max_val = 0;
+            bool has_min = false;
+            bool has_max = false;
 
-            // Parse min
-            while (i < pattern.len && isdigit(pattern.bytes[i])) {
-                min_val = min_val * 10 + (pattern.bytes[i] - '0');
-                i++;
+            // Parse minimum value
+            while (j < pattern.len && pattern.bytes[j] >= '0' && pattern.bytes[j] <= '9') {
+                min_val = min_val * 10 + (pattern.bytes[j] - '0');
+                has_min = true;
+                j++;
             }
 
-            if (i < pattern.len && pattern.bytes[i] == ',') {
-                i++; // skip ','
-                // Parse max (or unlimited if immediately followed by '}')
-                if (i < pattern.len && pattern.bytes[i] != '}') {
-                    while (i < pattern.len && isdigit(pattern.bytes[i])) {
-                        max_val = max_val * 10 + (pattern.bytes[i] - '0');
-                        i++;
-                    }
-                } else {
-                    max_val = -1; // unlimited
+            if (j < pattern.len && pattern.bytes[j] == ',') {
+                j++; // skip comma
+                // Parse maximum value if present
+                while (j < pattern.len && pattern.bytes[j] >= '0' && pattern.bytes[j] <= '9') {
+                    max_val = max_val * 10 + (pattern.bytes[j] - '0');
+                    has_max = true;
+                    j++;
                 }
-            } else {
-                max_val = min_val; // {n} means exactly n
+                if (!has_max) {
+                    max_val = -1; // unbounded
+                }
+            } else if (has_min) {
+                max_val = min_val; // exact count
             }
 
-            // Add expansion cost: each quantifier needs instructions for min copies + optional copies
-            // Account for the pattern character before the quantifier (rough estimate)
-            i32 expansion = min_val;
-            if (max_val > 0) {
-                // If min > max, the pattern is invalid and will be rejected during compilation,
-                // but use max(0, max - min) to avoid underestimating buffer size
-                i32 optional = max_val - min_val;
-                if (optional > 0) {
-                    expansion += optional;
-                }
-            } else if (max_val == -1) {
-                expansion += 10; // assume */{n,} adds ~10 instructions for loop
+            // Skip to closing brace
+            while (j < pattern.len && pattern.bytes[j] != '}') {
+                j++;
             }
-            est += expansion * 2; // 2 instructions per repetition (SPLIT + atom)
+            if (j < pattern.len) {
+                j++; // skip '}'
+            }
+
+            // Only count if it will actually use a counter (not {0} or {1})
+            if (has_min && min_val > 1) {
+                counter_count++;
+            } else if (has_min && min_val == 0 && max_val > 1) {
+                // {0,m} where m > 1 uses counter
+                counter_count++;
+            } else if (has_min && min_val == 1 && (max_val > 1 || max_val == -1)) {
+                // {1,m} where m > 1 or {1,} uses counter
+                counter_count++;
+            }
+
+            i = j - 1; // -1 because loop will increment
         }
     }
 
-    return est;
+    return counter_count;
+}
+
+// Estimate instruction count for regex pattern using the formula from REGEX_IMPLEMENTATION_PLAN.md:
+// nins_est ≤ 2A + 3·Alt + 2·Qu + 6·Qc + max(16, Alt + Qc + Qu)
+// Where:
+//   A = number of atoms (literals, classes, dot, anchors)
+//   Alt = number of | occurrences
+//   Qu = number of simple quantifiers (? * +)
+//   Qc = number of counter quantifiers ({n} {n,} {n,m})
+static i32 estimate_regex_instructions(String pattern)
+{
+    i32 atom_count = 0;
+    i32 alt_count = 0;
+    i32 simple_quant_count = 0;
+    i32 counter_quant_count = 0;
+    i32 max_paren_depth = 0;
+    i32 quantified_group_count = 0;
+
+    bool in_escape = false;
+    bool in_charclass = false;
+    i32 paren_depth = 0;
+
+    for (i32 i = 0; i < pattern.len; i++) {
+        char c = pattern.bytes[i];
+
+        if (in_escape) {
+            in_escape = false;
+            // Escaped characters are atoms (except special escapes which become classes)
+            if (c == 'd' || c == 'D' || c == 'w' || c == 'W' || c == 's' || c == 'S') {
+                // These become character classes, but count as atoms for instruction purposes
+                atom_count++;
+            } else {
+                // Regular escaped literal
+                atom_count++;
+            }
+            continue;
+        }
+
+        if (c == '\\') {
+            in_escape = true;
+            continue;
+        }
+
+        if (in_charclass) {
+            if (c == ']') {
+                in_charclass = false;
+            }
+            continue;
+        }
+
+        if (c == '[') {
+            in_charclass = true;
+            atom_count++; // Character class is an atom
+            continue;
+        }
+
+        if (c == '.') {
+            atom_count++; // Dot is an atom
+            continue;
+        }
+
+        if (c == '^' || c == '$') {
+            atom_count++; // Anchors are atoms (epsilon atoms)
+            continue;
+        }
+
+        if (c == '(') {
+            paren_depth++;
+            if (paren_depth > max_paren_depth) {
+                max_paren_depth = paren_depth;
+            }
+            continue;
+        }
+
+        if (c == ')') {
+            if (paren_depth > 0) {
+                paren_depth--;
+
+                // Check if this closing paren is followed by a quantifier
+                i32 j = i + 1;
+                if (j < pattern.len) {
+                    char next = pattern.bytes[j];
+                    if (next == '*' || next == '+' || next == '?' || next == '{') {
+                        quantified_group_count++;
+                    }
+                }
+            }
+            continue;
+        }
+
+        if (c == '|') {
+            alt_count++;
+            continue;
+        }
+
+        // Check for quantifiers: *, +, ?, {n,m}
+        if (c == '*' || c == '+' || c == '?') {
+            simple_quant_count++;
+            continue;
+        }
+
+        if (c == '{') {
+            // Parse to see if this is a counter-using quantifier
+            i32 j = i + 1;
+            bool has_digits = false;
+
+            // Skip digits
+            while (j < pattern.len && pattern.bytes[j] >= '0' && pattern.bytes[j] <= '9') {
+                has_digits = true;
+                j++;
+            }
+
+            if (has_digits) {
+                counter_quant_count++;
+            }
+
+            // Skip rest of quantifier
+            while (j < pattern.len && pattern.bytes[j] != '}') {
+                j++;
+            }
+            if (j < pattern.len) {
+                j++; // skip '}'
+            }
+            i = j - 1; // -1 because loop will increment
+            continue;
+        }
+
+        // Regular literal character
+        atom_count++;
+    }
+
+    // Apply formula: 2A + 3·Alt + 2·Qu + 6·Qc + max(16, Alt + Qc + Qu)
+    i32 base_margin = (alt_count + counter_quant_count + simple_quant_count);
+    if (base_margin < 16) {
+        base_margin = 16;
+    }
+
+    i32 base_estimate = 2 * atom_count + 3 * alt_count + 2 * simple_quant_count + 6 * counter_quant_count + base_margin;
+
+    // Apply nesting depth multiplier for deeply nested patterns
+    // Each level of nesting roughly doubles the instruction overhead due to
+    // group overhead, state management, and instruction wiring
+    i32 nesting_multiplier = 1;
+    if (max_paren_depth >= 4) {
+        // Very deep nesting (4+ levels): 4x multiplier
+        nesting_multiplier = 4;
+    } else if (max_paren_depth == 3) {
+        // Deep nesting (3 levels): 3x multiplier
+        nesting_multiplier = 3;
+    } else if (max_paren_depth == 2) {
+        // Moderate nesting (2 levels): 2x multiplier
+        nesting_multiplier = 2;
+    }
+
+    // Additional overhead for quantified groups - each adds significant instruction overhead
+    i32 quantified_group_overhead = quantified_group_count * 10;
+
+    // Combine: base estimate × nesting + group overhead
+    i32 estimate = base_estimate * nesting_multiplier + quantified_group_overhead;
+
+    // Add a generous flat safety margin
+    estimate = estimate + 200;
+
+    return estimate;
 }
 
 enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_path, ParsePlan* plan, const char** in_path_out)
@@ -318,23 +515,69 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                 if (idx < token_count) {
                     const String pat_tok = tokens[idx];
                     const char* pat = pat_tok.bytes;
+
                     plan->sum_findr_ops++;
                     i32 est = estimate_regex_instructions(pat_tok);
                     plan->re_ins_estimate += est;
                     if (est > plan->re_ins_estimate_max) {
                         plan->re_ins_estimate_max = est;
                     }
+                    // Count character classes, accounting for group quantifiers
+                    // Group quantifiers like (...)+ duplicate the group content
+                    i32 base_classes = 0;
+                    i32 group_depth = 0;
+                    i32 group_start_classes[16] = {0};  // Track classes at each group level
+                    i32 max_depth = 0;
+
                     for (i32 pi = 0; pi < pat_tok.len; ++pi) {
                         char c = pat[pi];
-                        if (c == '[') {
-                            plan->re_classes_estimate++;
-                        }
+
                         if (c == '\\' && pi + 1 < pat_tok.len) {
                             char next = pat[pi + 1];
                             if (string_char_in_set(next, "dDwWsS")) {
-                                plan->re_classes_estimate++;
+                                base_classes++;
                             }
+                            pi++;  // Skip next char
+                            continue;
                         }
+
+                        if (c == '(') {
+                            if (group_depth < 16) {
+                                group_start_classes[group_depth] = base_classes;
+                            }
+                            group_depth++;
+                            if (group_depth > max_depth) max_depth = group_depth;
+                        } else if (c == ')' && group_depth > 0) {
+                            group_depth--;
+                            // Check for quantifier after group
+                            if (pi + 1 < pat_tok.len) {
+                                char next = pat[pi + 1];
+                                if (next == '*' || next == '+' || next == '?') {
+                                    // +/* emit group content 2x (min copies + loop copy)
+                                    // ? emits 1x
+                                    i32 multiplier = (next == '?') ? 0 : 1;
+                                    if (group_depth < 16) {
+                                        i32 classes_in_group = base_classes - group_start_classes[group_depth];
+                                        base_classes += classes_in_group * multiplier;
+                                    }
+                                }
+                            }
+                        } else if (c == '[' && group_depth == 0) {
+                            // Only count '[' outside groups for base estimate
+                            base_classes++;
+                        } else if (c == '[') {
+                            base_classes++;
+                        }
+                    }
+
+                    plan->re_classes_estimate += base_classes;
+                    // Add safety margin for nested groups and alternations
+                    // Use generous multiplier for complex patterns
+                    if (max_depth > 0) {
+                        i32 margin = (base_classes * max_depth) > (max_depth * 8)
+                            ? (base_classes * max_depth)
+                            : (max_depth * 8);
+                        plan->re_classes_estimate += margin;
                     }
                     plan->needle_count++;
                     size_t escaped_len = calculate_escaped_string_length(pat_tok);
@@ -418,24 +661,74 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                         if (idx < token_count) {
                             const String pat_tok = tokens[idx];
                             const char* pat = pat_tok.bytes;
+
+                            // Validate counter quantifier usage before compilation
+                            i32 counter_count = count_counter_quantifiers_in_pattern(pat_tok);
+                            if (counter_count > MAX_RE_COUNTERS) {
+                                error_detail_set(E_CAPACITY, idx,
+                                    "regex: too many quantified groups in pattern (found %d, max %d); reduce nesting or use simpler quantifiers",
+                                    counter_count, MAX_RE_COUNTERS);
+                                return E_CAPACITY;
+                            }
+
                             plan->sum_findr_ops++;
                             i32 est = estimate_regex_instructions(pat_tok);
                             plan->re_ins_estimate += est;
                             if (est > plan->re_ins_estimate_max) {
                                 plan->re_ins_estimate_max = est;
                             }
+
+                            // Count character classes, accounting for group quantifiers
+                            // (Same logic as find:re)
+                            i32 base_classes = 0;
+                            i32 group_depth = 0;
+                            i32 group_start_classes[16] = {0};
+                            i32 max_depth = 0;
+
                             for (i32 pi = 0; pi < pat_tok.len; ++pi) {
                                 char c = pat[pi];
-                                if (c == '[') {
-                                    plan->re_classes_estimate++;
-                                }
+
                                 if (c == '\\' && pi + 1 < pat_tok.len) {
-                                    char next_c = pat[pi + 1];
-                                    if (string_char_in_set(next_c, "dDwWsS")) {
-                                        plan->re_classes_estimate++;
+                                    char next = pat[pi + 1];
+                                    if (string_char_in_set(next, "dDwWsS")) {
+                                        base_classes++;
                                     }
+                                    pi++;
+                                    continue;
+                                }
+
+                                if (c == '(') {
+                                    if (group_depth < 16) {
+                                        group_start_classes[group_depth] = base_classes;
+                                    }
+                                    group_depth++;
+                                    if (group_depth > max_depth) max_depth = group_depth;
+                                } else if (c == ')' && group_depth > 0) {
+                                    group_depth--;
+                                    if (pi + 1 < pat_tok.len) {
+                                        char next = pat[pi + 1];
+                                        if (next == '*' || next == '+' || next == '?') {
+                                            i32 multiplier = (next == '?') ? 0 : 1;
+                                            if (group_depth < 16) {
+                                                i32 classes_in_group = base_classes - group_start_classes[group_depth];
+                                                base_classes += classes_in_group * multiplier;
+                                            }
+                                        }
+                                    }
+                                } else if (c == '[') {
+                                    base_classes++;
                                 }
                             }
+
+                            plan->re_classes_estimate += base_classes;
+                            // Add safety margin for nested groups and alternations
+                            if (max_depth > 0) {
+                                i32 margin = (base_classes * max_depth) > (max_depth * 8)
+                                    ? (base_classes * max_depth)
+                                    : (max_depth * 8);
+                                plan->re_classes_estimate += margin;
+                            }
+
                             plan->needle_count++;
                             plan->needle_bytes += calculate_escaped_string_length(pat_tok);
                             idx++;

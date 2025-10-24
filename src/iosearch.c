@@ -2,6 +2,7 @@
 #define _GNU_SOURCE
 #endif
 #include "iosearch.h"
+#include "error.h"
 #include "util.h"
 #include <stdlib.h>
 #include <string.h>
@@ -825,38 +826,151 @@ static void rlist_init(ReList* l, ReThread* buf, int cap)
     l->cap = cap;
 }
 static inline void rlist_clear(ReList* l) { l->n = 0; }
-static inline void seen_clear(unsigned char* seen, int n) { memset(seen, 0, (size_t)n); }
+static inline void seen_clear_bytes(unsigned char* seen, size_t bytes) { memset(seen, 0, bytes); }
+
+// Number of 32-bit signature slots per pc in the seen table.
+// 8 slots for robustness with nested quantifiers
+#ifndef RE_SEEN_SLOTS
+#define RE_SEEN_SLOTS 8
+#endif
+
+// Fast 32-bit signature over the counter array. Guarantees non-zero.
+// Only hashes active counters (up to highest non-zero index) to reduce aliasing.
+static inline u32 re_counters_sig(const int* cnt, int n)
+{
+    // Find highest non-zero counter
+    int active_n = 0;
+    for (int i = n - 1; i >= 0; i--) {
+        if (cnt[i] != 0) {
+            active_n = i + 1;
+            break;
+        }
+    }
+
+    // FNV-1a with a tiny avalanche; counters are small ints (0..big)
+    u32 h = 2166136261u;
+    for (int i = 0; i < active_n; i++) {
+        h ^= (u32)cnt[i];
+        h *= 16777619u;
+        // mix a bit to decorrelate low variance
+        h ^= h >> 13;
+        h *= 0x9E3779B1u;
+    }
+    if (h == 0) h = 1; // reserve 0 for "empty"
+    return h;
+}
+
+// Probe up to RE_SEEN_SLOTS 32-bit entries for this pc. If found, return 1.
+// If an empty slot (0), store and return 0. If full, do a deterministic replace.
+static inline int re_seen_hit_or_set(unsigned char* seen, int pc, u32 sig)
+{
+    // Base pointer to this pc's slot array
+    u32* slots = (u32*)(seen + ((size_t)pc * RE_SEEN_SLOTS * sizeof(u32)));
+
+    // Exact match or empty slot fast path
+    for (int i = 0; i < RE_SEEN_SLOTS; i++) {
+        u32 v = slots[i];
+        if (v == sig) {
+            return 1; // already visited
+        }
+        if (v == 0) {
+            slots[i] = sig;
+            return 0; // new
+        }
+    }
+
+    // All slots full with different signatures: replace a slot deterministically
+    int idx = (int)(sig % RE_SEEN_SLOTS);
+    slots[idx] = sig;
+    return 0;
+}
+
+// Maximum recursion depth to prevent stack overflow with pathological patterns
+#define MAX_EPSILON_RECURSION_DEPTH 500
 
 // Ordered epsilon-closure push. Sets *match_found if RI_MATCH reachable for current pos and min_start.
 // Returns E_OOM if thread list capacity is exceeded.
+// Returns E_CAPACITY if recursion depth exceeds limit.
 static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start,
     i64 pos, i64 win_lo, i64 win_hi, i64 file_size,
     unsigned char* seen, int* match_found, i64 min_start,
     unsigned char curr_char, unsigned char prev_char,
-    int at_bol, int at_eol)
+    int at_bol, int at_eol, const int* counters, int depth)
 {
+    // Guard against stack overflow from pathological patterns like ((x*){0}){999,}
+    if (depth > MAX_EPSILON_RECURSION_DEPTH) {
+        return E_CAPACITY;
+    }
+
+    // Local counter state for this thread
+    int local_counters[MAX_RE_COUNTERS];
+    memcpy(local_counters, counters, sizeof(local_counters));
+
     while (1) {
         if (pc < 0 || pc >= p->nins) {
             return E_OK;
         }
-        if (seen[pc]) {
-            return E_OK;
+        // Dedup by (pc, counter_signature)
+        u32 sig = re_counters_sig(local_counters, MAX_RE_COUNTERS);
+        if (re_seen_hit_or_set(seen, pc, sig)) {
+            return E_OK;  // Already visited this (pc, counter_state) combination
         }
+
         ReInst* i = &p->ins[pc];
         switch (i->op) {
-        case RI_SPLIT:
-            // IMPORTANT: mark as seen before processing split
-            seen[pc] = 1;
+        case RI_SPLIT: {
+            // Snapshot counter state so both branches see the same starting values
+            int saved_counters[MAX_RE_COUNTERS];
+            memcpy(saved_counters, local_counters, sizeof(saved_counters));
+
             // IMPORTANT: X first (preferred), then Y
-            enum Err err = add_thread_ordered(p, l, i->x, start, pos, win_lo, win_hi, file_size, seen, match_found, min_start, curr_char, prev_char, at_bol, at_eol);
+            enum Err err = add_thread_ordered(p, l, i->x, start, pos, win_lo, win_hi, file_size, seen, match_found, min_start, curr_char, prev_char, at_bol, at_eol, local_counters, depth + 1);
             if (err != E_OK) {
                 return err;
             }
+
+            // Restore counters before exploring the alternate branch
+            memcpy(local_counters, saved_counters, sizeof(saved_counters));
+
             pc = i->y; // continue tail-call
             continue;
+        }
         case RI_JMP:
-            seen[pc] = 1; // mark as seen before jumping
             pc = i->x;
+            continue;
+        case RI_COUNTER_RESET:
+            // Reset counter to 0 and continue
+            if (i->x >= 0 && i->x < MAX_RE_COUNTERS) {
+                local_counters[i->x] = 0;
+            }
+            pc++;
+            continue;
+        case RI_COUNTER_INC:
+            // Increment counter and continue to next instruction
+            if (i->x >= 0 && i->x < MAX_RE_COUNTERS) {
+                local_counters[i->x]++;
+            }
+            pc++;
+            continue;
+        case RI_COUNTER_CHECK:
+            // If counter[x] >= y, fail this thread; else continue
+            if (i->x >= 0 && i->x < MAX_RE_COUNTERS) {
+                if (local_counters[i->x] >= i->y) {
+                    // Counter limit reached, fail this thread
+                    return E_OK;
+                }
+            }
+            pc++;
+            continue;
+        case RI_COUNTER_CHECK_MIN:
+            // If counter[x] < y, fail this thread; else continue
+            if (i->x >= 0 && i->x < MAX_RE_COUNTERS) {
+                if (local_counters[i->x] < i->y) {
+                    // Minimum not met, fail this thread
+                    return E_OK;
+                }
+            }
+            pc++;
             continue;
         case RI_BOL:
             if (at_bol) {
@@ -880,8 +994,8 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
             }
             l->v[l->n].pc = pc;
             l->v[l->n].start = start;
+            memcpy(l->v[l->n].counters, local_counters, sizeof(local_counters));
             l->n++;
-            seen[pc] = 1;
             return E_OK;
         case RI_CHAR:
         case RI_ANY:
@@ -892,8 +1006,8 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
             }
             l->v[l->n].pc = pc;
             l->v[l->n].start = start;
+            memcpy(l->v[l->n].counters, local_counters, sizeof(local_counters));
             l->n++;
-            seen[pc] = 1;
             return E_OK;
         default:
             return E_OK;
@@ -928,7 +1042,11 @@ enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
     if (cap <= 0 || !io->re.curr || !io->re.next || !io->re.seen_curr || !io->re.seen_next) {
         return E_OOM;
     }
-    if ((size_t)nins > io->re.seen_bytes) {
+    const size_t need_seen = (size_t)nins * RE_SEEN_SLOTS * sizeof(u32);
+    if (need_seen > io->re.seen_bytes) {
+        error_detail_set(E_CAPACITY, -1,
+            "regex: seen buffer too small (need %zu bytes, have %zu); increase re_ins_estimate",
+            need_seen, io->re.seen_bytes);
         return E_CAPACITY;  // Seen buffer not large enough for regex
     }
 
@@ -940,8 +1058,8 @@ enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
     ReList next;
     rlist_init(&curr, curr_buf, cap);
     rlist_init(&next, next_buf, cap);
-    seen_clear(seen_curr, nins);
-    seen_clear(seen_next, nins);
+    seen_clear_bytes(seen_curr, need_seen);
+    seen_clear_bytes(seen_next, need_seen);
 
     i64 best_ms = -1;
     i64 best_me = -1;
@@ -1038,27 +1156,47 @@ enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
         if (curr.n == 0) {
             have_min = 1;
             min_start = pos;
-            seen_clear(seen_curr, nins);
+            seen_clear_bytes(seen_curr, need_seen);
             int match_found = 0;
+            int zero_counters[MAX_RE_COUNTERS] = {0};
             enum Err err = add_thread_ordered(re, &curr, 0, pos, pos, win_lo, win_hi, io->size,
-                seen_curr, &match_found, min_start, curr_c, prev_char, at_bol, at_eol);
+                seen_curr, &match_found, min_start, curr_c, prev_char, at_bol, at_eol, zero_counters, 0);
             if (err != E_OK) {
                 return err;
             }
             if (match_found) {
                 // epsilon-only match (no consumption): end == pos
-                if (dir == DIR_FWD) {
-                    *ms = min_start;
-                    *me = pos;
-                    return E_OK;
+                // Record the match but continue greedy matching if there are active threads
+                if (!have_min || min_start <= best_ms || best_ms < 0) {
+                    best_ms = min_start;
+                    best_me = pos;
                 }
-                best_ms = min_start;
-                best_me = pos; /* reset for later starts */
-                curr.n = 0;
-                have_min = 0;
+                if (dir == DIR_FWD) {
+                    // Remove MATCH threads but keep other threads to continue greedy matching
+                    int write_idx = 0;
+                    for (int i = 0; i < curr.n; i++) {
+                        int pc = curr.v[i].pc;
+                        i64 st = curr.v[i].start;
+                        // Keep only non-MATCH threads from min_start
+                        if (st == min_start && (pc < 0 || pc >= re->nins || re->ins[pc].op != RI_MATCH)) {
+                            curr.v[write_idx++] = curr.v[i];
+                        }
+                    }
+                    curr.n = write_idx;
+                    // If no more threads from min_start, return the best match
+                    if (curr.n == 0) {
+                        *ms = best_ms;
+                        *me = best_me;
+                        return E_OK;
+                    }
+                } else {
+                    // Backward search: reset and try next position
+                    curr.n = 0;
+                    have_min = 0;
+                }
             }
         } else {
-            seen_clear(seen_curr, nins);
+            seen_clear_bytes(seen_curr, need_seen);
             // Re-run epsilon to discover MATCH at this pos (no consumption)
             int match_found = 0;
             unsigned char curr_char = curr_c;
@@ -1066,7 +1204,7 @@ enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
             for (int k = 0; k < curr.n; k++) {
                 // IMPORTANT: keep global min_start
                 enum Err err = add_thread_ordered(re, &curr, curr.v[k].pc, curr.v[k].start, pos, win_lo, win_hi, io->size,
-                    seen_curr, &match_found, min_start, curr_char, prev_char, at_bol, at_eol);
+                    seen_curr, &match_found, min_start, curr_char, prev_char, at_bol, at_eol, curr.v[k].counters, 0);
                 if (err != E_OK) {
                     return err;
                 }
@@ -1092,7 +1230,7 @@ enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
         unsigned char c = curr_c;
         // Build next from curr by consuming c
         rlist_clear(&next);
-        seen_clear(seen_next, nins);
+        seen_clear_bytes(seen_next, need_seen);
 
         for (int i = 0; i < curr.n; i++) {
             int pc = curr.v[i].pc;
@@ -1101,11 +1239,12 @@ enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
             if (have_min && st > min_start) {
                 continue;
             }
+
             ReInst* inst = &re->ins[pc];
             switch (inst->op) {
             case RI_CHAR:
                 if (c == inst->ch) {
-                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol);
+                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol, curr.v[i].counters, 0);
                     if (err != E_OK) {
                         return err;
                     }
@@ -1113,7 +1252,7 @@ enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
                 break;
             case RI_ANY:
                 if (c != '\n') { // dot ≠ newline
-                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol);
+                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol, curr.v[i].counters, 0);
                     if (err != E_OK) {
                         return err;
                     }
@@ -1121,7 +1260,7 @@ enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
                 break;
             case RI_CLASS:
                 if (inst->cls_idx >= 0 && inst->cls_idx < re->nclasses && cls_has(&re->classes[inst->cls_idx], c)) {
-                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol);
+                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol, curr.v[i].counters, 0);
                     if (err != E_OK) {
                         return err;
                     }
@@ -1181,6 +1320,7 @@ enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
         unsigned char* tmpb = seen_curr;
         seen_curr = seen_next;
         seen_next = tmpb;
+        seen_clear_bytes(seen_curr, need_seen);
         // advance and carry previous char
         prev_c = curr_c;
         have_prev = (pos < win_hi);

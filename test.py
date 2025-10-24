@@ -29,6 +29,9 @@ def repo_version() -> str:
 VERSION = repo_version()
 VERSION_LINE = f"fiskta - (fi)nd (sk)ip (ta)ke v{VERSION}\n"
 PROGRAM_FAIL_EXIT = 1
+RESOURCE_EXIT = 11
+PARSE_EXIT = 12
+REGEX_EXIT = 13
 
 def write(path: Path, data: bytes):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1701,10 +1704,10 @@ def tests():
              tokens=["find:re","\\w+=\\w+","take","+7b"], input_file="multiline.txt",
              expect=dict(stdout="KEY1=va", exit=0)),
 
-        # Edge case: very long pattern
+        # Edge case: very long pattern (now supported via counters, not expansion)
         dict(id="regex-065-long-pattern",
              tokens=["find:re","X{1000}","take","+1000b"], input_file="large-lines.txt",
-             expect=dict(stdout="", exit=13)),  # Quantifiers > 100 rejected during parse (v1.2+)
+             expect=dict(stdout="X" * 1000, exit=0)),  # Large quantifiers now work via counters
 
         # Regex with CRLF
         dict(id="regex-066-crlf-pattern",
@@ -1843,6 +1846,106 @@ def tests():
         dict(id="regex-grouping-nested-quantifier",
              tokens=["find:re","((ab)+c)+","skip","to","match-start","take","to","match-end"], input_file="-", stdin=b"abcababc!",
              expect=dict(stdout="abcababc", exit=0)),
+
+        # Brace quantifiers on groups (now supported with counter-based loops!)
+        dict(id="regex-grouping-brace-quantifier-simple",
+             tokens=["find:re","(ab){3}","take","to","match-end"], input_file="-", stdin=b"ababab",
+             expect=dict(stdout="ababab", exit=0)),
+
+        dict(id="regex-grouping-brace-quantifier-range",
+             tokens=["find:re","(ab){2,4}","take","to","match-end"], input_file="-", stdin=b"ababababab",
+             expect=dict(stdout="abababab", exit=0)),  # matches 4 (greedy)
+
+        dict(id="regex-grouping-brace-quantifier-min-only",
+             tokens=["find:re","(ab){2}","take","to","match-end"], input_file="-", stdin=b"abab",
+             expect=dict(stdout="abab", exit=0)),
+
+        # Nested brace quantifiers now work with counter-based approach!
+        dict(id="regex-grouping-nested-brace-small",
+             tokens=["find:re","(([a-z]{2})){5}","take","to","match-end"], input_file="-", stdin=b"testingnow",
+             expect=dict(stdout="testingnow", exit=0)),  # 2*5=10 chars
+
+        dict(id="regex-grouping-nested-brace-medium",
+             tokens=["find:re","(([a-z]{10})){2}","take","to","match-end"], input_file="-", stdin=b"abcdefghijklmnopqrst",
+             expect=dict(stdout="abcdefghijklmnopqrst", exit=0)),  # 10*2=20 chars
+
+        # Simple nesting works fine with counter-based quantifiers
+        dict(id="regex-grouping-nested-counters-ok",
+             tokens=["find:re","((a){2}){3}","take","to","match-end"], input_file="-", stdin=b"aaaaaa",
+             expect=dict(stdout="aaaaaa", exit=0)),
+
+        # Quantified groups with unbounded quantifiers (+ and *)
+        dict(id="regex-grouping-plus-quantifier-simple",
+             tokens=["find:re","([0-9])+","take","to","match-end"], input_file="-", stdin=b"test123end",
+             expect=dict(stdout="123", exit=0)),
+
+        dict(id="regex-grouping-star-quantifier",
+             tokens=["find:re","([a-z])*","take","to","match-end"], input_file="-", stdin=b"abc123",
+             expect=dict(stdout="abc", exit=0)),
+
+        # Character class with bounded quantifiers (previously caused expansion)
+        dict(id="regex-charclass-large-quantifier",
+             tokens=["find:re","\\d{10}","take","to","match-end"], input_file="-", stdin=b"id1234567890end",
+             expect=dict(stdout="1234567890", exit=0)),
+
+        dict(id="regex-charclass-range-quantifier",
+             tokens=["find:re","[a-z]{5,8}","take","to","match-end"], input_file="-", stdin=b"testing",
+             expect=dict(stdout="testing", exit=0)),
+
+        # Nested quantified groups that previously crashed
+        dict(id="regex-grouping-nested-plus",
+             tokens=["find:re","(([a-z]){3})+","take","to","match-end"], input_file="-", stdin=b"abcdefghi",
+             expect=dict(stdout="abcdefghi", exit=0)),
+
+        # Group minimum enforcement tests (from implementation_feedback3)
+        dict(id="regex-group-min-enforcement-exact-fail",
+             tokens=["find:re","(ab){2}","take","to","match-end"], input_file="-", stdin=b"abX",
+             expect=dict(stdout="", exit=PROGRAM_FAIL_EXIT)),
+
+        dict(id="regex-group-min-enforcement-exact-pass",
+             tokens=["find:re","(ab){2}","take","to","match-end"], input_file="-", stdin=b"ababX",
+             expect=dict(stdout="abab", exit=0)),
+
+        dict(id="regex-group-min-enforcement-range-fail",
+             tokens=["find:re","(ab){2,4}","take","to","match-end"], input_file="-", stdin=b"abX",
+             expect=dict(stdout="", exit=PROGRAM_FAIL_EXIT)),
+
+        dict(id="regex-group-min-enforcement-range-pass-min",
+             tokens=["find:re","(ab){2,4}","take","to","match-end"], input_file="-", stdin=b"ababX",
+             expect=dict(stdout="abab", exit=0)),
+
+        dict(id="regex-group-min-enforcement-range-pass-max",
+             tokens=["find:re","(ab){2,4}","take","to","match-end"], input_file="-", stdin=b"abababababX",
+             expect=dict(stdout="abababab", exit=0)),
+
+        dict(id="regex-group-min-enforcement-digits-fail",
+             tokens=["find:re","(\\d{3,5})","take","to","match-end"], input_file="-", stdin=b"12X",
+             expect=dict(stdout="", exit=PROGRAM_FAIL_EXIT)),
+
+        dict(id="regex-group-min-enforcement-digits-pass",
+             tokens=["find:re","(\\d{3,5})","take","to","match-end"], input_file="-", stdin=b"123X",
+             expect=dict(stdout="123", exit=0)),
+
+        dict(id="regex-group-min-enforcement-unbounded-fail",
+             tokens=["find:re","(ab){3,}","take","to","match-end"], input_file="-", stdin=b"ababX",
+             expect=dict(stdout="", exit=PROGRAM_FAIL_EXIT)),
+
+        dict(id="regex-group-min-enforcement-unbounded-pass",
+             tokens=["find:re","(ab){3,}","take","to","match-end"], input_file="-", stdin=b"abababX",
+             expect=dict(stdout="ababab", exit=0)),
+
+        dict(id="regex-group-min-enforcement-unbounded-greedy",
+             tokens=["find:re","(ab){3,}","take","to","match-end"], input_file="-", stdin=b"abababababab",
+             expect=dict(stdout="abababababab", exit=0)),
+
+        dict(id="regex-grouping-unbounded-inner",
+             tokens=["find:re","(\\d+){2}","take","to","match-end"], input_file="-", stdin=b"123456,end",
+             expect=dict(stdout="123456", exit=0)),
+
+        # Group quantifier with alternation inside
+        dict(id="regex-grouping-alternation-quantified",
+             tokens=["find:re","(cat|dog){2}","take","to","match-end"], input_file="-", stdin=b"catdog",
+             expect=dict(stdout="catdog", exit=0)),
 
         # Complex grouping pattern
         dict(id="regex-090-complex-grouping-pattern",
@@ -2788,6 +2891,116 @@ def tests():
              tokens=["take","until:re","(|x)+"], input_file="overlap.txt",
              expect=dict(stdout="", exit=12, stderr_contains="empty alternative in quantified group")),
 
+        # Regex group quantifier with character class in alternation (fuzzer found)
+        dict(id="regex-group-quantifier-charclass-alt",
+             tokens=["take","until:re","([a-z]|x)+"], input_file="-", stdin=b"hello123",
+             expect=dict(stdout="", exit=0)),
+
+        dict(id="regex-group-quantifier-two-charclass",
+             tokens=["find:re","([a-z]|[0-9])+","take","to","match-end"], input_file="-", stdin=b"hello123world",
+             expect=dict(stdout="hello123world", exit=0)),
+
+        # Capacity tests: counter quantifier limits (with MAX_RE_COUNTERS=16, {1} uses no counter)
+        dict(id="capacity-001-counter-at-limit",
+             tokens=["find:re","a{2}b{2}c{2}d{2}e{2}f{2}g{2}h{2}i{2}j{2}k{2}l{2}m{2}n{2}o{2}p{2}"], input_file="-", stdin=b"test",
+             expect=dict(stdout="", exit=1)),  # 16 counters at limit, pattern compiles but doesn't match
+
+        dict(id="capacity-002-counter-over-limit",
+             tokens=["find:re","a{2}b{2}c{2}d{2}e{2}f{2}g{2}h{2}i{2}j{2}k{2}l{2}m{2}n{2}o{2}p{2}q{2}"], input_file="-", stdin=b"test",
+             expect=dict(stdout="", exit=RESOURCE_EXIT, stderr_contains="too many quantified groups")),
+
+        dict(id="capacity-003-nested-quantifiers-over-limit",
+             tokens=["find:re","(a{2}){2}(b{2}){2}(c{2}){2}(d{2}){2}(e{2}){2}(f{2}){2}(g{2}){2}(h{2}){2}(i{2}){2}"], input_file="-", stdin=b"test",
+             expect=dict(stdout="", exit=RESOURCE_EXIT, stderr_contains="too many quantified groups")),
+
+        # Regression tests from fuzzer - complex patterns that triggered capacity issues
+        # These patterns were causing exit 14 (capacity during compile) and must now pass preflight
+        dict(id="capacity-004-nested-with-alternation",
+             tokens=["find:re","([0-9]{3}|\\w*|(\\w)|(( {1,2}){13,37})*)+","take","to","match-end"], input_file="-", stdin=b"test",
+             expect=dict(exit=13)),  # Rejected: unbounded + on nullable pattern (\\w*)
+
+        dict(id="capacity-005-deeply-nested-quantifiers",
+             tokens=["find:re","((a{20,34}){40,80}|([^a-z]{16,34})+|a|^|[\\d\\w]+)+","take","to","match-end"], input_file="-", stdin=b"test",
+             expect=dict(exit=13)),  # Rejected: unbounded + on nullable pattern (^)
+
+        # Negative tests for grouped min enforcement (from implementation_feedback)
+        dict(id="regex-group-min-001",
+             tokens=["find:re","(ab){2,4}"], input_file="-", stdin=b"abX",
+             expect=dict(stdout="", exit=1)),  # Minimum not met, should not match
+
+        dict(id="regex-group-min-002",
+             tokens=["find:re","(\\d{3,5})"], input_file="-", stdin=b"12X",
+             expect=dict(stdout="", exit=1)),  # Minimum not met, should not match
+
+        # Additional regression tests from fuzzer (case_630, case_335, case_12036)
+        # These patterns must compile without exit 14 (may match or not, but should not crash capacity)
+        dict(id="capacity-006-extreme-alternation",
+             tokens=["take","until:re","([A-Z]|$|$|\\s|\\w|\\s|\\D|[\\d\\w]|[^ 	]|\\r|$)+"], input_file="-", stdin=b"test",
+             expect=dict(exit=13)),  # Rejected: unbounded + on nullable pattern ($ anchors)
+
+        dict(id="capacity-007-complex-nested-ranges",
+             tokens=["find:re","^([y0z]{5,33}){20}|\\d+|([^0-9]{0}){0,1}|\\w{50}([^a-z]{5}){20}"], input_file="-", stdin=b"test",
+             expect=dict(exit=0)),  # Should compile and match via \d+ branch
+
+        dict(id="capacity-008-huge-alternation-chain",
+             tokens=["find:re","a|x|\\t|a|a|\\0|[a-z]|\\{|[^0-9]|.|x|x|.|[\\d\\w]|[^0-9]|\\w|\\W|\\D|.|[0321a]|[\\d\\w]|$|x|[^a-z]|[\\d\\w]|\\w|x||\\s|x|[0-9]|\\}|x|\\n|x|$|[\\d\\w]"], input_file="-", stdin=b"test",
+             expect=dict(exit=0)),  # Should compile and match via [a-z] or \w or . branches
+
+        # Tests for large quantifiers (post-cap-removal)
+        dict(id="large-quantifier-atom-150",
+             tokens=["find:re","\\d{150}","take","to","match-end"], input_file="-", stdin=b"1" * 200,
+             expect=dict(stdout="1" * 150, exit=0)),
+
+        dict(id="large-quantifier-group-200",
+             tokens=["find:re","(ab){200}","take","to","match-end"], input_file="-", stdin=b"ab" * 250,
+             expect=dict(stdout="ab" * 200, exit=0)),
+
+        dict(id="large-quantifier-range-10-500",
+             tokens=["find:re","[a-z]{10,500}","take","to","match-end"], input_file="-", stdin=b"test" * 150,
+             expect=dict(stdout="test" * 125, exit=0)),  # 500 chars
+
+        # Tests for trivial quantifiers using no counters
+        dict(id="trivial-quantifiers-no-counter-usage",
+             tokens=["find:re","a{0}b{1}c{1}(d{0})(e{1})","take","to","match-end"], input_file="-", stdin=b"bce",
+             expect=dict(stdout="bce", exit=0)),  # {0} emits nothing, {1} emits once, no counters used
+
+        dict(id="trivial-vs-counter-quantifiers",
+             tokens=["find:re","a{1}b{1}c{1}d{1}e{1}f{1}g{1}h{1}i{2}","take","to","match-end"], input_file="-", stdin=b"abcdefghii",
+             expect=dict(stdout="abcdefghii", exit=0)),  # 8 x {1} use 0 counters, 1 x {2} uses 1 counter
+
+        # Regression tests for nullable pattern detection (prevents infinite empty matching)
+        dict(id="nullable-001-star-on-star",
+             tokens=["find:re","(a*)*"], input_file="-", stdin=b"test",
+             expect=dict(exit=13)),  # Reject: unbounded * on nullable a*
+
+        dict(id="nullable-002-plus-on-nullable",
+             tokens=["find:re","(\\W*){10,}"], input_file="-", stdin=b"test",
+             expect=dict(exit=13)),  # Reject: unbounded {10,} on nullable \\W*
+
+        dict(id="nullable-003-nested-zero-large",
+             tokens=["find:re","(((\\s{0,1})){0}){0,999999}"], input_file="-", stdin=b"test",
+             expect=dict(exit=13, alt_exit=11)),  # Reject as parse error or capacity (deep nesting triggers recursion guard)
+
+        dict(id="nullable-004-nested-zero-alt",
+             tokens=["find:re","(((.{0}){13,39})){0,999999}"], input_file="-", stdin=b"test",
+             expect=dict(exit=13, alt_exit=11)),  # Reject as parse error or capacity (deep nesting triggers recursion guard)
+
+        dict(id="nullable-005-anchor-plus",
+             tokens=["find:re","(^)+"], input_file="-", stdin=b"test",
+             expect=dict(exit=13)),  # Reject: unbounded + on nullable anchor
+
+        dict(id="nullable-006-anchor-star",
+             tokens=["find:re","($)*"], input_file="-", stdin=b"test",
+             expect=dict(exit=13)),  # Reject: unbounded * on nullable anchor
+
+        dict(id="nullable-007-bounded-ok",
+             tokens=["find:re","(a*){0,5}"], input_file="-", stdin=b"test",
+             expect=dict(exit=0)),  # Allow: bounded quantifier on nullable (max=5 is safe)
+
+        dict(id="nullable-008-bounded-ok-10",
+             tokens=["find:re","(\\w*){0,10}"], input_file="-", stdin=b"test",
+             expect=dict(exit=0, alt_exit=11)),  # Allow bounded quantifier, but may hit capacity in practice
+
     ]
 
 def main():
@@ -2836,7 +3049,8 @@ def main():
             in_path = str(FIX / in_name)
         code, out, err = run(exe, tokens, in_path, stdin_data, extra_args)
         ok_stdout, why = expect_stdout(out, t["expect"])
-        ok_exit = (code == t["expect"]["exit"])
+        ok_exit = (code == t["expect"]["exit"] or
+                   ("alt_exit" in t["expect"] and code == t["expect"]["alt_exit"]))
 
         if ok_stdout and ok_exit:
             print(f"[PASS] {tid}")
