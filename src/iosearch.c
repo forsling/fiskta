@@ -895,7 +895,7 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
     i64 pos, i64 win_lo, i64 win_hi, i64 file_size,
     unsigned char* seen, int* match_found, i64 min_start,
     unsigned char curr_char, unsigned char prev_char,
-    int at_bol, int at_eol, const int* counters, int depth)
+    int at_bol, int at_eol, const int* counters, u64 priority, int depth)
 {
     // Guard against stack overflow from pathological patterns like ((x*){0}){999,}
     if (depth > MAX_EPSILON_RECURSION_DEPTH) {
@@ -923,8 +923,26 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
             int saved_counters[MAX_RE_COUNTERS];
             memcpy(saved_counters, local_counters, sizeof(saved_counters));
 
-            // IMPORTANT: X first (preferred), then Y
-            enum Err err = add_thread_ordered(p, l, i->x, start, pos, win_lo, win_hi, file_size, seen, match_found, min_start, curr_char, prev_char, at_bol, at_eol, local_counters, depth + 1);
+            // Lazy-only penalty scheme:
+            // - Extract flags: bit0=repeat, bit1=lazy
+            // - Only apply +1 penalty to y-branch when BOTH repeat AND lazy are set
+            // - Greedy quantifiers and alternation get no penalty (priorities tie, longer match wins)
+            int repeat = (i->ch & 0x01) != 0;
+            int lazy = (i->ch & 0x02) != 0;
+
+            u64 prio_x, prio_y;
+            if (repeat && lazy) {
+                // Lazy quantifier SPLIT: x=exit (preferred), y=loop (penalized)
+                prio_x = priority;       // X-branch: no penalty (lazy exit)
+                prio_y = priority + 1;   // Y-branch: +1 penalty (lazy loop)
+            } else {
+                // Greedy quantifier or alternation: no penalty
+                prio_x = priority;
+                prio_y = priority;
+            }
+
+            // Explore X-branch first (always preferred by compiler's x/y assignment)
+            enum Err err = add_thread_ordered(p, l, i->x, start, pos, win_lo, win_hi, file_size, seen, match_found, min_start, curr_char, prev_char, at_bol, at_eol, local_counters, prio_x, depth + 1);
             if (err != E_OK) {
                 return err;
             }
@@ -932,7 +950,9 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
             // Restore counters before exploring the alternate branch
             memcpy(local_counters, saved_counters, sizeof(saved_counters));
 
-            pc = i->y; // continue tail-call
+            // Continue with Y-branch
+            priority = prio_y;
+            pc = i->y;
             continue;
         }
         case RI_JMP:
@@ -988,6 +1008,10 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
             if (start == min_start) {
                 *match_found = 1;
             }
+            // DEBUG: Print match info
+            #ifdef DEBUG_PRIORITY
+            fprintf(stderr, "MATCH: start=%lld, pos=%lld, priority=%llu\n", (long long)start, (long long)pos, (unsigned long long)priority);
+            #endif
             // Add the thread to the list so consumption step can detect it
             if (l->n >= l->cap) {
                 return E_CAPACITY; // Thread list is full
@@ -995,6 +1019,7 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
             l->v[l->n].pc = pc;
             l->v[l->n].start = start;
             memcpy(l->v[l->n].counters, local_counters, sizeof(local_counters));
+            l->v[l->n].priority = priority;
             l->n++;
             return E_OK;
         case RI_CHAR:
@@ -1007,6 +1032,7 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
             l->v[l->n].pc = pc;
             l->v[l->n].start = start;
             memcpy(l->v[l->n].counters, local_counters, sizeof(local_counters));
+            l->v[l->n].priority = priority;
             l->n++;
             return E_OK;
         default:
@@ -1063,6 +1089,7 @@ enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
 
     i64 best_ms = -1;
     i64 best_me = -1;
+    u64 best_priority = UINT64_MAX;  // Worst priority (higher = worse)
     i64 min_start = 0;
     int have_min = 0;
 
@@ -1160,16 +1187,54 @@ enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
             int match_found = 0;
             int zero_counters[MAX_RE_COUNTERS] = {0};
             enum Err err = add_thread_ordered(re, &curr, 0, pos, pos, win_lo, win_hi, io->size,
-                seen_curr, &match_found, min_start, curr_c, prev_char, at_bol, at_eol, zero_counters, 0);
+                seen_curr, &match_found, min_start, curr_c, prev_char, at_bol, at_eol, zero_counters, 0ULL, 0);
             if (err != E_OK) {
                 return err;
             }
             if (match_found) {
                 // epsilon-only match (no consumption): end == pos
-                // Record the match but continue greedy matching if there are active threads
-                if (!have_min || min_start <= best_ms || best_ms < 0) {
+                // Find the priority of the best MATCH thread at min_start
+                u64 match_priority = UINT64_MAX;
+                for (int i = 0; i < curr.n; i++) {
+                    if (curr.v[i].start == min_start && curr.v[i].pc >= 0 &&
+                        curr.v[i].pc < re->nins && re->ins[curr.v[i].pc].op == RI_MATCH) {
+                        if (curr.v[i].priority < match_priority) {
+                            match_priority = curr.v[i].priority;
+                        }
+                    }
+                }
+
+                // Three-tier comparison per user spec:
+                // (1) earlier start wins
+                // (2) same start → compare (priority, end) lexicographically
+                //     - Better priority wins regardless of end
+                //     - Equal priority → longer end wins
+                //     - Worse priority AND shorter/equal end → reject
+                int accept_match = 0;
+                if (best_ms < 0) {
+                    accept_match = 1;  // First match
+                } else if (min_start < best_ms) {
+                    accept_match = 1;  // Tier 1: Earlier start wins
+                } else if (min_start == best_ms) {
+                    // Lexicographic comparison: (priority, -end)
+                    // Lower priority is better; for equal priority, longer end is better
+                    if (match_priority < best_priority) {
+                        accept_match = 1;  // Better priority
+                    } else if (match_priority == best_priority && pos > best_me) {
+                        accept_match = 1;  // Equal priority, longer end
+                    }
+                    // Note: worse priority is rejected even if longer
+                }
+
+                #ifdef DEBUG_PRIORITY
+                fprintf(stderr, "Epsilon-1: min_start=%lld, pos=%lld, match_prio=%llu, best_ms=%lld, best_me=%lld, best_prio=%llu, accept=%d\n",
+                    (long long)min_start, (long long)pos, (unsigned long long)match_priority,
+                    (long long)best_ms, (long long)best_me, (unsigned long long)best_priority, accept_match);
+                #endif
+                if (accept_match) {
                     best_ms = min_start;
                     best_me = pos;
+                    best_priority = match_priority;
                 }
                 if (dir == DIR_FWD) {
                     // Remove MATCH threads but keep other threads to continue greedy matching
@@ -1204,20 +1269,50 @@ enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
             for (int k = 0; k < curr.n; k++) {
                 // IMPORTANT: keep global min_start
                 enum Err err = add_thread_ordered(re, &curr, curr.v[k].pc, curr.v[k].start, pos, win_lo, win_hi, io->size,
-                    seen_curr, &match_found, min_start, curr_char, prev_char, at_bol, at_eol, curr.v[k].counters, 0);
+                    seen_curr, &match_found, min_start, curr_char, prev_char, at_bol, at_eol, curr.v[k].counters, curr.v[k].priority, 0);
                 if (err != E_OK) {
                     return err;
                 }
             }
             if (match_found) {
                 // epsilon-only match at current pos
+                // Find the priority of the best MATCH thread at min_start
+                u64 match_priority = UINT64_MAX;
+                for (int i = 0; i < curr.n; i++) {
+                    if (curr.v[i].start == min_start && curr.v[i].pc >= 0 &&
+                        curr.v[i].pc < re->nins && re->ins[curr.v[i].pc].op == RI_MATCH) {
+                        if (curr.v[i].priority < match_priority) {
+                            match_priority = curr.v[i].priority;
+                        }
+                    }
+                }
+
                 if (dir == DIR_FWD) {
+                    // For forward search, return immediately with first match (using priority for tie-breaking)
                     *ms = min_start;
                     *me = pos;
                     return E_OK;
                 }
-                best_ms = min_start;
-                best_me = pos;
+
+                // Backward search: apply three-tier comparison
+                int accept_match = 0;
+                if (best_ms < 0) {
+                    accept_match = 1;  // First match
+                } else if (min_start < best_ms) {
+                    accept_match = 1;  // Tier 1: Earlier start wins
+                } else if (min_start == best_ms) {
+                    if (match_priority < best_priority) {
+                        accept_match = 1;  // Tier 2: Better priority → ALWAYS wins
+                    } else if (match_priority == best_priority && pos > best_me) {
+                        accept_match = 1;  // Tier 3: SAME priority → longer end wins
+                    }
+                }
+
+                if (accept_match) {
+                    best_ms = min_start;
+                    best_me = pos;
+                    best_priority = match_priority;
+                }
                 curr.n = 0;
                 have_min = 0;
             }
@@ -1244,7 +1339,7 @@ enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
             switch (inst->op) {
             case RI_CHAR:
                 if (c == inst->ch) {
-                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol, curr.v[i].counters, 0);
+                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol, curr.v[i].counters, curr.v[i].priority, 0);
                     if (err != E_OK) {
                         return err;
                     }
@@ -1252,7 +1347,7 @@ enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
                 break;
             case RI_ANY:
                 if (c != '\n') { // dot ≠ newline
-                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol, curr.v[i].counters, 0);
+                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol, curr.v[i].counters, curr.v[i].priority, 0);
                     if (err != E_OK) {
                         return err;
                     }
@@ -1260,7 +1355,7 @@ enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
                 break;
             case RI_CLASS:
                 if (inst->cls_idx >= 0 && inst->cls_idx < re->nclasses && cls_has(&re->classes[inst->cls_idx], c)) {
-                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol, curr.v[i].counters, 0);
+                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol, curr.v[i].counters, curr.v[i].priority, 0);
                     if (err != E_OK) {
                         return err;
                     }
@@ -1284,10 +1379,40 @@ enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
 
         if (match_found) {
             // For greedy matching, record the match but continue as long as there are active threads from min_start
-            // Only update best match if it's from the current min_start
-            if (!have_min || min_start <= best_ms || best_ms < 0) {
+            // Find the priority of the best MATCH thread at min_start
+            u64 match_priority = UINT64_MAX;
+            for (int i = 0; i < next.n; i++) {
+                if (next.v[i].start == min_start && next.v[i].pc >= 0 &&
+                    next.v[i].pc < re->nins && re->ins[next.v[i].pc].op == RI_MATCH) {
+                    if (next.v[i].priority < match_priority) {
+                        match_priority = next.v[i].priority;
+                    }
+                }
+            }
+
+            // Three-tier comparison
+            int accept_match = 0;
+            if (best_ms < 0) {
+                accept_match = 1;  // First match
+            } else if (min_start < best_ms) {
+                accept_match = 1;  // Tier 1: Earlier start wins
+            } else if (min_start == best_ms) {
+                if (match_priority < best_priority) {
+                    accept_match = 1;  // Tier 2: Better priority → ALWAYS wins
+                } else if (match_priority == best_priority && (pos + 1) > best_me) {
+                    accept_match = 1;  // Tier 3: SAME priority → longer end wins
+                }
+            }
+
+            #ifdef DEBUG_PRIORITY
+            fprintf(stderr, "Consume: min_start=%lld, pos+1=%lld, match_prio=%llu, best_ms=%lld, best_me=%lld, best_prio=%llu, accept=%d\n",
+                (long long)min_start, (long long)(pos+1), (unsigned long long)match_priority,
+                (long long)best_ms, (long long)best_me, (unsigned long long)best_priority, accept_match);
+            #endif
+            if (accept_match) {
                 best_ms = min_start;
                 best_me = pos + 1;
+                best_priority = match_priority;
             }
             if (dir == DIR_FWD) {
                 // Remove MATCH threads and threads not from min_start

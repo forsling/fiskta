@@ -2012,6 +2012,116 @@ def tests():
              tokens=["find:re","(ab)+x","take","to","match-end"], input_file="-", stdin=b"ababx",
              expect=dict(stdout="ababx", exit=0)),
 
+        # ---------- Lazy Quantifier Tests ----------
+        # Lazy ? - prefer zero occurrences
+        dict(id="lazy-001-question-lazy-zero",
+             tokens=["find:re","a.??b","take","to","match-end"], input_file="-", stdin=b"ab",
+             expect=dict(stdout="ab", exit=0)),
+
+        dict(id="lazy-002-question-lazy-one",
+             tokens=["find:re","a.??b","take","to","match-end"], input_file="-", stdin=b"axb",
+             expect=dict(stdout="axb", exit=0)),
+
+        dict(id="lazy-003-question-greedy-vs-lazy",
+             tokens=["find:re","a.?b","take","to","match-end"], input_file="-", stdin=b"axb",
+             expect=dict(stdout="axb", exit=0)),  # Both greedy and lazy match same for ?
+
+        # Lazy * - prefer zero occurrences, match minimally
+        dict(id="lazy-004-star-lazy-minimal",
+             tokens=["find:re","a.*?b","take","to","match-end"], input_file="-", stdin=b"axxbyyb",
+             expect=dict(stdout="axxb", exit=0)),  # Matches to first 'b'
+
+        dict(id="lazy-005-star-greedy-maximal",
+             tokens=["find:re","a.*b","take","to","match-end"], input_file="-", stdin=b"axxbyyb",
+             expect=dict(stdout="axxbyyb", exit=0)),  # Matches to last 'b'
+
+        dict(id="lazy-006-star-lazy-zero",
+             tokens=["find:re","a.*?b","take","to","match-end"], input_file="-", stdin=b"ab",
+             expect=dict(stdout="ab", exit=0)),  # Matches with zero chars between
+
+        dict(id="lazy-007-star-lazy-tag-example",
+             tokens=["find:re","<.*?>","take","to","match-end"], input_file="-", stdin=b"<tag>content</tag>",
+             expect=dict(stdout="<tag>", exit=0)),  # Matches first tag only
+
+        dict(id="lazy-008-star-greedy-tag-example",
+             tokens=["find:re","<.*>","take","to","match-end"], input_file="-", stdin=b"<tag>content</tag>",
+             expect=dict(stdout="<tag>content</tag>", exit=0)),  # Matches entire string
+
+        # Lazy + - prefer one occurrence, match minimally
+        dict(id="lazy-009-plus-lazy-minimal",
+             tokens=["find:re","a.+?b","take","to","match-end"], input_file="-", stdin=b"aybzb",
+             expect=dict(stdout="ayb", exit=0)),  # Matches to first 'b'
+
+        dict(id="lazy-010-plus-greedy-maximal",
+             tokens=["find:re","a.+b","take","to","match-end"], input_file="-", stdin=b"aybzb",
+             expect=dict(stdout="aybzb", exit=0)),  # Matches to last 'b'
+
+        dict(id="lazy-011-plus-lazy-one-char",
+             tokens=["find:re","a.+?b","take","to","match-end"], input_file="-", stdin=b"axb",
+             expect=dict(stdout="axb", exit=0)),  # Matches with exactly one char
+
+        # Note: "a.+?b" on "xabyabz" correctly matches "abyab" (not "ab") because
+        # .+? requires at least one character, and "ab" at position 1-2 has 'b' for the dot,
+        # which can't then match the pattern's final 'b'. The minimal match needs 3 chars.
+        dict(id="lazy-012-plus-lazy-alternating",
+             tokens=["find:re","a.+?b","take","to","match-end"], input_file="-", stdin=b"xabyabz",
+             expect=dict(stdout="abyab", exit=0)),  # Minimal valid match
+
+        # Lazy {n,m} - prefer n occurrences
+        dict(id="lazy-013-bounded-lazy-min",
+             tokens=["find:re","a.{2,4}?b","take","to","match-end"], input_file="-", stdin=b"axxbyyyyb",
+             expect=dict(stdout="axxb", exit=0)),  # Matches with 2 chars (minimum)
+
+        dict(id="lazy-014-bounded-greedy-max",
+             tokens=["find:re","a.{2,4}b","take","to","match-end"], input_file="-", stdin=b"axxxxb",
+             expect=dict(stdout="axxxxb", exit=0)),  # Matches with 4 chars (maximum)
+
+        dict(id="lazy-015-exact-count-lazy",
+             tokens=["find:re","a.{3}?b","take","to","match-end"], input_file="-", stdin=b"axxxb",
+             expect=dict(stdout="axxxb", exit=0)),  # Lazy has no effect on exact count
+
+        # Lazy {n,} - prefer n occurrences
+        dict(id="lazy-016-unbounded-lazy-min",
+             tokens=["find:re","a.{2,}?b","take","to","match-end"], input_file="-", stdin=b"axxbyyyyb",
+             expect=dict(stdout="axxb", exit=0)),  # Matches with 2 chars (minimum)
+
+        dict(id="lazy-017-unbounded-greedy-more",
+             tokens=["find:re","a.{2,}b","take","to","match-end"], input_file="-", stdin=b"axxbyyyyb",
+             expect=dict(stdout="axxbyyyyb", exit=0)),  # Matches to last 'b'
+
+        # Character class with lazy quantifiers
+        dict(id="lazy-018-charclass-lazy-star",
+             tokens=["find:re","[a-z]*?X","take","to","match-end"], input_file="-", stdin=b"abcXdefX",
+             expect=dict(stdout="abcX", exit=0)),  # Matches to first X
+
+        dict(id="lazy-019-charclass-lazy-plus",
+             tokens=["find:re","[0-9]+?X","take","to","match-end"], input_file="-", stdin=b"123X456X",
+             expect=dict(stdout="123X", exit=0)),  # Matches to first X
+
+        # Digit class with lazy quantifiers
+        dict(id="lazy-020-digits-lazy",
+             tokens=["find:re","\\d+?X","take","to","match-end"], input_file="-", stdin=b"12345X999X",
+             expect=dict(stdout="12345X", exit=0)),  # Minimal digits to X
+
+        # Multiple lazy quantifiers in pattern
+        dict(id="lazy-021-multiple-lazy",
+             tokens=["find:re","a.*?b.*?c","take","to","match-end"], input_file="-", stdin=b"aXbYYcZZc",
+             expect=dict(stdout="aXbYYc", exit=0)),  # Both lazy
+
+        # Lazy in alternation (alternation doesn't affect priority)
+        dict(id="lazy-022-alternation-with-lazy",
+             tokens=["find:re","(a|b)+?c","take","to","match-end"], input_file="-", stdin=b"abababc",
+             expect=dict(stdout="abababc", exit=0)),  # Greedy due to +? only affecting exit
+
+        # Anchors with lazy quantifiers
+        dict(id="lazy-023-anchor-lazy-star",
+             tokens=["find:re","^.*?X","take","to","match-end"], input_file="-", stdin=b"abcXdefX",
+             expect=dict(stdout="abcX", exit=0)),  # From start to first X
+
+        dict(id="lazy-024-anchor-lazy-plus",
+             tokens=["find:re","^.+?X","take","to","match-end"], input_file="-", stdin=b"abcXdefX",
+             expect=dict(stdout="abcX", exit=0)),  # At least one char before X
+
         # ---------- Take Until:re Tests ----------
         dict(id="regex-104-until-re-literal",
              tokens=["take","until:re","world"], input_file="-", stdin=b"hello world test",

@@ -5,11 +5,13 @@
 
 // Regex thread state (exposed so startup code can size/allocate scratch)
 // counters[] track bounded quantifier state (e.g., {n,m} on groups)
+// priority: bit-path encoding of SPLIT decisions (lower = higher priority)
 #define MAX_RE_COUNTERS 16
 typedef struct {
     int pc;
     i64 start;
     int counters[MAX_RE_COUNTERS];
+    u64 priority;
 } ReThread;
 
 #ifndef FISKTA_IDX_BLOCK

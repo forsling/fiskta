@@ -665,11 +665,12 @@ cleanup:
 }
 
 // Parse quantifier at position i, updating i_inout to position after quantifier
-// Returns parsed min/max counts and whether a quantifier was found
-static enum Err parse_quantifier(String pat, int* i_inout, int* min_count, int* max_count, bool* is_quantified)
+// Returns parsed min/max counts, whether a quantifier was found, and if it's lazy
+static enum Err parse_quantifier(String pat, int* i_inout, int* min_count, int* max_count, bool* is_quantified, bool* is_lazy)
 {
     int i = *i_inout;
     *is_quantified = false;
+    *is_lazy = false;
     *min_count = 1;
     *max_count = 1;
 
@@ -749,6 +750,11 @@ static enum Err parse_quantifier(String pat, int* i_inout, int* min_count, int* 
         if (*max_count > 0 && *min_count > *max_count) {
             return E_PARSE;
         }
+        // Check for lazy suffix '?'
+        if (i < pat.len && pat.bytes[i] == '?') {
+            *is_lazy = true;
+            i++;
+        }
     }
 
     *i_inout = i;
@@ -809,8 +815,8 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
             // Empty group - skip past ) and any quantifier
             int k = j + 1;
             int min_count, max_count;
-            bool is_quantified;
-            enum Err e = parse_quantifier(pat, &k, &min_count, &max_count, &is_quantified);
+            bool is_quantified, is_lazy;
+            enum Err e = parse_quantifier(pat, &k, &min_count, &max_count, &is_quantified, &is_lazy);
             if (e != E_OK) {
                 return e;
             }
@@ -825,8 +831,8 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
         // Parse quantifier after the closing )
         int k = j + 1;
         int min_count, max_count;
-        bool is_quantified;
-        enum Err e = parse_quantifier(pat, &k, &min_count, &max_count, &is_quantified);
+        bool is_quantified, is_lazy;
+        enum Err e = parse_quantifier(pat, &k, &min_count, &max_count, &is_quantified, &is_lazy);
         if (e != E_OK) {
             return e;
         }
@@ -894,9 +900,10 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
         }
 
         if (min_count == 0 && max_count == 1) {
-            // ? quantifier - simple split, no counter needed
+            // ? quantifier - split(take, skip) for greedy; split(skip, take) for lazy
             int split_pc;
-            e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc);
+            // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
+            e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &split_pc);
             if (e != E_OK) {
                 return e;
             }
@@ -905,8 +912,13 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
             if (e != E_OK) {
                 return e;
             }
-            b->ins[split_pc].x = group_start; // take
-            b->ins[split_pc].y = b->nins; // skip
+            if (is_lazy) {
+                b->ins[split_pc].x = b->nins; // skip first -> lazy
+                b->ins[split_pc].y = group_start; // take second
+            } else {
+                b->ins[split_pc].x = group_start; // take first -> greedy
+                b->ins[split_pc].y = b->nins; // skip second
+            }
             if (out_nullable) {
                 *out_nullable = quantifier_makes_nullable; // Always true for ?
             }
@@ -914,9 +926,9 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
             // {n,} or + or * - use counter-based loop (no pre-expansion)
             // Note: nullable patterns already rejected above
             if (min_count == 0) {
-                // * quantifier - simple SPLIT+JMP loop (no counter needed)
+                // * quantifier - split(loop, stop) for greedy; split(stop, loop) for lazy
                 int split_pc;
-                e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc);
+                e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &split_pc);
                 if (e != E_OK) {
                     return e;
                 }
@@ -930,19 +942,25 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
                 if (e != E_OK) {
                     return e;
                 }
-                b->ins[split_pc].x = group_start; // loop
-                b->ins[split_pc].y = b->nins; // stop
+                if (is_lazy) {
+                    b->ins[split_pc].x = b->nins; // stop first -> lazy
+                    b->ins[split_pc].y = group_start; // loop second
+                } else {
+                    b->ins[split_pc].x = group_start; // loop first -> greedy
+                    b->ins[split_pc].y = b->nins; // stop second
+                }
                 if (out_nullable) {
                     *out_nullable = quantifier_makes_nullable; // True for *
                 }
             } else if (min_count == 1) {
-                // + quantifier - emit once, then SPLIT+JMP loop (no counter needed)
+                // + quantifier - split(loop, stop) for greedy; split(stop, loop) for lazy
                 e = compile_alt_sequence(b, inner, inner_len, NULL);
                 if (e != E_OK) {
                     return e;
                 }
                 int split_pc;
-                e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc);
+                // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
+                e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &split_pc);
                 if (e != E_OK) {
                     return e;
                 }
@@ -956,8 +974,13 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
                 if (e != E_OK) {
                     return e;
                 }
-                b->ins[split_pc].x = group_start; // loop
-                b->ins[split_pc].y = b->nins; // stop
+                if (is_lazy) {
+                    b->ins[split_pc].x = b->nins; // stop first -> lazy
+                    b->ins[split_pc].y = group_start; // loop second
+                } else {
+                    b->ins[split_pc].x = group_start; // loop first -> greedy
+                    b->ins[split_pc].y = b->nins; // stop second
+                }
                 if (out_nullable) {
                     *out_nullable = quantifier_makes_nullable; // False for +
                 }
@@ -995,9 +1018,10 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
                     *out_nullable = quantifier_makes_nullable; // False for {n,} where n>=2
                 }
 
-                // SPLIT: try to loop (greedy) or exit
+                // SPLIT: split(loop, exit) for greedy; split(exit, loop) for lazy
                 int split_pc;
-                e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc);
+                // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
+                e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &split_pc);
                 if (e != E_OK) {
                     return e;
                 }
@@ -1017,8 +1041,13 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
                 }
 
                 // Wire up SPLIT
-                b->ins[split_pc].x = loop_branch; // greedy: try to loop first
-                b->ins[split_pc].y = exit_branch; // or exit (must meet min)
+                if (is_lazy) {
+                    b->ins[split_pc].x = exit_branch; // lazy: try to exit first
+                    b->ins[split_pc].y = loop_branch; // or loop
+                } else {
+                    b->ins[split_pc].x = loop_branch; // greedy: try to loop first
+                    b->ins[split_pc].y = exit_branch; // or exit
+                }
             }
         } else if (max_count > 1) {
             // Bounded {n,m} or {n} - use counter-based loop
@@ -1058,9 +1087,10 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
 
             // For exact count: use SPLIT to decide between looping and exiting
             if (max_count == min_count) {
-                // SPLIT: try to loop (first branch) or exit (second branch)
+                // SPLIT: split(loop, exit) for greedy; split(exit, loop) for lazy
                 int split_pc;
-                e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc);
+                // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
+                e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &split_pc);
                 if (e != E_OK) {
                     return e;
                 }
@@ -1084,13 +1114,19 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
                 }
 
                 // Wire up SPLIT
-                b->ins[split_pc].x = check_branch; // try to loop first (greedy)
-                b->ins[split_pc].y = exit_branch; // or exit
+                if (is_lazy) {
+                    b->ins[split_pc].x = exit_branch; // lazy: try to exit first
+                    b->ins[split_pc].y = check_branch; // or loop
+                } else {
+                    b->ins[split_pc].x = check_branch; // greedy: try to loop first
+                    b->ins[split_pc].y = exit_branch; // or exit
+                }
             } else {
                 // Range {n,m} where n < m
-                // Use same SPLIT approach as exact count - CHECK handles max limit
+                // SPLIT: split(loop, exit) for greedy; split(exit, loop) for lazy
                 int split_pc;
-                e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc);
+                // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
+                e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &split_pc);
                 if (e != E_OK) {
                     return e;
                 }
@@ -1114,8 +1150,13 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
                 }
 
                 // Wire up SPLIT
-                b->ins[split_pc].x = check_branch; // greedy: try to loop first
-                b->ins[split_pc].y = exit_branch; // or exit
+                if (is_lazy) {
+                    b->ins[split_pc].x = exit_branch; // lazy: try to exit first
+                    b->ins[split_pc].y = check_branch; // or loop
+                } else {
+                    b->ins[split_pc].x = check_branch; // greedy: try to loop first
+                    b->ins[split_pc].y = exit_branch; // or exit
+                }
             }
         }
 
@@ -1267,8 +1308,8 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
 
     // Parse quantifier using shared helper
     int min_count, max_count;
-    bool is_quantified;
-    enum Err e = parse_quantifier(pat, &i, &min_count, &max_count, &is_quantified);
+    bool is_quantified, is_lazy;
+    enum Err e = parse_quantifier(pat, &i, &min_count, &max_count, &is_quantified, &is_lazy);
     if (e != E_OK) {
         return e;
     }
@@ -1304,10 +1345,11 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
         }
 
         if (min_count == 0 && max_count == 1) {
-            // ? quantifier - greedy: split(take, cont), atom
+            // ? quantifier - split(take, cont) for greedy; split(cont, take) for lazy
             int idx_split;
             int idx_atom;
-            e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split);
+            // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
+            e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &idx_split);
             if (e != E_OK) {
                 return e;
             }
@@ -1327,16 +1369,22 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
             if (e != E_OK) {
                 return e;
             }
-            b->ins[idx_split].x = idx_atom; // take first -> greedy
-            b->ins[idx_split].y = b->nins; // continue after atom
+            if (is_lazy) {
+                b->ins[idx_split].x = b->nins; // skip first -> lazy
+                b->ins[idx_split].y = idx_atom; // take second
+            } else {
+                b->ins[idx_split].x = idx_atom; // take first -> greedy
+                b->ins[idx_split].y = b->nins; // skip second
+            }
             // ? makes result nullable
             nullable = true;
         } else if (min_count == 0 && max_count == -1) {
-            // * quantifier - greedy: split(loop, cont), atom, jmp split
+            // * quantifier - split(loop, stop) for greedy; split(stop, loop) for lazy
             int idx_split;
             int idx_atom;
             int idx_jmp;
-            e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split);
+            // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
+            e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &idx_split);
             if (e != E_OK) {
                 return e;
             }
@@ -1360,12 +1408,17 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
             if (e != E_OK) {
                 return e;
             }
-            b->ins[idx_split].x = idx_atom; // loop first -> greedy
-            b->ins[idx_split].y = b->nins; // continue after jmp
+            if (is_lazy) {
+                b->ins[idx_split].x = b->nins; // stop first -> lazy
+                b->ins[idx_split].y = idx_atom; // loop second
+            } else {
+                b->ins[idx_split].x = idx_atom; // loop first -> greedy
+                b->ins[idx_split].y = b->nins; // stop second
+            }
             // * makes result nullable
             nullable = true;
         } else if (min_count == 1 && max_count == -1) {
-            // + quantifier - atom, split(loop, cont)
+            // + quantifier - split(loop, stop) for greedy; split(stop, loop) for lazy
             int idx_atom;
             int idx_split;
             switch (ak) {
@@ -1384,12 +1437,18 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
             if (e != E_OK) {
                 return e;
             }
-            e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &idx_split);
+            // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
+            e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &idx_split);
             if (e != E_OK) {
                 return e;
             }
-            b->ins[idx_split].x = idx_atom; // loop back to atom
-            b->ins[idx_split].y = b->nins; // fallthrough to next instruction
+            if (is_lazy) {
+                b->ins[idx_split].x = b->nins; // stop first -> lazy
+                b->ins[idx_split].y = idx_atom; // loop second
+            } else {
+                b->ins[idx_split].x = idx_atom; // loop first -> greedy
+                b->ins[idx_split].y = b->nins; // stop second
+            }
             // + doesn't make result nullable (requires at least one match)
             nullable = false;
         } else {
@@ -1481,9 +1540,10 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
 
             if (max_count == -1) {
                 // Unbounded: {n,} - loop forever (no max limit)
-                // SPLIT: try to loop (greedy) or exit
+                // SPLIT: split(loop, exit) for greedy; split(exit, loop) for lazy
                 int split_pc;
-                e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc);
+                // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
+                e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &split_pc);
                 if (e != E_OK) {
                     return e;
                 }
@@ -1503,13 +1563,19 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
                 }
 
                 // Wire up SPLIT
-                b->ins[split_pc].x = loop_branch; // greedy: try to loop first
-                b->ins[split_pc].y = exit_branch; // or exit (must meet min)
+                if (is_lazy) {
+                    b->ins[split_pc].x = exit_branch; // lazy: try to exit first
+                    b->ins[split_pc].y = loop_branch; // or loop
+                } else {
+                    b->ins[split_pc].x = loop_branch; // greedy: try to loop first
+                    b->ins[split_pc].y = exit_branch; // or exit
+                }
             } else if (max_count == min_count) {
                 // Exact count: {n} - loop exactly n times
-                // SPLIT: try to loop or exit
+                // SPLIT: split(loop, exit) for greedy; split(exit, loop) for lazy
                 int split_pc;
-                e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc);
+                // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
+                e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &split_pc);
                 if (e != E_OK) {
                     return e;
                 }
@@ -1533,13 +1599,19 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
                 }
 
                 // Wire up SPLIT
-                b->ins[split_pc].x = check_branch; // greedy: try to loop first
-                b->ins[split_pc].y = exit_branch; // or exit
+                if (is_lazy) {
+                    b->ins[split_pc].x = exit_branch; // lazy: try to exit first
+                    b->ins[split_pc].y = check_branch; // or loop
+                } else {
+                    b->ins[split_pc].x = check_branch; // greedy: try to loop first
+                    b->ins[split_pc].y = exit_branch; // or exit
+                }
             } else {
                 // Range: {n,m} - loop between n and m times
-                // SPLIT: try to loop or exit
+                // SPLIT: split(loop, exit) for greedy; split(exit, loop) for lazy
                 int split_pc;
-                e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc);
+                // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
+                e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &split_pc);
                 if (e != E_OK) {
                     return e;
                 }
@@ -1563,8 +1635,13 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
                 }
 
                 // Wire up SPLIT
-                b->ins[split_pc].x = check_branch; // greedy: try to loop first
-                b->ins[split_pc].y = exit_branch; // or exit (must meet min)
+                if (is_lazy) {
+                    b->ins[split_pc].x = exit_branch; // lazy: try to exit first
+                    b->ins[split_pc].y = check_branch; // or loop
+                } else {
+                    b->ins[split_pc].x = check_branch; // greedy: try to loop first
+                    b->ins[split_pc].y = exit_branch; // or exit
+                }
             }
         }
     }
