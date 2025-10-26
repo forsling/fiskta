@@ -34,6 +34,8 @@ typedef struct ReProg {
     int nins;
     ReClass* classes;
     int nclasses;
+    int counter_count;  // Number of counters used (0 if none)
+    unsigned char has_lazy;  // 1 if pattern contains lazy quantifiers
 } ReProg;
 
 // Compile pattern into preallocated pools; appends instructions/classes to the pools.

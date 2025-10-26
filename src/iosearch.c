@@ -904,14 +904,17 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
 
     // Local counter state for this thread
     int local_counters[MAX_RE_COUNTERS];
-    memcpy(local_counters, counters, sizeof(local_counters));
+    int counter_count = p->counter_count;
+    if (counter_count > 0) {
+        memcpy(local_counters, counters, (size_t)counter_count * sizeof(int));
+    }
 
     while (1) {
         if (pc < 0 || pc >= p->nins) {
             return E_OK;
         }
         // Dedup by (pc, counter_signature)
-        u32 sig = re_counters_sig(local_counters, MAX_RE_COUNTERS);
+        u32 sig = (counter_count > 0) ? re_counters_sig(local_counters, counter_count) : 1;
         if (re_seen_hit_or_set(seen, pc, sig)) {
             return E_OK;  // Already visited this (pc, counter_state) combination
         }
@@ -921,7 +924,9 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
         case RI_SPLIT: {
             // Snapshot counter state so both branches see the same starting values
             int saved_counters[MAX_RE_COUNTERS];
-            memcpy(saved_counters, local_counters, sizeof(saved_counters));
+            if (counter_count > 0) {
+                memcpy(saved_counters, local_counters, (size_t)counter_count * sizeof(int));
+            }
 
             // Lazy-only penalty scheme:
             // - Extract flags: bit0=repeat, bit1=lazy
@@ -948,7 +953,9 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
             }
 
             // Restore counters before exploring the alternate branch
-            memcpy(local_counters, saved_counters, sizeof(saved_counters));
+            if (counter_count > 0) {
+                memcpy(local_counters, saved_counters, (size_t)counter_count * sizeof(int));
+            }
 
             // Continue with Y-branch
             priority = prio_y;
@@ -1018,7 +1025,9 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
             }
             l->v[l->n].pc = pc;
             l->v[l->n].start = start;
-            memcpy(l->v[l->n].counters, local_counters, sizeof(local_counters));
+            if (counter_count > 0) {
+                memcpy(l->v[l->n].counters, local_counters, (size_t)counter_count * sizeof(int));
+            }
             l->v[l->n].priority = priority;
             l->n++;
             return E_OK;
@@ -1031,7 +1040,9 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
             }
             l->v[l->n].pc = pc;
             l->v[l->n].start = start;
-            memcpy(l->v[l->n].counters, local_counters, sizeof(local_counters));
+            if (counter_count > 0) {
+                memcpy(l->v[l->n].counters, local_counters, (size_t)counter_count * sizeof(int));
+            }
             l->v[l->n].priority = priority;
             l->n++;
             return E_OK;

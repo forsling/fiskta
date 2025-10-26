@@ -55,6 +55,7 @@ typedef struct {
     ReClass* cls;
     int ncls, cls_cap;
     int next_counter_id; // For allocating counter IDs to quantified groups
+    unsigned char has_lazy; // 1 if any lazy quantifier seen
     String pattern; // Pattern being compiled (for error messages)
 } ReB;
 
@@ -836,6 +837,9 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
         if (e != E_OK) {
             return e;
         }
+        if (is_lazy) {
+            b->has_lazy = 1;
+        }
 
         String inner = (String) { pat.bytes + inner_lo, inner_len };
 
@@ -1313,6 +1317,9 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
     if (e != E_OK) {
         return e;
     }
+    if (is_lazy) {
+        b->has_lazy = 1;
+    }
 
     // Emit sequence based on (ak, q)
     if (!is_quantified) {
@@ -1733,6 +1740,8 @@ enum Err re_compile_into(String pattern,
     out->nins = b.nins;
     out->classes = b.cls;
     out->nclasses = b.ncls;
+    out->counter_count = b.next_counter_id;
+    out->has_lazy = b.has_lazy;
 
     if (ins_used) {
         *ins_used = ins_start + b.nins;
