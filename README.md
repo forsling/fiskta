@@ -140,7 +140,10 @@ $ fiskta --input status.txt --monitor --every 2s --for 8h find "DISCONNECTED" ta
 ### Regex Syntax
 
 - **Character Classes**: `\d` (digits), `\D` (non-digits), `\w` (word), `\W` (non-word), `\s` (space), `\S` (non-space), `[a-z]`, `[^0-9]`
-- **Quantifiers**: `*` (0+), `+` (1+), `?` (0-1), `{n}` (exactly n), `{n,m}` (n to m). Max quantifier values: 100 (policy limit to prevent excessive expansion)
+- **Quantifiers**: `*` (0+), `+` (1+), `?` (0-1), `{n}` (exactly n), `{n,m}` (n to m), `{n,}` (n or more)
+  - Greedy by default (match as much as possible)
+  - Lazy/non-greedy: `*?`, `+?`, `??`, `{n,m}?`, `{n,}?` (match as little as possible)
+  - Max quantifier values: 100 (policy limit)
 - **Grouping**: `( ... )` (group subpatterns), `(a|b)+` (quantified groups)
 - **Anchors**: `^` (line start), `$` (line end)
 - **Alternation**: `|` (OR)
@@ -251,7 +254,9 @@ Search using regular expressions. Same search behavior as `find`.
 
 Regex syntax:
 - Classes: `\d` (digit), `\D` (non-digit), `\w` (word), `\W` (non-word), `\s` (space), `\S` (non-space), `[a-z]`, `[^0-9]`
-- Quantifiers: `*` (0+), `+` (1+), `?` (0-1), `{n}`, `{n,m}` (max n or m-n: 100)
+- Quantifiers: `*` (0+), `+` (1+), `?` (0-1), `{n}`, `{n,m}`, `{n,}` (max: 100)
+  - Greedy (default): `*`, `+`, `?`, `{n,m}`
+  - Lazy: `*?`, `+?`, `??`, `{n,m}?`, `{n,}?`
 - Anchors: `^` (line start), `$` (line end)
 - Alternation: `|`, Grouping: `(...)`, Any char: `.`
 - Escapes: `\n`, `\t`, `\r`, `\f`, `\v`, `\0`
@@ -261,6 +266,8 @@ find:re "ERROR|WARN"                    # alternation
 find:re "^\[.*\]"                       # line start anchor
 find:re "[0-9]{1,3}\.[0-9]{1,3}"        # IP address pattern
 find:re "[A-Za-z]+@[A-Za-z.]+"          # simple email pattern
+find:re "<.*?>"                         # lazy: match minimal content between < and >
+find:re "a.*?b"                         # lazy: match minimal chars between 'a' and 'b'
 ```
 
 #### `find:bin [to <location>] <hex-string>`
