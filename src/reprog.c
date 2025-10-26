@@ -274,7 +274,7 @@ static bool is_pattern_nullable_impl(String pat, int len, int depth)
     // ALL atoms must be nullable for concat to be nullable
     int i = 0;
     while (i < len) {
-        unsigned char c = pat.bytes[i];
+        unsigned char c = (unsigned char)pat.bytes[i];
 
         // Anchors are nullable
         if (c == '^' || c == '$') {
@@ -288,12 +288,12 @@ static bool is_pattern_nullable_impl(String pat, int len, int depth)
             if (i >= len) {
                 return false; // Malformed, treat as non-nullable
             }
-            unsigned char ec = pat.bytes[i];
+            // unsigned char ec = (unsigned char)pat.bytes[i];  // unused
             ++i;
             // Character classes like \d, \w, \s are NOT nullable (they match chars)
             // Check for quantifier
             if (i < len) {
-                c = pat.bytes[i];
+                c = (unsigned char)pat.bytes[i];
                 if (c == '*' || c == '?' || c == '{') {
                     // Quantifier - could be nullable
                     if (c == '*' || c == '?') {
@@ -345,7 +345,7 @@ static bool is_pattern_nullable_impl(String pat, int len, int depth)
             }
             // Character class is not nullable unless followed by *, ?, or {0...}
             if (j < len) {
-                c = pat.bytes[j];
+                c = (unsigned char)pat.bytes[j];
                 if (c == '*' || c == '?') {
                     i = j + 1;
                     continue; // Nullable
@@ -401,7 +401,7 @@ static bool is_pattern_nullable_impl(String pat, int len, int depth)
 
             // Check for quantifier after group
             if (j < len) {
-                c = pat.bytes[j];
+                c = (unsigned char)pat.bytes[j];
                 if (c == '*' || c == '?') {
                     i = j + 1;
                     continue; // Nullable regardless of group content
