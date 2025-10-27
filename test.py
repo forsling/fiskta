@@ -3141,6 +3141,20 @@ def tests():
              tokens=["find:re","a{100000}","take","to","match-end"], input_file="-", stdin=b"a" * 200,
              expect=dict(exit=PROGRAM_FAIL_EXIT)),  # Accept parsing but won't match (not enough input)
 
+        # Large needle overlap behavior
+        # Maximum pattern length is 16384 bytes (MAX_PATTERN_LENGTH)
+        # Overlap should be nlen-1, clamped to buf_cap-1 (not to OVERLAP_MAX)
+        # These tests ensure large patterns work correctly across buffer boundaries
+        dict(id="overlap-001-large-pattern-boundary",
+             tokens=["find","A"*16000,"take","to","match-end"], input_file="-",
+             stdin=b"X" * 10000 + b"A" * 16000 + b"Y" * 10000,
+             expect=dict(stdout="A"*16000, exit=0)),  # Should find pattern even if it spans buffers
+
+        dict(id="overlap-002-max-pattern-boundary",
+             tokens=["find","B"*16384,"take","to","match-end"], input_file="-",
+             stdin=b"Z" * 10000 + b"B" * 16384 + b"W" * 10000,
+             expect=dict(stdout="B"*16384, exit=0)),  # Maximum-sized pattern across boundary
+
     ]
 
 def main():

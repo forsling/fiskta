@@ -433,8 +433,8 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
     if (dir == DIR_FWD) {
         // Forward search: chunked scan with overlap
         size_t overlap = nlen > 0 ? nlen - 1 : 0;
-        if (overlap > OVERLAP_MAX) {
-            overlap = OVERLAP_MAX;
+        if (overlap >= io->buf_cap) {
+            overlap = io->buf_cap - 1;
         }
 
         i64 pos = win_lo;
@@ -479,8 +479,8 @@ enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
 
     // Calculate overlap (enough to catch boundary-spanning matches)
     size_t overlap = nlen > 0 ? nlen - 1 : 0;
-    if (overlap > OVERLAP_MAX) {
-        overlap = OVERLAP_MAX;
+    if (overlap >= io->buf_cap) {
+        overlap = io->buf_cap - 1;
     }
 
     // Scan backwards in blocks
