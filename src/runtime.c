@@ -30,6 +30,34 @@
 // Sentinel: means "no saved VM yet"
 #define VM_CURSOR_UNSET ((i64) - 1)
 
+// =============================================================================
+// Regex budget calculation
+// =============================================================================
+
+// Compute thread capacity from total budget and maximum seen table requirement.
+// Returns 0 if budget is insufficient (caller should fail with E_CAPACITY).
+static int compute_thread_cap_from_budget(size_t total_budget, size_t max_seen_bytes)
+{
+    // We need 2 seen tables (curr + next)
+    size_t seen_total = max_seen_bytes * 2;
+
+    if (seen_total >= total_budget) {
+        return 0; // Budget too small for even the seen tables
+    }
+
+    size_t thread_budget = total_budget - seen_total;
+
+    // Each thread needs ~100 bytes, and we keep 2 lists (curr + next)
+    size_t thread_bytes_total = RE_THREAD_BYTES * RE_LISTS;
+    int thread_cap = (int)(thread_budget / thread_bytes_total);
+
+    if (thread_cap < MIN_THREAD_CAP) {
+        return 0; // Not enough budget for minimum viable threads
+    }
+
+    return thread_cap;
+}
+
 // Iteration result status
 typedef enum {
     ITER_OK,
@@ -504,11 +532,11 @@ int program_requirements(i32 token_count, const String* tokens,
     const size_t re_ins_bytes = (size_t)plan.re_ins_estimate * sizeof(ReInst);
     const size_t re_cls_bytes = (size_t)plan.re_classes_estimate * sizeof(ReClass);
 
-    // Regex VM scratch: fixed policy budget (not computed per-pattern)
-    // All patterns must work within these limits or fail gracefully with E_CAPACITY.
-    // This makes memory usage predictable and independent of pattern complexity.
-    out->regex_thread_cap_max = FISKTA_REGEX_THREAD_CAP_DEFAULT;
-    out->regex_seen_bytes_max = FISKTA_REGEX_SEEN_CAP_BYTES_DEFAULT;
+    // Regex VM scratch: unified budget (actual split computed after compilation)
+    // Report worst-case allocations since we don't know actual pattern sizes yet.
+    // Actual thread_cap and seen_bytes will be derived in build_program().
+    out->regex_thread_cap_max = (size_t)(FISKTA_REGEX_BUDGET_DEFAULT / (RE_THREAD_BYTES * RE_LISTS));
+    out->regex_seen_bytes_max = FISKTA_REGEX_BUDGET_DEFAULT / 2;
 
     // Staging buffers
     size_t ranges_bytes = (plan.sum_take_ops > 0) ? (size_t)plan.sum_take_ops * sizeof(Range) : 0;
@@ -610,10 +638,12 @@ int build_program(i32 token_count, const String* tokens,
     const size_t re_ins_bytes = (size_t)plan.re_ins_estimate * sizeof(ReInst);
     const size_t re_cls_bytes = (size_t)plan.re_classes_estimate * sizeof(ReClass);
 
-    // Fixed policy budget for regex VM (not computed per-pattern)
-    const int re_threads_cap = FISKTA_REGEX_THREAD_CAP_DEFAULT;
-    const size_t re_threads_bytes = (size_t)re_threads_cap * sizeof(ReThread);
-    const size_t re_seen_bytes_each = FISKTA_REGEX_SEEN_CAP_BYTES_DEFAULT;
+    // Allocate conservatively for regex VM (actual usage computed after compilation)
+    // Worst case: entire budget goes to threads (if patterns are tiny)
+    const int re_threads_cap_alloc = (int)(FISKTA_REGEX_BUDGET_DEFAULT / (RE_THREAD_BYTES * RE_LISTS));
+    const size_t re_threads_bytes = (size_t)re_threads_cap_alloc * sizeof(ReThread);
+    // Worst case: entire budget goes to seen tables (if patterns are huge)
+    const size_t re_seen_bytes_each = FISKTA_REGEX_BUDGET_DEFAULT / 2;
 
     /************************************************************
      * PHASE 3: ARENA ALLOCATION
@@ -745,15 +775,43 @@ int build_program(i32 token_count, const String* tokens,
         }
     }
 
+    // Compute actual regex budget split based on compiled patterns
+    // Find the largest seen table requirement across all compiled regexes
+    size_t max_seen_bytes = 0;
+    for (i32 pi = 0; pi < re_prog_idx; ++pi) {
+        ReProgRequirements req;
+        regex_prog_requirements(&re_progs[pi], &req);
+        if (req.seen_bytes > max_seen_bytes) {
+            max_seen_bytes = req.seen_bytes;
+        }
+    }
+
+    // Derive thread_cap from budget minus seen table requirement
+    int actual_thread_cap = compute_thread_cap_from_budget(FISKTA_REGEX_BUDGET_DEFAULT, max_seen_bytes);
+    if (actual_thread_cap == 0) {
+        print_err(E_CAPACITY, NULL);
+        error_detail_set(E_CAPACITY, -1,
+            "regex patterns require %zu bytes for seen tables, exceeding budget of %zu bytes",
+            max_seen_bytes * 2, (size_t)FISKTA_REGEX_BUDGET_DEFAULT);
+        free(block);
+        return FISKTA_EXIT_CAPACITY;
+    }
+
+    // Verify we allocated enough (should always be true with conservative estimates)
+    if (actual_thread_cap > re_threads_cap_alloc) {
+        actual_thread_cap = re_threads_cap_alloc; // Cap at allocated size
+    }
+    const size_t actual_seen_bytes = max_seen_bytes;
+
     // Fill RuntimeScratch with allocated buffers
     scratch_out->search_buf = search_buf;
     scratch_out->search_buf_cap = search_buf_cap;
     scratch_out->re_curr = re_curr_thr;
     scratch_out->re_next = re_next_thr;
-    scratch_out->re_thread_cap = re_threads_cap;
+    scratch_out->re_thread_cap = actual_thread_cap;  // Use derived cap, not allocated cap
     scratch_out->seen_curr = seen_curr;
     scratch_out->seen_next = seen_next;
-    scratch_out->seen_bytes = re_seen_bytes_each;
+    scratch_out->seen_bytes = actual_seen_bytes;  // Use actual requirement
     scratch_out->clause_ranges = clause_ranges;
     scratch_out->clause_labels = clause_labels;
     scratch_out->clause_inline = clause_inline;
@@ -807,10 +865,12 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
     const size_t re_ins_bytes = (size_t)plan.re_ins_estimate * sizeof(ReInst);
     const size_t re_cls_bytes = (size_t)plan.re_classes_estimate * sizeof(ReClass);
 
-    // Fixed policy budget for regex VM (not computed per-pattern)
-    const int re_threads_cap = FISKTA_REGEX_THREAD_CAP_DEFAULT;
-    const size_t re_threads_bytes = (size_t)re_threads_cap * sizeof(ReThread);
-    const size_t re_seen_bytes_each = FISKTA_REGEX_SEEN_CAP_BYTES_DEFAULT;
+    // Allocate conservatively for regex VM (actual usage computed after compilation)
+    // Worst case: entire budget goes to threads (if patterns are tiny)
+    const int re_threads_cap_alloc = (int)(FISKTA_REGEX_BUDGET_DEFAULT / (RE_THREAD_BYTES * RE_LISTS));
+    const size_t re_threads_bytes = (size_t)re_threads_cap_alloc * sizeof(ReThread);
+    // Worst case: entire budget goes to seen tables (if patterns are huge)
+    const size_t re_seen_bytes_each = FISKTA_REGEX_BUDGET_DEFAULT / 2;
 
     /************************************************************
      * PHASE 3: USE PROVIDED ARENA
@@ -904,15 +964,39 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
         }
     }
 
+    // Compute actual regex budget split based on compiled patterns
+    size_t max_seen_bytes = 0;
+    for (i32 pi = 0; pi < re_prog_idx; ++pi) {
+        ReProgRequirements req;
+        regex_prog_requirements(&re_progs[pi], &req);
+        if (req.seen_bytes > max_seen_bytes) {
+            max_seen_bytes = req.seen_bytes;
+        }
+    }
+
+    int actual_thread_cap = compute_thread_cap_from_budget(FISKTA_REGEX_BUDGET_DEFAULT, max_seen_bytes);
+    if (actual_thread_cap == 0) {
+        print_err(E_CAPACITY, NULL);
+        error_detail_set(E_CAPACITY, -1,
+            "regex patterns require %zu bytes for seen tables, exceeding budget of %zu bytes",
+            max_seen_bytes * 2, (size_t)FISKTA_REGEX_BUDGET_DEFAULT);
+        return FISKTA_EXIT_CAPACITY;
+    }
+
+    if (actual_thread_cap > re_threads_cap_alloc) {
+        actual_thread_cap = re_threads_cap_alloc;
+    }
+    const size_t actual_seen_bytes = max_seen_bytes;
+
     // Fill RuntimeScratch with buffers from PROVIDED arena
     scratch_out->search_buf = search_buf;
     scratch_out->search_buf_cap = search_buf_cap;
     scratch_out->re_curr = re_curr_thr;
     scratch_out->re_next = re_next_thr;
-    scratch_out->re_thread_cap = re_threads_cap;
+    scratch_out->re_thread_cap = actual_thread_cap;
     scratch_out->seen_curr = seen_curr;
     scratch_out->seen_next = seen_next;
-    scratch_out->seen_bytes = re_seen_bytes_each;
+    scratch_out->seen_bytes = actual_seen_bytes;
     scratch_out->clause_ranges = clause_ranges;
     scratch_out->clause_labels = clause_labels;
     scratch_out->clause_inline = clause_inline;

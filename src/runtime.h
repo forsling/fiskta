@@ -28,26 +28,33 @@
 // Regex engine resource limits
 // =============================================================================
 //
-// Hard execution limits for regex engine. These define a fixed memory budget
-// that all patterns must work within, regardless of complexity.
+// Total memory budget for regex VM execution. This budget is split between:
+// - Seen tables: sized per-pattern (nins × 32 bytes), takes what it needs
+// - Thread lists: gets remaining budget, typically ~9-10K threads for normal patterns
 //
-// thread_cap: Maximum number of simultaneous NFA threads (execution states)
-// seen_cap_bytes: Maximum bytes for the (pc, counter_state) deduplication table
+// With 2 MiB default:
+// - Small pattern (60 ins): ~4 KiB seen, ~10K threads
+// - Large pattern (500 ins): ~32 KiB seen, ~10K threads
+// - Max pattern (16K ins): ~1 MiB seen, ~5K threads
 //
-// These are safety/policy knobs. Tighten to be safer/cheaper;
-// loosen to accept more complex patterns. Memory usage is predictable and
-// independent of pattern complexity - patterns that exceed these limits fail
-// gracefully with E_CAPACITY.
+// Memory usage is predictable and independent of runtime complexity. Patterns
+// that exceed the budget fail gracefully with E_CAPACITY.
 //
 // Future: Can expose via CLI (--regex-budget) or build-time flags.
 //
-#ifndef FISKTA_REGEX_THREAD_CAP_DEFAULT
-#define FISKTA_REGEX_THREAD_CAP_DEFAULT 10000
+#ifndef FISKTA_REGEX_BUDGET_DEFAULT
+#define FISKTA_REGEX_BUDGET_DEFAULT (2 * 1024 * 1024)  // 2 MiB total
 #endif
 
-#ifndef FISKTA_REGEX_SEEN_CAP_BYTES_DEFAULT
-#define FISKTA_REGEX_SEEN_CAP_BYTES_DEFAULT (1024 * 1024)  // 1 MiB
+// Minimum viable thread capacity (NFA needs at least this many concurrent states)
+#ifndef MIN_THREAD_CAP
+#define MIN_THREAD_CAP 32
 #endif
+
+// Thread sizing constants for budget calculations
+// Each ReThread is ~84 bytes + padding ≈ 100 bytes; we keep 2 lists (curr+next)
+#define RE_THREAD_BYTES 100
+#define RE_LISTS 2
 
 // =============================================================================
 // Runtime configuration
