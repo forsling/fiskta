@@ -1,28 +1,36 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
-#include "iosearch.h"
-#include "fileio.h"
-#include "search_literal.h"
+
+#include "regex_vm.h"
 #include "error.h"
 #include "util.h"
 #include <stdlib.h>
 #include <string.h>
-#include <sys/types.h> // for off_t
+#include <sys/types.h>
 
 #if defined(_WIN32) && !defined(__MINGW32__) && !defined(__MINGW64__)
 #define fseeko _fseeki64
 #define ftello _ftelli64
 #endif
 
-#ifdef _WIN32
-#include <fcntl.h>
-#include <io.h>
+// Search buffer size constants (from iosearch.h - will stay there)
+#ifndef FISKTA_FW_WIN
+#define FISKTA_FW_WIN (6 * 1024 * 1024)
+#endif
+#ifndef FISKTA_OVERLAP_MIN
+#define FISKTA_OVERLAP_MIN (4 * 1024)
+#endif
+#ifndef FISKTA_OVERLAP_MAX
+#define FISKTA_OVERLAP_MAX (64 * 1024)
 #endif
 
-#ifndef FISKTA_STDIN_SPOOL
-#define FISKTA_STDIN_SPOOL (256 * 1024)
-#endif
+enum {
+    FW_WIN = FISKTA_FW_WIN,
+    OVERLAP_MIN = FISKTA_OVERLAP_MIN,
+    OVERLAP_MAX = FISKTA_OVERLAP_MAX
+};
+
 
 /*******************
  * REGEX NFA ENGINE
