@@ -24,6 +24,35 @@
 #include "fileio.h"
 #include "fiskta.h"
 
+// =============================================================================
+// Regex engine resource limits
+// =============================================================================
+//
+// Hard execution limits for regex engine. These define a fixed memory budget
+// that all patterns must work within, regardless of complexity.
+//
+// thread_cap: Maximum number of simultaneous NFA threads (execution states)
+// seen_cap_bytes: Maximum bytes for the (pc, counter_state) deduplication table
+//
+// These are safety/policy knobs. Tighten to be safer/cheaper;
+// loosen to accept more complex patterns. Memory usage is predictable and
+// independent of pattern complexity - patterns that exceed these limits fail
+// gracefully with E_CAPACITY.
+//
+// Future: Can expose via CLI (--regex-budget) or build-time flags.
+//
+#ifndef FISKTA_REGEX_THREAD_CAP_DEFAULT
+#define FISKTA_REGEX_THREAD_CAP_DEFAULT 10000
+#endif
+
+#ifndef FISKTA_REGEX_SEEN_CAP_BYTES_DEFAULT
+#define FISKTA_REGEX_SEEN_CAP_BYTES_DEFAULT (1024 * 1024)  // 1 MiB
+#endif
+
+// =============================================================================
+// Runtime configuration
+// =============================================================================
+
 // Loop execution modes
 typedef enum {
     LOOP_MODE_FOLLOW, // --follow, -f: only new data (delta)
@@ -98,10 +127,11 @@ typedef struct {
     // Per-run working memory (mutable scratch)
     size_t search_buf_cap; // File I/O buffer size
 
-    // Regex VM scratch (max across all regexes in program)
-    // Runtime needs ONE shared scratch sized for the worst-case regex
-    size_t regex_seen_bytes_max; // Largest seen table across all regexes
-    size_t regex_thread_cap_max; // Largest thread capacity across all regexes
+    // Regex VM scratch (fixed policy budget)
+    // These are NOT computed per-pattern - they're fixed policy limits that
+    // all regexes must work within. See FISKTA_REGEX_*_DEFAULT constants.
+    size_t regex_seen_bytes_max; // Fixed seen table budget (512 KiB default)
+    size_t regex_thread_cap_max; // Fixed thread capacity (10K default)
 
     // Per-clause temporary working memory at runtime
     // (ranges, label writes, inline expansion buffer)

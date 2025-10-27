@@ -495,17 +495,11 @@ int program_requirements(i32 token_count, const String* tokens,
     const size_t re_ins_bytes = (size_t)plan.re_ins_estimate * sizeof(ReInst);
     const size_t re_cls_bytes = (size_t)plan.re_classes_estimate * sizeof(ReClass);
 
-    // Regex VM scratch (max across all regexes)
-    // Choose per-run thread capacity as ~2x max nins, min 32
-    int re_threads_cap = plan.re_ins_estimate_max > 0 ? 2 * plan.re_ins_estimate_max : 32;
-    if (re_threads_cap < 32) {
-        re_threads_cap = 32;
-    }
-    size_t max_nins = (size_t)(plan.re_ins_estimate_max > 0 ? plan.re_ins_estimate_max : 32);
-    size_t re_seen_bytes_each = max_nins * RE_SEEN_SLOTS * sizeof(u32);
-
-    out->regex_thread_cap_max = (size_t)re_threads_cap;
-    out->regex_seen_bytes_max = re_seen_bytes_each;
+    // Regex VM scratch: fixed policy budget (not computed per-pattern)
+    // All patterns must work within these limits or fail gracefully with E_CAPACITY.
+    // This makes memory usage predictable and independent of pattern complexity.
+    out->regex_thread_cap_max = FISKTA_REGEX_THREAD_CAP_DEFAULT;
+    out->regex_seen_bytes_max = FISKTA_REGEX_SEEN_CAP_BYTES_DEFAULT;
 
     // Staging buffers
     size_t ranges_bytes = (plan.sum_take_ops > 0) ? (size_t)plan.sum_take_ops * sizeof(Range) : 0;
@@ -537,10 +531,10 @@ int program_requirements(i32 token_count, const String* tokens,
     size_t re_cls_size = align_or_die(re_cls_bytes, alignof(ReClass));
     size_t str_pool_size = align_or_die(str_pool_bytes, alignof(char));
 
-    // Two thread buffers + two seen arrays
-    const size_t re_threads_bytes = (size_t)re_threads_cap * sizeof(ReThread);
+    // Two thread buffers + two seen arrays (using fixed policy budgets)
+    const size_t re_threads_bytes = out->regex_thread_cap_max * sizeof(ReThread);
     size_t re_seen_size;
-    if (add_overflow(re_seen_bytes_each, re_seen_bytes_each, &re_seen_size)) {
+    if (add_overflow(out->regex_seen_bytes_max, out->regex_seen_bytes_max, &re_seen_size)) {
         print_err(E_OOM, "regex 'seen' size overflow");
         return FISKTA_EXIT_RESOURCE;
     }
@@ -607,12 +601,10 @@ int build_program(i32 token_count, const String* tokens,
     const size_t re_ins_bytes = (size_t)plan.re_ins_estimate * sizeof(ReInst);
     const size_t re_cls_bytes = (size_t)plan.re_classes_estimate * sizeof(ReClass);
 
-    // Choose per-run thread capacity as ~2x max nins, min 32.
-    int re_threads_cap = plan.re_ins_estimate_max > 0 ? 2 * plan.re_ins_estimate_max : 32;
-    if (re_threads_cap < 32) {
-        re_threads_cap = 32;
-    }
+    // Fixed policy budget for regex VM (not computed per-pattern)
+    const int re_threads_cap = FISKTA_REGEX_THREAD_CAP_DEFAULT;
     const size_t re_threads_bytes = (size_t)re_threads_cap * sizeof(ReThread);
+    const size_t re_seen_bytes_each = FISKTA_REGEX_SEEN_CAP_BYTES_DEFAULT;
 
     /************************************************************
      * PHASE 3: ARENA ALLOCATION
@@ -625,10 +617,7 @@ int build_program(i32 token_count, const String* tokens,
     size_t re_ins_size = align_or_die(re_ins_bytes, alignof(ReInst));
     size_t re_cls_size = align_or_die(re_cls_bytes, alignof(ReClass));
     size_t str_pool_size = align_or_die(str_pool_bytes, alignof(char));
-    // Two thread buffers + two seen arrays sized to max estimated nins
-    // Seen arrays use RE_SEEN_SLOTS * sizeof(u32) per instruction for counter signatures
-    size_t max_nins = (size_t)(plan.re_ins_estimate_max > 0 ? plan.re_ins_estimate_max : 32);
-    size_t re_seen_bytes_each = max_nins * RE_SEEN_SLOTS * sizeof(u32);
+    // Two thread buffers + two seen arrays (fixed budgets)
     size_t re_seen_size;
     if (add_overflow(re_seen_bytes_each, re_seen_bytes_each, &re_seen_size)) {
         print_err(E_OOM, "regex 'seen' size overflow");
@@ -797,14 +786,10 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
     const size_t re_ins_bytes = (size_t)plan.re_ins_estimate * sizeof(ReInst);
     const size_t re_cls_bytes = (size_t)plan.re_classes_estimate * sizeof(ReClass);
 
-    int re_threads_cap = plan.re_ins_estimate_max > 0 ? 2 * plan.re_ins_estimate_max : 32;
-    if (re_threads_cap < 32) {
-        re_threads_cap = 32;
-    }
+    // Fixed policy budget for regex VM (not computed per-pattern)
+    const int re_threads_cap = FISKTA_REGEX_THREAD_CAP_DEFAULT;
     const size_t re_threads_bytes = (size_t)re_threads_cap * sizeof(ReThread);
-
-    size_t max_nins = (size_t)(plan.re_ins_estimate_max > 0 ? plan.re_ins_estimate_max : 32);
-    size_t re_seen_bytes_each = max_nins * 8 * sizeof(u32);
+    const size_t re_seen_bytes_each = FISKTA_REGEX_SEEN_CAP_BYTES_DEFAULT;
 
     /************************************************************
      * PHASE 3: USE PROVIDED ARENA

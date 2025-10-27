@@ -109,6 +109,8 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
 {
     // Guard against stack overflow from pathological patterns like ((x*){0}){999,}
     if (depth > MAX_EPSILON_RECURSION_DEPTH) {
+        error_detail_set(E_CAPACITY, -1,
+            "regex: recursion depth exceeded (pattern too deeply nested)");
         return E_CAPACITY;
     }
 
@@ -231,6 +233,8 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
 #endif
             // Add the thread to the list so consumption step can detect it
             if (l->n >= l->cap) {
+                error_detail_set(E_CAPACITY, -1,
+                    "regex: exceeded internal NFA thread limit (%d threads)", l->cap);
                 return E_CAPACITY; // Thread list is full
             }
             l->v[l->n].pc = pc;
@@ -246,6 +250,8 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
         case RI_CLASS:
             // consuming; add once
             if (l->n >= l->cap) {
+                error_detail_set(E_CAPACITY, -1,
+                    "regex: exceeded internal NFA thread limit (%d threads)", l->cap);
                 return E_CAPACITY; // Thread list is full
             }
             l->v[l->n].pc = pc;
