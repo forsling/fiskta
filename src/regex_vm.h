@@ -19,7 +19,29 @@
 #include "search_literal.h"
 
 // Regex search in file window [win_lo, win_hi)
-// Returns match position in [ms, me) on success, E_NO_MATCH if not found
-// Uses scratch buffers provided in io->re (must be preallocated)
+//
+// Parameters:
+//   io:      File handle with preallocated regex scratch (io->re.curr, io->re.next, io->re.seen_*)
+//   win_lo:  Start of search window (inclusive)
+//   win_hi:  End of search window (exclusive)
+//   re:      Compiled regex program (from regex_prog.h)
+//   dir:     DIR_FWD (find leftmost) or DIR_BWD (find rightmost)
+//   ms, me:  Output match range [ms, me) on success
+//
+// Returns:
+//   E_OK:        Match found, [ms, me) contains match position
+//   E_NO_MATCH:  No match in window
+//   E_CAPACITY:  Thread list capacity exceeded (pattern too complex)
+//   E_IO:        File read error
+//
+// Match selection (when multiple matches exist):
+//   1. Smallest start offset (leftmost match)
+//   2. If same start: lower priority wins (lazy quantifiers increase priority)
+//   3. If same start+priority: longer match wins
+//
+// Guarantees:
+//   - No heap allocation during search
+//   - File position unchanged on return
+//   - Thread/seen buffers must be sized per ReProg requirements (see regex_prog.h)
 enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
     const ReProg* re, enum Dir dir, i64* ms, i64* me);

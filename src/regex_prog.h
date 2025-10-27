@@ -29,6 +29,23 @@ typedef struct {
     int cls_idx; // for CLASS
 } ReInst;
 
+// Compiled regex program
+//
+// Resource requirements for execution (must be preallocated by caller):
+//   - Thread buffers: Caller must provide capacity for NFA thread lists.
+//                     Recommendation: start with 20× nins, cap at 10K threads.
+//                     Complex nested quantifiers may require more.
+//
+//   - Seen table:     nins × RE_SEEN_SLOTS × sizeof(u32) bytes
+//                     (RE_SEEN_SLOTS = 8, defined in regex_vm.c)
+//                     Used for deduplicating (pc, counter_state) tuples.
+//
+//   - Counter array:  counter_count integers per thread (max MAX_RE_COUNTERS=16)
+//
+// Fields:
+//   nins:          Number of compiled instructions
+//   counter_count: Number of {n,m} quantifiers (affects thread state size)
+//   has_lazy:      If 1, lazy quantifiers are present (affects priority tracking)
 typedef struct ReProg {
     ReInst* ins;
     int nins;
