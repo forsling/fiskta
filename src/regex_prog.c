@@ -1,4 +1,4 @@
-#include "reprog.h"
+#include "regex_prog.h"
 #include "iosearch.h"
 #include "error.h"
 #include <ctype.h>

@@ -8,7 +8,7 @@
 #include "fiskta.h"
 #include "iosearch.h"
 #include "parse.h"
-#include "reprog.h"
+#include "regex_prog.h"
 #include "util.h"
 #include <stdalign.h>
 #include <stdint.h>

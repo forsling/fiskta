@@ -1,6 +1,6 @@
 #pragma once
 #include "fiskta.h"
-#include "reprog.h"
+#include "regex_prog.h"
 #include <stdio.h>
 
 // Regex thread state (exposed so startup code can size/allocate scratch)
