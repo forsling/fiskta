@@ -200,26 +200,6 @@ static i32 find_or_add_label(Program* prg, LabelTable* labels, String name);
 static bool is_label_name_valid(String name);
 static bool has_empty_quantified_group(const char* pattern, i32 len);
 
-// Helper function to check if a location expression contains a valid label name
-static bool loc_expr_contains_label(const String* token)
-{
-    const char* offset_start = find_inline_offset_start(token->bytes);
-    if (offset_start) {
-        // Extract base part
-        char base[256];
-        size_t base_len = (size_t)(offset_start - token->bytes);
-        if (base_len >= sizeof(base)) {
-            return false;
-        }
-        memcpy(base, token->bytes, base_len);
-        base[base_len] = '\0';
-
-        String base_str = { base, (i32)base_len };
-        return is_label_name_valid(base_str);
-    } // No offset - check the whole token
-    return is_label_name_valid(*token);
-}
-
 // Count total number of counter-using quantifiers in a pattern
 // Counters are allocated permanently (never released), so we count total usage
 // Counter-using quantifiers are: {n}, {n,}, {n,m} where n >= 2
@@ -513,10 +493,6 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                 if (idx < token_count && is_keyword(tokens[idx], &kw_to)) {
                     idx++;
                     if (idx < token_count) {
-                        // Check if this location expression contains a valid label name
-                        if (loc_expr_contains_label(&tokens[idx])) {
-                            /* no-op: we don't size anything from names in preflight */
-                        }
                         idx++;
                     }
                     if (idx < token_count) {
@@ -537,10 +513,6 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                 if (idx < token_count && is_keyword(tokens[idx], &kw_to)) {
                     idx++;
                     if (idx < token_count) {
-                        // Check if this location expression contains a valid label name
-                        if (loc_expr_contains_label(&tokens[idx])) {
-                            /* no-op: we don't size anything from names in preflight */
-                        }
                         idx++;
                     }
                     if (idx < token_count) {
@@ -628,10 +600,6 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                 if (idx < token_count && is_keyword(tokens[idx], &kw_to)) {
                     idx++;
                     if (idx < token_count) {
-                        // Check if this location expression contains a valid label name
-                        if (loc_expr_contains_label(&tokens[idx])) {
-                            /* no-op: we don't size anything from names in preflight */
-                        }
                         idx++;
                     }
                     if (idx < token_count) {
@@ -659,10 +627,6 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                 if (idx < token_count && is_keyword(tokens[idx], &kw_to)) {
                     idx++; // skip "to"
                     if (idx < token_count) {
-                        // Check if this location expression contains a valid label name
-                        if (loc_expr_contains_label(&tokens[idx])) {
-                            /* no-op: we don't size anything from names in preflight */
-                        }
                         idx++;
                     }
                     if (idx < token_count) {
@@ -682,10 +646,6 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                         plan->sum_take_ops++;
                         idx++;
                         if (idx < token_count) {
-                            // Check if this location expression contains a valid label name
-                            if (loc_expr_contains_label(&tokens[idx])) {
-                                /* no-op: we don't size anything from names in preflight */
-                            }
                             idx++;
                         }
                         if (idx < token_count) {
@@ -858,10 +818,6 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
             } else if (is_keyword(cmd_tok, &kw_view)) {
                 idx++;
                 if (idx < token_count) {
-                    // Check if this location expression contains a valid label name
-                    if (loc_expr_contains_label(&tokens[idx])) {
-                        /* no-op: we don't size anything from names in preflight */
-                    }
                     idx++;
                 }
                 if (idx < token_count) {
@@ -871,10 +827,6 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                     }
                 }
                 if (idx < token_count) {
-                    // Check if this location expression contains a valid label name
-                    if (loc_expr_contains_label(&tokens[idx])) {
-                        /* no-op: we don't size anything from names in preflight */
-                    }
                     idx++;
                 }
                 if (idx < token_count) {
