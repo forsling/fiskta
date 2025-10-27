@@ -35,7 +35,8 @@ typedef enum {
     ITER_OK,
     ITER_PROGRAM_FAIL,
     ITER_IO_ERROR,
-    ITER_RESOURCE_ERROR
+    ITER_RESOURCE_ERROR,
+    ITER_CAPACITY_ERROR
 } IterStatus;
 
 typedef struct {
@@ -312,6 +313,9 @@ static void loop_commit(LoopState* state, i64 data_hi, IterResult result, bool i
     case ITER_RESOURCE_ERROR:
         state->exit_code = FISKTA_EXIT_RESOURCE;
         break;
+    case ITER_CAPACITY_ERROR:
+        state->exit_code = FISKTA_EXIT_CAPACITY;
+        break;
     }
 }
 
@@ -425,15 +429,20 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
                 iter_result.last_err = E_IO;
                 break;
             }
-            if (e == E_OOM || e == E_CAPACITY) {
+            if (e == E_OOM) {
                 iter_result.status = ITER_RESOURCE_ERROR;
+                iter_result.last_err = e;
+                break;
+            }
+            if (e == E_CAPACITY) {
+                iter_result.status = ITER_CAPACITY_ERROR;
                 iter_result.last_err = e;
                 break;
             }
         }
     }
 
-    if (iter_result.status == ITER_IO_ERROR || iter_result.status == ITER_RESOURCE_ERROR) {
+    if (iter_result.status == ITER_IO_ERROR || iter_result.status == ITER_RESOURCE_ERROR || iter_result.status == ITER_CAPACITY_ERROR) {
         return iter_result;
     }
     if (any_success) {
@@ -706,7 +715,13 @@ int build_program(i32 token_count, const String* tokens,
                 if (err != E_OK) {
                     print_err(err, "regex compile");
                     free(block);
-                    return (err == E_PARSE || err == E_BAD_NEEDLE) ? FISKTA_EXIT_REGEX : FISKTA_EXIT_RESOURCE;
+                    if (err == E_PARSE || err == E_BAD_NEEDLE) {
+                        return FISKTA_EXIT_REGEX;
+                    } else if (err == E_CAPACITY) {
+                        return FISKTA_EXIT_CAPACITY;
+                    } else {
+                        return FISKTA_EXIT_RESOURCE;
+                    }
                 }
                 op->u.findr.prog = prog;
             } else if (op->kind == OP_TAKE_UNTIL_RE) {
@@ -717,7 +732,13 @@ int build_program(i32 token_count, const String* tokens,
                 if (err != E_OK) {
                     print_err(err, "regex compile");
                     free(block);
-                    return (err == E_PARSE || err == E_BAD_NEEDLE) ? FISKTA_EXIT_REGEX : FISKTA_EXIT_RESOURCE;
+                    if (err == E_PARSE || err == E_BAD_NEEDLE) {
+                        return FISKTA_EXIT_REGEX;
+                    } else if (err == E_CAPACITY) {
+                        return FISKTA_EXIT_CAPACITY;
+                    } else {
+                        return FISKTA_EXIT_RESOURCE;
+                    }
                 }
                 op->u.take_until_re.prog = prog;
             }
@@ -854,7 +875,13 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
                     re_cls, (i32)(re_cls_bytes / sizeof(ReClass)), &re_cls_idx);
                 if (err != E_OK) {
                     print_err(err, "regex compile");
-                    return (err == E_PARSE || err == E_BAD_NEEDLE) ? FISKTA_EXIT_REGEX : FISKTA_EXIT_RESOURCE;
+                    if (err == E_PARSE || err == E_BAD_NEEDLE) {
+                        return FISKTA_EXIT_REGEX;
+                    } else if (err == E_CAPACITY) {
+                        return FISKTA_EXIT_CAPACITY;
+                    } else {
+                        return FISKTA_EXIT_RESOURCE;
+                    }
                 }
                 op->u.findr.prog = prog;
             } else if (op->kind == OP_TAKE_UNTIL_RE) {
@@ -864,7 +891,13 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
                     re_cls, (i32)(re_cls_bytes / sizeof(ReClass)), &re_cls_idx);
                 if (err != E_OK) {
                     print_err(err, "regex compile");
-                    return (err == E_PARSE || err == E_BAD_NEEDLE) ? FISKTA_EXIT_REGEX : FISKTA_EXIT_RESOURCE;
+                    if (err == E_PARSE || err == E_BAD_NEEDLE) {
+                        return FISKTA_EXIT_REGEX;
+                    } else if (err == E_CAPACITY) {
+                        return FISKTA_EXIT_CAPACITY;
+                    } else {
+                        return FISKTA_EXIT_RESOURCE;
+                    }
                 }
                 op->u.take_until_re.prog = prog;
             }
@@ -1016,6 +1049,8 @@ int runtime_execute(const Program* prog,
         return FISKTA_EXIT_IO;
     case ITER_RESOURCE_ERROR:
         return FISKTA_EXIT_RESOURCE;
+    case ITER_CAPACITY_ERROR:
+        return FISKTA_EXIT_CAPACITY;
     case ITER_PROGRAM_FAIL:
         // Print error details if available for helpful diagnostics
         if (error_detail_has()) {

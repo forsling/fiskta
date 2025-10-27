@@ -32,6 +32,7 @@ PROGRAM_FAIL_EXIT = 1
 RESOURCE_EXIT = 11
 PARSE_EXIT = 12
 REGEX_EXIT = 13
+CAPACITY_EXIT = 14
 
 def write(path: Path, data: bytes):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -3029,11 +3030,11 @@ def tests():
 
         dict(id="capacity-002-counter-over-limit",
              tokens=["find:re","a{2}b{2}c{2}d{2}e{2}f{2}g{2}h{2}i{2}j{2}k{2}l{2}m{2}n{2}o{2}p{2}q{2}"], input_file="-", stdin=b"test",
-             expect=dict(stdout="", exit=RESOURCE_EXIT, stderr_contains="too many quantified groups")),
+             expect=dict(stdout="", exit=CAPACITY_EXIT, stderr_contains="too many quantified groups")),
 
         dict(id="capacity-003-nested-quantifiers-over-limit",
              tokens=["find:re","(a{2}){2}(b{2}){2}(c{2}){2}(d{2}){2}(e{2}){2}(f{2}){2}(g{2}){2}(h{2}){2}(i{2}){2}"], input_file="-", stdin=b"test",
-             expect=dict(stdout="", exit=RESOURCE_EXIT, stderr_contains="too many quantified groups")),
+             expect=dict(stdout="", exit=CAPACITY_EXIT, stderr_contains="too many quantified groups")),
 
         # Regression tests from fuzzer - complex patterns that triggered capacity issues
         # These patterns were causing exit 14 (capacity during compile) and must now pass preflight
@@ -3121,7 +3122,7 @@ def tests():
 
         dict(id="nullable-008-bounded-ok-10",
              tokens=["find:re","(\\w*){0,10}"], input_file="-", stdin=b"test",
-             expect=dict(exit=0, alt_exit=11)),  # Allow bounded quantifier, but may hit capacity in practice
+             expect=dict(exit=0, alt_exit=14)),  # Allow bounded quantifier, but may hit capacity in practice
 
         # Quantifier overflow protection
         # Max safe parseable value: (INT_MAX - 9) / 10 * 10 + 9 = 2147483639
