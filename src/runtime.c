@@ -124,6 +124,21 @@ static size_t align_or_die(size_t x, size_t align)
 }
 
 // =============================================================================
+// RuntimeScratch management
+// =============================================================================
+
+void runtime_scratch_free(RuntimeScratch* s)
+{
+    if (!s) {
+        return;
+    }
+    if (s->arena_block) {
+        free(s->arena_block);
+    }
+    memset(s, 0, sizeof(*s));
+}
+
+// =============================================================================
 // Platform helpers
 // =============================================================================
 
@@ -431,14 +446,20 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
 }
 
 // =============================================================================
-// Main runtime orchestrator
+// Build program (compile-time phase)
 // =============================================================================
 
-int run_program(i32 token_count, const String* tokens, const RuntimeConfig* config)
+int build_program(i32 token_count, const String* tokens,
+                  Program* prog_out,
+                  RuntimeScratch* scratch_out)
 {
-    if (!tokens || !config) {
+    if (!tokens || !prog_out || !scratch_out) {
         return FISKTA_EXIT_PARSE;
     }
+
+    // Initialize outputs
+    memset(prog_out, 0, sizeof(*prog_out));
+    memset(scratch_out, 0, sizeof(*scratch_out));
 
     /************************************************************
      * PHASE 1: PREFLIGHT PARSE
@@ -446,7 +467,7 @@ int run_program(i32 token_count, const String* tokens, const RuntimeConfig* conf
      *************************************************************/
     ParsePlan plan = (ParsePlan) { 0 };
     const char* path = NULL;
-    enum Err e = parse_preflight(token_count, tokens, config->input_path, &plan, &path);
+    enum Err e = parse_preflight(token_count, tokens, NULL, &plan, &path);
     if (e != E_OK) {
         print_err(e, "parse preflight");
         // E_CAPACITY during preflight means regex pattern is too complex - treat as regex error
@@ -550,15 +571,14 @@ int run_program(i32 token_count, const String* tokens, const RuntimeConfig* conf
      * PHASE 5: BUILD PROGRAM
      * Parse operations into executable program structure
      ************************************************************/
-    Program prg = (Program) { 0 };
-    e = parse_build(token_count, tokens, config->input_path, &prg, &path,
+    e = parse_build(token_count, tokens, NULL, prog_out, &path,
         clauses_buf, ops_buf, str_pool, str_pool_bytes);
     if (e != E_OK) {
         print_err(e, "parse build");
         free(block);
         return FISKTA_EXIT_PARSE;
     }
-    if (prg.clause_count == 0) {
+    if (prog_out->clause_count == 0) {
         print_err(E_PARSE, "no operations parsed");
         free(block);
         return FISKTA_EXIT_PARSE;
@@ -568,8 +588,8 @@ int run_program(i32 token_count, const String* tokens, const RuntimeConfig* conf
     i32 re_prog_idx = 0;
     i32 re_ins_idx = 0;
     i32 re_cls_idx = 0;
-    for (i32 ci = 0; ci < prg.clause_count; ++ci) {
-        Clause* clause = &prg.clauses[ci];
+    for (i32 ci = 0; ci < prog_out->clause_count; ++ci) {
+        Clause* clause = &prog_out->clauses[ci];
         for (i32 i = 0; i < clause->op_count; ++i) {
             Op* op = &clause->ops[i];
             if (op->kind == OP_FIND_RE) {
@@ -598,20 +618,51 @@ int run_program(i32 token_count, const String* tokens, const RuntimeConfig* conf
         }
     }
 
+    // Fill RuntimeScratch with allocated buffers
+    scratch_out->search_buf = search_buf;
+    scratch_out->search_buf_cap = search_buf_cap;
+    scratch_out->re_curr = re_curr_thr;
+    scratch_out->re_next = re_next_thr;
+    scratch_out->re_thread_cap = re_threads_cap;
+    scratch_out->seen_curr = seen_curr;
+    scratch_out->seen_next = seen_next;
+    scratch_out->seen_bytes = re_seen_bytes_each;
+    scratch_out->clause_ranges = clause_ranges;
+    scratch_out->clause_labels = clause_labels;
+    scratch_out->clause_inline = clause_inline;
+    scratch_out->sum_inline_lits = plan.sum_inline_lits;
+    scratch_out->arena_block = block;
+    scratch_out->arena_size = total;
+
+    return FISKTA_EXIT_OK;
+}
+
+// =============================================================================
+// Execute program (runtime phase)
+// =============================================================================
+
+int runtime_execute(const Program* prog,
+                   const char* file_path,
+                   RuntimeScratch* scratch,
+                   const RuntimeConfig* config)
+{
+    if (!prog || !file_path || !scratch || !config) {
+        return FISKTA_EXIT_PARSE;
+    }
+
     /********************************************
      * PHASE 6: OPEN FILE I/O
      * Initialize file handle and search buffers
      ********************************************/
     File io = { 0 };
-    e = io_open(&io, path, search_buf, search_buf_cap);
+    enum Err e = io_open(&io, file_path, scratch->search_buf, scratch->search_buf_cap);
     if (e != E_OK) {
-        free(block);
         print_err(e, "I/O open");
         return FISKTA_EXIT_IO;
     }
 
-    io_set_regex_scratch(&io, re_curr_thr, re_next_thr, re_threads_cap,
-        seen_curr, seen_next, re_seen_bytes_each);
+    io_set_regex_scratch(&io, scratch->re_curr, scratch->re_next, scratch->re_thread_cap,
+        scratch->seen_curr, scratch->seen_next, scratch->seen_bytes);
 
     /*****************************************************
      * PHASE 7: EXECUTE PROGRAM
@@ -664,9 +715,9 @@ int run_program(i32 token_count, const String* tokens, const RuntimeConfig* conf
 
         // CONTINUE passes saved VM; other modes run with ephemeral VM
         VM* vm_ptr = (loop_state.mode == LOOP_MODE_CONTINUE) ? &loop_state.vm : NULL;
-        IterResult iteration = execute_program_iteration(&prg, &io, vm_ptr,
-            clause_ranges, clause_labels,
-            clause_inline, plan.sum_inline_lits,
+        IterResult iteration = execute_program_iteration(prog, &io, vm_ptr,
+            scratch->clause_ranges, scratch->clause_labels,
+            scratch->clause_inline, scratch->sum_inline_lits,
             lo, hi);
 
         loop_commit(&loop_state, hi, iteration, config->ignore_loop_failures);
@@ -691,7 +742,6 @@ int run_program(i32 token_count, const String* tokens, const RuntimeConfig* conf
     }
 
     io_close(&io);
-    free(block);
 
     if (loop_state.exit_code) {
         // Print error details before returning for non-OK exit codes
@@ -721,4 +771,32 @@ int run_program(i32 token_count, const String* tokens, const RuntimeConfig* conf
     default:
         return FISKTA_EXIT_IO;
     }
+}
+
+// =============================================================================
+// Main runtime orchestrator
+// =============================================================================
+
+int run_program(i32 token_count, const String* tokens, const RuntimeConfig* config)
+{
+    if (!tokens || !config) {
+        return FISKTA_EXIT_PARSE;
+    }
+
+    Program prog = {0};
+    RuntimeScratch scratch = {0};
+
+    // Phase 1: Build (parsing, allocation, compilation)
+    int ret = build_program(token_count, tokens, &prog, &scratch);
+    if (ret != FISKTA_EXIT_OK) {
+        runtime_scratch_free(&scratch);
+        return ret;
+    }
+
+    // Phase 2: Execute (file I/O, VM execution, loops)
+    ret = runtime_execute(&prog, config->input_path, &scratch, config);
+
+    // Cleanup
+    runtime_scratch_free(&scratch);
+    return ret;
 }
