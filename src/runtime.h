@@ -105,6 +105,13 @@ typedef struct {
 
     // Per-clause temporary working memory at runtime
     // (ranges, label writes, inline expansion buffer)
+    //
+    // Staging semantics:
+    //   - Each clause execution accumulates operations (output ranges, label writes)
+    //     in temporary buffers WITHOUT committing them to VM or stdout.
+    //   - On clause success: staged changes commit atomically (emit output, update labels)
+    //   - On clause failure: staged changes discard, VM rolls back to pre-clause state
+    //   - This enables atomic clause semantics (all-or-nothing execution)
     size_t staging_bytes;
 
     // Static program data (compiled clauses, regexes, string pool)
@@ -141,8 +148,7 @@ typedef struct {
 // Error handling:
 //   - Returns FISKTA_EXIT_OK on success, fills *out
 //   - Returns FISKTA_EXIT_PARSE if tokens invalid
-//   - Returns FISKTA_EXIT_REGEX if pattern invalid
-//   - Returns FISKTA_EXIT_CAPACITY if exceeds safety limits
+//   - Returns FISKTA_EXIT_REGEX if pattern invalid (includes capacity errors)
 //   - Sets error_detail_* for human-readable diagnostics
 int program_requirements(i32 token_count, const String* tokens,
                         RuntimeRequirements* out);
@@ -221,11 +227,11 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
 //   - Honors --every interval and --for/--until-idle timeouts
 //
 // Returns FISKTA_EXIT_* code:
-//   - FISKTA_EXIT_OK (0)       - Success
-//   - FISKTA_EXIT_FAILURE (1)  - Program failed
-//   - FISKTA_EXIT_TIMEOUT (2)  - Timeout reached
-//   - FISKTA_EXIT_IO (10)      - File I/O error
-//   - FISKTA_EXIT_RESOURCE(11) - Resource exhaustion during execution
+//   - FISKTA_EXIT_OK (0)            - Success
+//   - FISKTA_EXIT_PROGRAM_FAIL (1)  - Program failed
+//   - FISKTA_EXIT_TIMEOUT (2)       - Timeout reached
+//   - FISKTA_EXIT_IO (10)           - File I/O error
+//   - FISKTA_EXIT_RESOURCE (11)     - Resource exhaustion during execution
 int runtime_execute(const Program* prog,
                    const char* file_path,
                    RuntimeScratch* scratch,

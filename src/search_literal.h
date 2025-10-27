@@ -3,14 +3,14 @@
 // Literal pattern search using Boyer-Moore-Horspool algorithm.
 // Searches for exact byte sequences in file streams with windowed buffering.
 // Supports both forward and backward search directions.
+//
+// The search uses windowed scanning with block overlap to catch matches
+// spanning buffer boundaries. Overlap is based on needle length, capped
+// by FISKTA_OVERLAP_MAX unless overridden at build time.
 
 #pragma once
 #include "fiskta.h"
 #include "fileio.h"
-
-// Search direction
-enum Dir { DIR_FWD = +1,
-    DIR_BWD = -1 };
 
 // Search for literal needle in file window [win_lo, win_hi)
 // Returns match position in [ms, me) on success, E_NO_MATCH if not found

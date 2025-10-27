@@ -1,5 +1,6 @@
 #pragma once
 #include "fiskta.h"
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -9,7 +10,10 @@ typedef enum {
     RI_CLASS,
     RI_BOL, // '^'  (true at win_lo or after \n)
     RI_EOL, // '$'  (true at win_hi or before \n)
-    RI_SPLIT, // ordered epsilon: x then y (order encodes greediness)
+    RI_SPLIT, // ordered epsilon: spawn threads for x and y
+              //   - greedy quantifiers: x=continue, y=skip (prefer longer match)
+              //   - lazy quantifiers: x=skip, y=continue (prefer shorter match)
+              //   - alternation (a|b): x=first alt, y=second alt (leftmost wins)
     RI_JMP,
     RI_COUNTER_RESET, // Reset counter[x] = 0; continue to next instruction
     RI_COUNTER_INC,   // Increment counter[x]; continue to next instruction
@@ -29,6 +33,13 @@ typedef struct {
     int cls_idx; // for CLASS
 } ReInst;
 
+// Number of 32-bit signature slots per PC in the seen table.
+// Used for deduplicating (pc, counter_state) tuples during regex execution.
+// 8 slots provides robustness with nested quantifiers.
+#ifndef RE_SEEN_SLOTS
+#define RE_SEEN_SLOTS 8
+#endif
+
 // Compiled regex program
 //
 // Resource requirements for execution (must be preallocated by caller):
@@ -37,7 +48,6 @@ typedef struct {
 //                     Complex nested quantifiers may require more.
 //
 //   - Seen table:     nins × RE_SEEN_SLOTS × sizeof(u32) bytes
-//                     (RE_SEEN_SLOTS = 8, defined in regex_vm.c)
 //                     Used for deduplicating (pc, counter_state) tuples.
 //
 //   - Counter array:  counter_count integers per thread (max MAX_RE_COUNTERS=16)

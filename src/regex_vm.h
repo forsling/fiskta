@@ -9,14 +9,16 @@
 //  2. Lower priority wins (influenced by lazy quantifiers)
 //  3. Longer match wins
 //
-// Handles CRLF-aware anchors and uses preallocated scratch space
-// (no runtime allocation).
+// Anchor semantics (CRLF-aware):
+//  - '^' (RI_BOL): matches at win_lo OR immediately after '\n' (including '\n' in CRLF)
+//  - '$' (RI_EOL): matches at win_hi OR immediately before '\n' (treating CRLF as single line ending)
+//
+// Uses preallocated scratch space (no runtime allocation).
 
 #pragma once
 #include "fiskta.h"
 #include "fileio.h"
 #include "regex_prog.h"
-#include "search_literal.h"
 
 // Regex search in file window [win_lo, win_hi)
 //

@@ -502,7 +502,7 @@ int program_requirements(i32 token_count, const String* tokens,
         re_threads_cap = 32;
     }
     size_t max_nins = (size_t)(plan.re_ins_estimate_max > 0 ? plan.re_ins_estimate_max : 32);
-    size_t re_seen_bytes_each = max_nins * 8 * sizeof(u32); // RE_SEEN_SLOTS=8
+    size_t re_seen_bytes_each = max_nins * RE_SEEN_SLOTS * sizeof(u32);
 
     out->regex_thread_cap_max = (size_t)re_threads_cap;
     out->regex_seen_bytes_max = re_seen_bytes_each;
@@ -637,9 +637,9 @@ int build_program(i32 token_count, const String* tokens,
     size_t re_cls_size = align_or_die(re_cls_bytes, alignof(ReClass));
     size_t str_pool_size = align_or_die(str_pool_bytes, alignof(char));
     // Two thread buffers + two seen arrays sized to max estimated nins
-    // Seen arrays use RE_SEEN_SLOTS (8) * sizeof(u32) per instruction for counter signatures
+    // Seen arrays use RE_SEEN_SLOTS * sizeof(u32) per instruction for counter signatures
     size_t max_nins = (size_t)(plan.re_ins_estimate_max > 0 ? plan.re_ins_estimate_max : 32);
-    size_t re_seen_bytes_each = max_nins * 8 * sizeof(u32); // RE_SEEN_SLOTS=8
+    size_t re_seen_bytes_each = max_nins * RE_SEEN_SLOTS * sizeof(u32);
     size_t re_seen_size;
     if (add_overflow(re_seen_bytes_each, re_seen_bytes_each, &re_seen_size)) {
         print_err(E_OOM, "regex 'seen' size overflow");

@@ -1,7 +1,7 @@
 #pragma once
 #include "fiskta.h"
 
-// Forward declaration for File type (defined in iosearch.h)
+// Forward declaration for File type (defined in fileio.h)
 typedef struct File File;
 
 // Clamping policy for location resolution
@@ -19,7 +19,10 @@ typedef struct {
 
 // Staged execution result
 typedef struct {
-    VM staged_vm; // Staged VM state (cursor, last_match, view)
+    // staged_vm: VM state after clause execution
+    //   - cursor, last_match, view after the clause
+    //   - label_pos[] is NOT committed; staged label writes live in label_writes[]
+    VM staged_vm;
     Range* ranges; // Staged output ranges
     i32 range_count; // Number of staged ranges
     LabelWrite* label_writes; // Staged label writes

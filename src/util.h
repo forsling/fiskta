@@ -51,4 +51,10 @@ size_t calculate_escaped_string_length(String str);
 
 // Token handling optimizations
 void convert_tokens_to_strings(char** tokens, i32 token_count, String* out);
+
+// Tokenize whitespace-separated operations string into String array
+//
+// IMPORTANT: The returned String structs point directly into 's' (zero-copy).
+// The caller MUST ensure 's' remains valid for the lifetime of 'out'.
+// If 's' is freed or goes out of scope, accessing 'out' will be undefined behavior.
 i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens);

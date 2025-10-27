@@ -1778,8 +1778,7 @@ void regex_prog_requirements(const ReProg* prog, ReProgRequirements* out)
     out->nins = (size_t)prog->nins;
 
     // Seen table: nins × RE_SEEN_SLOTS × sizeof(u32), aligned to 4-byte boundary
-    // RE_SEEN_SLOTS = 8 (defined in regex_vm.c)
-    size_t raw = (size_t)prog->nins * 8 * sizeof(u32);
+    size_t raw = (size_t)prog->nins * RE_SEEN_SLOTS * sizeof(u32);
     out->seen_bytes = (raw + 3) & ~(size_t)3; // align up to 4 bytes
 
     // Thread capacity heuristic: 2× nins, minimum 32

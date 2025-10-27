@@ -4,7 +4,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdio.h>
 
 typedef int64_t i64;
 typedef uint64_t u64;
@@ -16,7 +15,8 @@ enum {
     MAX_LABELS = 128,
     MAX_LABEL_LEN = 15,
     MAX_ALTS = 256, // Maximum alternations in regex (a|b|c|...)
-    INLINE_LIT_CAP = 24 // Inline literal capacity for Range.literal
+    INLINE_LIT_CAP = 24 // Per-\c expansion buffer budget (bytes) reserved
+                        // for inline cursor injection during print staging
 };
 
 typedef struct {
@@ -85,7 +85,7 @@ enum FisktaExitCode {
     FISKTA_EXIT_IO = 10,
     FISKTA_EXIT_RESOURCE = 11,
     FISKTA_EXIT_PARSE = 12,
-    FISKTA_EXIT_REGEX = 13,
+    FISKTA_EXIT_REGEX = 13
 };
 
 typedef struct {
@@ -197,6 +197,10 @@ typedef struct {
     bool valid;
 } Match;
 
+// VM state is snapshotted per clause execution.
+// - cursor, last_match, view, and label_pos[] are staged in StagedResult
+//   and only committed on clause success.
+// - On clause failure, VM must be restored exactly to its prior state.
 typedef struct {
     i64 cursor;
     Match last_match;

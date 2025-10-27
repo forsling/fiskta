@@ -14,10 +14,22 @@
 #include "fiskta.h"
 #include <stdio.h>
 
-// Forward declaration from iosearch.h (will be moved to regex_vm.h later)
-// Regex thread state (exposed so startup code can size/allocate scratch)
-// counters[] track bounded quantifier state (e.g., {n,m} on groups)
-// priority: bit-path encoding of SPLIT decisions (lower = higher priority)
+// Search direction for pattern matching (forward/backward)
+enum Dir {
+    DIR_FWD = +1,
+    DIR_BWD = -1
+};
+
+// Regex VM thread state
+// NOTE: Defined here because File.re.* points at arrays of ReThread.
+// If we ever decouple regex scratch from File, this type should move
+// to regex_vm.h and File would only hold opaque void* scratch pointers.
+//
+// Fields:
+//   pc: program counter (instruction index)
+//   start: match start offset
+//   counters[]: bounded quantifier state (e.g., {n,m} on groups)
+//   priority: bit-path encoding of SPLIT decisions (lower = higher priority)
 #define MAX_RE_COUNTERS 16
 typedef struct {
     int pc;
@@ -27,6 +39,14 @@ typedef struct {
 } ReThread;
 
 // Search buffer size constants (needed for allocation sizing)
+//
+// These macros control chunked file scanning behavior in literal_search_window()
+// and regex_search_window().
+// They are part of the capacity model and must match the expectations in
+// RuntimeRequirements.search_buf_cap.
+//
+// Embedders may override via -DFISKTA_FW_WIN=... etc, but must ensure
+// program_requirements() is called after any changes.
 #ifndef FISKTA_FW_WIN
 #define FISKTA_FW_WIN (6 * 1024 * 1024)
 #endif
@@ -106,6 +126,10 @@ void io_reset_full(File* io);
 enum Err io_emit(File* io, i64 start, i64 end, FILE* out);
 
 // Provide preallocated regex scratch to File (no mallocs during search).
+//
+// Must be called before any regex_search_window() using this File.
+// The lifetime of these buffers must outlive 'io' or at least any
+// active regex_search_window() call on it.
 static inline void io_set_regex_scratch(File* io,
     ReThread* curr, ReThread* next, int cap,
     unsigned char* seen_curr, unsigned char* seen_next, size_t seen_bytes)
