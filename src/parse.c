@@ -23,13 +23,10 @@
 // compile-time DoS attacks or blow out arena sizing assumptions.
 #define MAX_PATTERN_LENGTH 16384
 
-// Advance index by one token if tokens remain
-static void consume_token(i32* idx, i32 token_count)
-{
-    if (*idx < token_count) {
-        (*idx)++;
-    }
-}
+// Forward declarations
+typedef struct LabelTable LabelTable;
+static enum Err parse_op_dry_run(const String* tokens, i32* idx, i32 token_count,
+    Program* prg, LabelTable* labels);
 
 // Validate pattern length (max size check only)
 // Returns E_OK if valid, E_PARSE if too long
@@ -963,96 +960,17 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
         clause->op_count = 0;
         clause->link = LINK_NONE; // Default to no link
 
-        // Parse operations in this clause
+        // Dry-run pass: validate syntax
         i32 clause_start = idx;
-        while (idx < token_count && !is_keyword(tokens[idx], &kw_then) && !is_keyword(tokens[idx], &kw_or)) {
-            String cmd_tok = tokens[idx];
-            idx++;
-
-            // Skip command-specific tokens
-            if (is_keyword(cmd_tok, &kw_find) || is_keyword(cmd_tok, &kw_find_re) || is_keyword(cmd_tok, &kw_find_bin)) {
-                if (idx < token_count && is_keyword(tokens[idx], &kw_to)) {
-                    idx++;
-                    if (idx < token_count) {
-                        idx++; // skip location
-                    }
-                    if (idx < token_count && (TOK_FIRST(tokens, idx) == '+' || TOK_FIRST(tokens, idx) == '-')) {
-                        idx++; // skip offset
-                    }
-                }
-                consume_token(&idx, token_count);
-            } else if (is_keyword(cmd_tok, &kw_skip)) {
-                idx++;
-                if (idx < token_count && is_keyword(tokens[idx], &kw_to)) {
-                    idx++; // skip "to"
-                    consume_token(&idx, token_count); // skip location
-                    if (idx < token_count && (TOK_FIRST(tokens, idx) == '+' || TOK_FIRST(tokens, idx) == '-')) {
-                        idx++; // skip offset
-                    }
-                } else if (idx < token_count) {
-                    idx++; // skip offset
-                }
-            } else if (is_keyword(cmd_tok, &kw_take)) {
-                if (idx < token_count) {
-                    const String next_tok = tokens[idx];
-                    if (is_keyword(next_tok, &kw_to)) {
-                        idx++;
-                        consume_token(&idx, token_count);
-                        if (idx < token_count && (TOK_FIRST(tokens, idx) == '+' || TOK_FIRST(tokens, idx) == '-')) {
-                            idx++; // skip offset
-                        }
-                    } else if (is_keyword(next_tok, &kw_until) || is_keyword(next_tok, &kw_until_re) || is_keyword(next_tok, &kw_until_bin)) {
-                        idx++;
-                        consume_token(&idx, token_count);
-                        if (idx < token_count && is_keyword(tokens[idx], &kw_at_keyword)) {
-                            idx++;
-                            if (idx < token_count) {
-                                idx++; // skip location
-                            }
-                            if (idx < token_count && (TOK_FIRST(tokens, idx) == '+' || TOK_FIRST(tokens, idx) == '-')) {
-                                idx++; // skip offset
-                            }
-                        }
-                    } else {
-                        if (is_keyword(next_tok, &kw_len)) {
-                            idx++;
-                            if (idx < token_count) {
-                                idx++;
-                            }
-                        } else {
-                            idx++;
-                        }
-                    }
-                }
-            } else if (is_keyword(cmd_tok, &kw_label)) {
-                if (idx < token_count) {
-                    idx++; // skip name
-                }
-            } else if (is_keyword(cmd_tok, &kw_view)) {
-                if (idx < token_count) {
-                    idx++; // skip first location
-                }
-                if (idx < token_count && (TOK_FIRST(tokens, idx) == '+' || TOK_FIRST(tokens, idx) == '-')) {
-                    idx++; // skip offset
-                }
-                if (idx < token_count) {
-                    idx++; // skip second location
-                }
-                if (idx < token_count && (TOK_FIRST(tokens, idx) == '+' || TOK_FIRST(tokens, idx) == '-')) {
-                    idx++; // skip offset
-                }
-            } else if (is_keyword(cmd_tok, &kw_clear)) {
-                consume_token(&idx, token_count);
-            } else if (is_keyword(cmd_tok, &kw_print) || is_keyword(cmd_tok, &kw_echo)) {
-                consume_token(&idx, token_count);
-            } else if (is_keyword(cmd_tok, &kw_fail)) {
-                if (idx < token_count) {
-                    idx++;
-                }
+        i32 scan_idx = idx;
+        while (scan_idx < token_count && !is_keyword(tokens[scan_idx], &kw_then) && !is_keyword(tokens[scan_idx], &kw_or)) {
+            enum Err err = parse_op_dry_run(tokens, &scan_idx, token_count, prg, &labels);
+            if (err != E_OK) {
+                return err;
             }
         }
 
-        // 3 Reset idx to clause start and parse for real
+        // Real parse: materialize operations into IR
         idx = clause_start;
         while (idx < token_count && !is_keyword(tokens[idx], &kw_then) && !is_keyword(tokens[idx], &kw_or)) {
             Op* op = &clause->ops[clause->op_count];
@@ -1124,6 +1042,410 @@ static i32 find_or_add_label(Program* prg, LabelTable* labels, String name)
     return idx;
 }
 
+/************************************************************
+ * TEMPORARY STRUCTS FOR PARSE-THEN-MATERIALIZE PATTERN
+ ************************************************************/
+
+// Temporary data for find/find:re/find:bin operations
+typedef struct {
+    bool has_to;
+    LocExpr to;
+    String pattern_tok;
+    i32 pattern_idx;  // Token index for error reporting
+    enum { FIND_LITERAL, FIND_REGEX, FIND_BINARY } kind;
+} TmpFindArgs;
+
+// Temporary data for skip operations
+typedef struct {
+    bool is_location;  // true = "skip to LOC", false = "skip OFFSET"
+    union {
+        LocExpr to_location;
+        struct {
+            i64 offset;
+            Unit unit;
+        } by_offset;
+    } u;
+} TmpSkipArgs;
+
+// Temporary data for take operations
+typedef struct {
+    enum { TAKE_TO, TAKE_UNTIL, TAKE_UNTIL_RE, TAKE_UNTIL_BIN, TAKE_LEN } kind;
+    union {
+        LocExpr to;  // for TAKE_TO
+        struct {
+            String pattern_tok;
+            i32 pattern_idx;
+            bool has_at;
+            LocExpr at;
+        } until;  // for TAKE_UNTIL, TAKE_UNTIL_RE, TAKE_UNTIL_BIN
+        struct {
+            i64 offset;
+            Unit unit;
+        } len;  // for TAKE_LEN
+    } u;
+} TmpTakeArgs;
+
+// Temporary data for view operations
+typedef struct {
+    LocExpr a;
+    LocExpr b;
+} TmpViewArgs;
+
+// Temporary data for print/echo/fail operations
+typedef struct {
+    String str_tok;
+    i32 str_idx;
+} TmpPrintArgs;
+
+// Temporary data for label operations
+typedef struct {
+    String name_tok;
+    i32 name_idx_token;  // Token index for error reporting
+} TmpLabelArgs;
+
+/************************************************************
+ * PER-OPERATION PARSING HELPERS
+ *
+ * These functions consume tokens from *idx, validate syntax,
+ * and return parsed data WITHOUT side effects (no writes to
+ * Program/str_pool/LabelTable). This enables:
+ * 1. parse_op() to use them + materialize into IR
+ * 2. parse_op_dry_run() to use them + discard temps
+ ************************************************************/
+
+// Kind of find operation for parse_find_like_args
+enum FindKind { FIND_LIT, FIND_RE, FIND_BIN };
+
+// Parse arguments for find/find:re/find:bin
+// Grammar: [to LOCATION] PATTERN
+static enum Err parse_find_like_args(const String* tokens, i32* idx, i32 token_count,
+    i32 cmd_idx, enum FindKind kind,
+    TmpFindArgs* out, Program* prg, LabelTable* labels)
+{
+    out->has_to = false;
+    out->kind = (kind == FIND_LIT) ? FIND_LITERAL : (kind == FIND_RE) ? FIND_REGEX : FIND_BINARY;
+
+    // Check for optional "to LOCATION"
+    if (*idx < token_count && is_keyword(tokens[*idx], &kw_to)) {
+        (*idx)++;
+        out->has_to = true;
+        enum Err err = parse_loc_expr(tokens, idx, token_count, &out->to, prg, labels);
+        if (err != E_OK) {
+            return err;
+        }
+    }
+
+    // Parse pattern/needle
+    if (*idx >= token_count) {
+        const char* op_name = (kind == FIND_LIT) ? "find" : (kind == FIND_RE) ? "find:re" : "find:bin";
+        const char* what = (kind == FIND_BIN) ? "hex bytes" : (kind == FIND_LIT) ? "needle" : "pattern";
+        error_detail_set(E_PARSE, cmd_idx, "missing %s for '%s'", what, op_name);
+        return E_PARSE;
+    }
+
+    out->pattern_tok = tokens[*idx];
+    out->pattern_idx = *idx;
+    (*idx)++;
+
+    return E_OK;
+}
+
+// Parse arguments for skip operation
+// Grammar: (to LOCATION) | OFFSET
+static enum Err parse_skip_args(const String* tokens, i32* idx, i32 token_count,
+    i32 cmd_idx, TmpSkipArgs* out, Program* prg, LabelTable* labels)
+{
+    if (*idx >= token_count) {
+        error_detail_set(E_PARSE, cmd_idx, "missing target for 'skip'");
+        return E_PARSE;
+    }
+
+    // Check if this is "skip to <location>" or "skip <offset><unit>"
+    if (is_keyword(tokens[*idx], &kw_to)) {
+        (*idx)++; // consume "to"
+        out->is_location = true;
+        enum Err err = parse_loc_expr(tokens, idx, token_count, &out->u.to_location, prg, labels);
+        if (err != E_OK) {
+            return err;
+        }
+    } else {
+        out->is_location = false;
+        i32 offset_idx = *idx;
+        enum Err err = parse_offset(tokens[*idx], &out->u.by_offset.offset, &out->u.by_offset.unit);
+        if (err != E_OK) {
+            error_detail_set(E_PARSE, offset_idx, "invalid offset '%.*s' for 'skip'", tokens[offset_idx].len, tokens[offset_idx].bytes);
+            return err;
+        }
+        (*idx)++;
+    }
+
+    return E_OK;
+}
+
+// Parse arguments for take operation
+// Grammar: (to LOCATION) | (until[:re|:bin] PATTERN [at EXPR]) | ([len] OFFSET)
+static enum Err parse_take_args(const String* tokens, i32* idx, i32 token_count,
+    i32 cmd_idx, TmpTakeArgs* out, Program* prg, LabelTable* labels)
+{
+    if (*idx >= token_count) {
+        error_detail_set(E_PARSE, cmd_idx, "missing argument for 'take'");
+        return E_PARSE;
+    }
+
+    const String next_tok = tokens[*idx];
+
+    if (is_keyword(next_tok, &kw_to)) {
+        out->kind = TAKE_TO;
+        (*idx)++;
+        enum Err err = parse_loc_expr(tokens, idx, token_count, &out->u.to, prg, labels);
+        if (err != E_OK) {
+            return err;
+        }
+    } else if (is_keyword(next_tok, &kw_until_re)) {
+        out->kind = TAKE_UNTIL_RE;
+        (*idx)++;
+
+        // Parse pattern
+        if (*idx >= token_count) {
+            error_detail_set(E_PARSE, cmd_idx, "missing pattern for 'take until:re'");
+            return E_PARSE;
+        }
+        out->u.until.pattern_tok = tokens[*idx];
+        out->u.until.pattern_idx = *idx;
+        (*idx)++;
+
+        // Parse optional "at" expression
+        if (*idx < token_count && is_keyword(tokens[*idx], &kw_at_keyword)) {
+            (*idx)++;
+            out->u.until.has_at = true;
+            enum Err err = parse_at_expr(tokens, idx, token_count, &out->u.until.at);
+            if (err != E_OK) {
+                return err;
+            }
+        } else {
+            out->u.until.has_at = false;
+        }
+    } else if (is_keyword(next_tok, &kw_until_bin)) {
+        out->kind = TAKE_UNTIL_BIN;
+        (*idx)++;
+
+        // Parse hex string
+        if (*idx >= token_count) {
+            error_detail_set(E_PARSE, cmd_idx, "missing hex bytes for 'take until:bin'");
+            return E_PARSE;
+        }
+        out->u.until.pattern_tok = tokens[*idx];
+        out->u.until.pattern_idx = *idx;
+        (*idx)++;
+
+        // Parse optional "at" expression
+        if (*idx < token_count && is_keyword(tokens[*idx], &kw_at_keyword)) {
+            (*idx)++;
+            out->u.until.has_at = true;
+            enum Err err = parse_at_expr(tokens, idx, token_count, &out->u.until.at);
+            if (err != E_OK) {
+                return err;
+            }
+        } else {
+            out->u.until.has_at = false;
+        }
+    } else if (is_keyword(next_tok, &kw_until)) {
+        out->kind = TAKE_UNTIL;
+        (*idx)++;
+
+        // Parse needle
+        if (*idx >= token_count) {
+            error_detail_set(E_PARSE, cmd_idx, "missing needle for 'take until'");
+            return E_PARSE;
+        }
+        out->u.until.pattern_tok = tokens[*idx];
+        out->u.until.pattern_idx = *idx;
+        (*idx)++;
+
+        // Parse optional "at" expression
+        if (*idx < token_count && is_keyword(tokens[*idx], &kw_at_keyword)) {
+            (*idx)++;
+            out->u.until.has_at = true;
+            enum Err err = parse_at_expr(tokens, idx, token_count, &out->u.until.at);
+            if (err != E_OK) {
+                return err;
+            }
+        } else {
+            out->u.until.has_at = false;
+        }
+    } else {
+        // take [len] OFFSET
+        out->kind = TAKE_LEN;
+        if (is_keyword(next_tok, &kw_len)) {
+            (*idx)++;
+            if (*idx >= token_count) {
+                error_detail_set(E_PARSE, cmd_idx, "missing length value for 'take len'");
+                return E_PARSE;
+            }
+        }
+        enum Err err = parse_offset(tokens[*idx], &out->u.len.offset, &out->u.len.unit);
+        if (err != E_OK) {
+            const char* ctx = is_keyword(next_tok, &kw_len) ? "take len" : "take";
+            error_detail_set(E_PARSE, *idx, "invalid offset '%.*s' for '%s'", tokens[*idx].len, tokens[*idx].bytes, ctx);
+            return err;
+        }
+        (*idx)++;
+    }
+
+    return E_OK;
+}
+
+// Parse arguments for view operation
+// Grammar: LOCATION LOCATION
+static enum Err parse_view_args(const String* tokens, i32* idx, i32 token_count,
+    i32 cmd_idx, TmpViewArgs* out, Program* prg, LabelTable* labels)
+{
+    if (*idx >= token_count) {
+        error_detail_set(E_PARSE, cmd_idx, "missing start location for 'view'");
+        return E_PARSE;
+    }
+    enum Err err = parse_loc_expr(tokens, idx, token_count, &out->a, prg, labels);
+    if (err != E_OK) {
+        return err;
+    }
+
+    if (*idx >= token_count) {
+        error_detail_set(E_PARSE, cmd_idx, "missing end location for 'view'");
+        return E_PARSE;
+    }
+    err = parse_loc_expr(tokens, idx, token_count, &out->b, prg, labels);
+    if (err != E_OK) {
+        return err;
+    }
+
+    return E_OK;
+}
+
+// Parse arguments for print/echo/fail operations
+// Grammar: STRING
+static enum Err parse_print_args(const String* tokens, i32* idx, i32 token_count,
+    i32 cmd_idx, const String cmd_tok, TmpPrintArgs* out)
+{
+    if (*idx >= token_count) {
+        error_detail_set(E_PARSE, cmd_idx, "missing string for '%.*s'", cmd_tok.len, cmd_tok.bytes);
+        return E_PARSE;
+    }
+
+    out->str_tok = tokens[*idx];
+    out->str_idx = *idx;
+    (*idx)++;
+
+    return E_OK;
+}
+
+// Parse arguments for label operation
+// Grammar: NAME
+static enum Err parse_label_args(const String* tokens, i32* idx, i32 token_count,
+    i32 cmd_idx, TmpLabelArgs* out)
+{
+    if (*idx >= token_count) {
+        error_detail_set(E_PARSE, cmd_idx, "missing label name for 'label'");
+        return E_PARSE;
+    }
+
+    out->name_tok = tokens[*idx];
+    out->name_idx_token = *idx;
+    (*idx)++;
+
+    return E_OK;
+}
+
+// Parse arguments for clear operation
+// Grammar: view (currently only "clear view" is supported)
+static enum Err parse_clear_args(const String* tokens, i32* idx, i32 token_count, i32 cmd_idx)
+{
+    if (*idx >= token_count) {
+        error_detail_set(E_PARSE, cmd_idx, "missing target for 'clear'");
+        return E_PARSE;
+    }
+
+    i32 target_idx = *idx;
+    String target_tok = tokens[*idx];
+    (*idx)++;
+
+    if (!is_keyword(target_tok, &kw_view)) {
+        // Future: clear <LABEL> - for now, error
+        error_detail_set(E_PARSE, target_idx, "unsupported clear target '%.*s'", target_tok.len, target_tok.bytes);
+        return E_PARSE;
+    }
+
+    return E_OK;
+}
+
+/************************************************************
+ * DRY-RUN PARSER
+ *
+ * CRITICAL: This function MUST advance *idx EXACTLY like parse_op()
+ * would for the same input. Any drift causes memory corruption via
+ * wrong op_cursor calculation in parse_build().
+ *
+ * This function validates syntax and consumes tokens WITHOUT side
+ * effects (no writes to Program/str_pool/LabelTable).
+ ************************************************************/
+static enum Err parse_op_dry_run(const String* tokens, i32* idx, i32 token_count,
+    Program* prg, LabelTable* labels)
+{
+    if (*idx >= token_count) {
+        error_detail_set(E_PARSE, token_count, "unexpected end of input while reading operation");
+        return E_PARSE;
+    }
+
+    i32 cmd_idx = *idx;
+    const String cmd_tok = tokens[*idx];
+    (*idx)++;
+
+    // Shared temp storage (reused across branches since we immediately return)
+    union {
+        TmpFindArgs find;
+        TmpSkipArgs skip;
+        TmpTakeArgs take;
+        TmpLabelArgs label;
+        TmpViewArgs view;
+        TmpPrintArgs print;
+    } args;
+
+    // Call same helpers as parse_op(), but discard results
+    if (is_keyword(cmd_tok, &kw_find)) {
+        return parse_find_like_args(tokens, idx, token_count, cmd_idx, FIND_LIT, &args.find, prg, labels);
+
+    } else if (is_keyword(cmd_tok, &kw_find_re)) {
+        return parse_find_like_args(tokens, idx, token_count, cmd_idx, FIND_RE, &args.find, prg, labels);
+
+    } else if (is_keyword(cmd_tok, &kw_find_bin)) {
+        return parse_find_like_args(tokens, idx, token_count, cmd_idx, FIND_BIN, &args.find, prg, labels);
+
+    } else if (is_keyword(cmd_tok, &kw_skip)) {
+        return parse_skip_args(tokens, idx, token_count, cmd_idx, &args.skip, prg, labels);
+
+    } else if (is_keyword(cmd_tok, &kw_take)) {
+        return parse_take_args(tokens, idx, token_count, cmd_idx, &args.take, prg, labels);
+
+    } else if (is_keyword(cmd_tok, &kw_label)) {
+        return parse_label_args(tokens, idx, token_count, cmd_idx, &args.label);
+
+    } else if (is_keyword(cmd_tok, &kw_view)) {
+        return parse_view_args(tokens, idx, token_count, cmd_idx, &args.view, prg, labels);
+
+    } else if (is_keyword(cmd_tok, &kw_clear)) {
+        return parse_clear_args(tokens, idx, token_count, cmd_idx);
+
+    } else if (is_keyword(cmd_tok, &kw_print) || is_keyword(cmd_tok, &kw_echo)) {
+        return parse_print_args(tokens, idx, token_count, cmd_idx, cmd_tok, &args.print);
+
+    } else if (is_keyword(cmd_tok, &kw_fail)) {
+        return parse_print_args(tokens, idx, token_count, cmd_idx, cmd_tok, &args.print);
+
+    } else {
+        error_detail_set(E_PARSE, cmd_idx, "unknown operation '%.*s'", cmd_tok.len, cmd_tok.bytes);
+        return E_PARSE;
+    }
+}
+
 static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op, Program* prg, LabelTable* labels,
     char* str_pool, size_t* str_pool_off, size_t str_pool_cap)
 {
@@ -1142,12 +1464,16 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
     if (is_keyword(cmd_tok, &kw_find)) {
         op->kind = OP_FIND;
 
-        if (*idx < token_count && is_keyword(tokens[*idx], &kw_to)) {
-            (*idx)++;
-            enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.find.to, prg, labels);
-            if (err != E_OK) {
-                return err;
-            }
+        // Parse arguments
+        TmpFindArgs args;
+        enum Err err = parse_find_like_args(tokens, idx, token_count, cmd_idx, FIND_LIT, &args, prg, labels);
+        if (err != E_OK) {
+            return err;
+        }
+
+        // Materialize: populate Op from parsed args
+        if (args.has_to) {
+            op->u.find.to = args.to;
         } else {
             // Default to EOF
             op->u.find.to.base = LOC_EOF;
@@ -1156,25 +1482,18 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
             op->u.find.to.unit = UNIT_BYTES;
         }
 
-        // Parse needle
-        if (*idx >= token_count) {
-            error_detail_set(E_PARSE, cmd_idx, "missing needle for 'find'");
-            return E_PARSE;
-        }
-        const String needle_tok = tokens[*idx];
-        (*idx)++;
-
-        enum Err err = check_pattern_len(needle_tok, *idx - 1);
+        // Validate and materialize needle
+        err = check_pattern_len(args.pattern_tok, args.pattern_idx);
         if (err != E_OK) {
             return err;
         }
 
-        if (needle_tok.len == 0) {
+        if (args.pattern_tok.len == 0) {
             return E_BAD_NEEDLE;
         }
 
         err = E_OK;
-        op->u.find.needle = parse_string_to_bytes(needle_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
+        op->u.find.needle = parse_string_to_bytes(args.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
         if (err != E_OK) {
             return err;
         }
@@ -1182,39 +1501,38 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
     } else if (is_keyword(cmd_tok, &kw_find_re)) {
         op->kind = OP_FIND_RE;
 
-        if (*idx < token_count && is_keyword(tokens[*idx], &kw_to)) {
-            (*idx)++;
-            enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.findr.to, prg, labels);
-            if (err != E_OK) {
-                return err;
-            }
+        // Parse arguments
+        TmpFindArgs args;
+        enum Err err = parse_find_like_args(tokens, idx, token_count, cmd_idx, FIND_RE, &args, prg, labels);
+        if (err != E_OK) {
+            return err;
+        }
+
+        // Materialize: populate Op from parsed args
+        if (args.has_to) {
+            op->u.findr.to = args.to;
         } else {
             op->u.findr.to.base = LOC_EOF;
             op->u.findr.to.name_idx = -1;
             op->u.findr.to.offset = 0;
             op->u.findr.to.unit = UNIT_BYTES;
         }
-        if (*idx >= token_count) {
-            error_detail_set(E_PARSE, cmd_idx, "missing pattern for 'find:re'");
-            return E_PARSE;
-        }
-        const String pat_tok = tokens[*idx];
-        (*idx)++;
 
-        enum Err err = check_pattern_len(pat_tok, *idx - 1);
+        // Validate and materialize pattern
+        err = check_pattern_len(args.pattern_tok, args.pattern_idx);
         if (err != E_OK) {
             return err;
         }
 
         err = E_OK;
-        op->u.findr.pattern = parse_string_to_bytes(pat_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
+        op->u.findr.pattern = parse_string_to_bytes(args.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
         if (err != E_OK) {
             return err;
         }
 
         // Check for patterns that cause exponential expansion
         if (has_empty_quantified_group(op->u.findr.pattern.bytes, op->u.findr.pattern.len)) {
-            error_detail_set(E_PARSE, *idx - 1, "regex pattern contains empty alternative in quantified group (e.g. '(|a)*')");
+            error_detail_set(E_PARSE, args.pattern_idx, "regex pattern contains empty alternative in quantified group (e.g. '(|a)*')");
             return E_PARSE;
         }
 
@@ -1223,12 +1541,16 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
     } else if (is_keyword(cmd_tok, &kw_find_bin)) {
         op->kind = OP_FIND_BIN;
 
-        if (*idx < token_count && is_keyword(tokens[*idx], &kw_to)) {
-            (*idx)++;
-            enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.findbin.to, prg, labels);
-            if (err != E_OK) {
-                return err;
-            }
+        // Parse arguments
+        TmpFindArgs args;
+        enum Err err = parse_find_like_args(tokens, idx, token_count, cmd_idx, FIND_BIN, &args, prg, labels);
+        if (err != E_OK) {
+            return err;
+        }
+
+        // Materialize: populate Op from parsed args
+        if (args.has_to) {
+            op->u.findbin.to = args.to;
         } else {
             // Default to EOF
             op->u.findbin.to.base = LOC_EOF;
@@ -1237,25 +1559,18 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
             op->u.findbin.to.unit = UNIT_BYTES;
         }
 
-        // Parse hex string
-        if (*idx >= token_count) {
-            error_detail_set(E_PARSE, cmd_idx, "missing hex bytes for 'find:bin'");
-            return E_PARSE;
-        }
-        const String hex_tok = tokens[*idx];
-        (*idx)++;
-
-        enum Err err = check_pattern_len(hex_tok, *idx - 1);
+        // Validate and materialize hex string
+        err = check_pattern_len(args.pattern_tok, args.pattern_idx);
         if (err != E_OK) {
             return err;
         }
 
-        if (hex_tok.len == 0) {
+        if (args.pattern_tok.len == 0) {
             return E_BAD_NEEDLE;
         }
 
         err = E_OK;
-        op->u.findbin.needle = parse_hex_to_bytes(hex_tok, str_pool, str_pool_off, str_pool_cap, &err);
+        op->u.findbin.needle = parse_hex_to_bytes(args.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err);
         if (err != E_OK) {
             return err;
         }
@@ -1266,180 +1581,118 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
     } else if (is_keyword(cmd_tok, &kw_skip)) {
         op->kind = OP_SKIP;
 
-        if (*idx >= token_count) {
-            error_detail_set(E_PARSE, cmd_idx, "missing target for 'skip'");
-            return E_PARSE;
+        // Parse arguments
+        TmpSkipArgs args;
+        enum Err err = parse_skip_args(tokens, idx, token_count, cmd_idx, &args, prg, labels);
+        if (err != E_OK) {
+            return err;
         }
 
-        // Check if this is "skip to <location>" or "skip <offset><unit>"
-        if (is_keyword(tokens[*idx], &kw_to)) {
-            (*idx)++; // consume "to"
+        // Materialize: populate Op from parsed args
+        if (args.is_location) {
             op->u.skip.is_location = true;
-            enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.skip.to_location.to, prg, labels);
-            if (err != E_OK) {
-                return err;
-            }
+            op->u.skip.to_location.to = args.u.to_location;
         } else {
             op->u.skip.is_location = false;
-            i32 offset_idx = *idx;
-            enum Err err = parse_offset(tokens[*idx], &op->u.skip.by_offset.offset, &op->u.skip.by_offset.unit);
-            if (err != E_OK) {
-                error_detail_set(E_PARSE, offset_idx, "invalid offset '%.*s' for 'skip'", tokens[offset_idx].len, tokens[offset_idx].bytes);
-                return err;
-            }
-            (*idx)++;
+            op->u.skip.by_offset.offset = args.u.by_offset.offset;
+            op->u.skip.by_offset.unit = args.u.by_offset.unit;
         }
 
         /************************************************************
          * EXTRACTION OPERATIONS
          ************************************************************/
     } else if (is_keyword(cmd_tok, &kw_take)) {
-        if (*idx >= token_count) {
-            error_detail_set(E_PARSE, cmd_idx, "missing argument for 'take'");
-            return E_PARSE;
+        // Parse arguments
+        TmpTakeArgs args;
+        enum Err err = parse_take_args(tokens, idx, token_count, cmd_idx, &args, prg, labels);
+        if (err != E_OK) {
+            return err;
         }
 
-        const String next_tok = tokens[*idx];
-        if (is_keyword(next_tok, &kw_to)) {
+        // Materialize: populate Op from parsed args based on kind
+        if (args.kind == TAKE_TO) {
             op->kind = OP_TAKE_TO;
-            (*idx)++;
-            enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.take_to.to, prg, labels);
-            if (err != E_OK) {
-                return err;
-            }
-        } else if (is_keyword(next_tok, &kw_until_re)) {
+            op->u.take_to.to = args.u.to;
+
+        } else if (args.kind == TAKE_UNTIL_RE) {
             op->kind = OP_TAKE_UNTIL_RE;
-            (*idx)++;
 
-            // Parse pattern
-            if (*idx >= token_count) {
-                error_detail_set(E_PARSE, cmd_idx, "missing pattern for 'take until:re'");
-                return E_PARSE;
-            }
-            const String pattern_tok = tokens[*idx];
-            (*idx)++;
-
-            enum Err err = check_pattern_len(pattern_tok, *idx - 1);
+            // Validate and materialize pattern
+            err = check_pattern_len(args.u.until.pattern_tok, args.u.until.pattern_idx);
             if (err != E_OK) {
                 return err;
             }
 
             err = E_OK;
-            op->u.take_until_re.pattern = parse_string_to_bytes(pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
+            op->u.take_until_re.pattern = parse_string_to_bytes(args.u.until.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
             if (err != E_OK) {
                 return err;
             }
 
             // Check for patterns that cause exponential expansion
             if (has_empty_quantified_group(op->u.take_until_re.pattern.bytes, op->u.take_until_re.pattern.len)) {
-                error_detail_set(E_PARSE, *idx - 1, "regex pattern contains empty alternative in quantified group (e.g. '(|a)*')");
+                error_detail_set(E_PARSE, args.u.until.pattern_idx, "regex pattern contains empty alternative in quantified group (e.g. '(|a)*')");
                 return E_PARSE;
             }
 
-            // Parse "at" expression if present
-            if (*idx < token_count && is_keyword(tokens[*idx], &kw_at_keyword)) {
-                (*idx)++;
-                op->u.take_until_re.has_at = true;
-                enum Err err2 = parse_at_expr(tokens, idx, token_count, &op->u.take_until_re.at);
-                if (err2 != E_OK) {
-                    return err2;
-                }
-            } else {
-                op->u.take_until_re.has_at = false;
+            op->u.take_until_re.has_at = args.u.until.has_at;
+            if (args.u.until.has_at) {
+                op->u.take_until_re.at = args.u.until.at;
             }
             op->u.take_until_re.prog = NULL;
-        } else if (is_keyword(next_tok, &kw_until_bin)) {
+
+        } else if (args.kind == TAKE_UNTIL_BIN) {
             op->kind = OP_TAKE_UNTIL_BIN;
-            (*idx)++;
 
-            // Parse hex string
-            if (*idx >= token_count) {
-                error_detail_set(E_PARSE, cmd_idx, "missing hex bytes for 'take until:bin'");
-                return E_PARSE;
-            }
-            const String hex_tok = tokens[*idx];
-            (*idx)++;
-
-            enum Err err = check_pattern_len(hex_tok, *idx - 1);
+            // Validate and materialize hex string
+            err = check_pattern_len(args.u.until.pattern_tok, args.u.until.pattern_idx);
             if (err != E_OK) {
                 return err;
             }
 
-            if (hex_tok.len == 0) {
+            if (args.u.until.pattern_tok.len == 0) {
                 return E_BAD_NEEDLE;
             }
 
             err = E_OK;
-            op->u.take_until_bin.needle = parse_hex_to_bytes(hex_tok, str_pool, str_pool_off, str_pool_cap, &err);
+            op->u.take_until_bin.needle = parse_hex_to_bytes(args.u.until.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err);
             if (err != E_OK) {
                 return err;
             }
 
-            // Parse "at" expression if present
-            if (*idx < token_count && is_keyword(tokens[*idx], &kw_at_keyword)) {
-                (*idx)++;
-                op->u.take_until_bin.has_at = true;
-                enum Err err2 = parse_at_expr(tokens, idx, token_count, &op->u.take_until_bin.at);
-                if (err2 != E_OK) {
-                    return err2;
-                }
-            } else {
-                op->u.take_until_bin.has_at = false;
+            op->u.take_until_bin.has_at = args.u.until.has_at;
+            if (args.u.until.has_at) {
+                op->u.take_until_bin.at = args.u.until.at;
             }
-        } else if (is_keyword(next_tok, &kw_until)) {
+
+        } else if (args.kind == TAKE_UNTIL) {
             op->kind = OP_TAKE_UNTIL;
-            (*idx)++;
 
-            // Parse needle
-            if (*idx >= token_count) {
-                error_detail_set(E_PARSE, cmd_idx, "missing needle for 'take until'");
-                return E_PARSE;
-            }
-            const String needle_tok = tokens[*idx];
-            (*idx)++;
-
-            enum Err err = check_pattern_len(needle_tok, *idx - 1);
+            // Validate and materialize needle
+            err = check_pattern_len(args.u.until.pattern_tok, args.u.until.pattern_idx);
             if (err != E_OK) {
                 return err;
             }
 
-            if (needle_tok.len == 0) {
+            if (args.u.until.pattern_tok.len == 0) {
                 return E_BAD_NEEDLE;
             }
 
             err = E_OK;
-            op->u.take_until.needle = parse_string_to_bytes(needle_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
+            op->u.take_until.needle = parse_string_to_bytes(args.u.until.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
             if (err != E_OK) {
                 return err;
             }
 
-            // Parse "at" expression if present
-            if (*idx < token_count && is_keyword(tokens[*idx], &kw_at_keyword)) {
-                (*idx)++;
-                op->u.take_until.has_at = true;
-                enum Err err2 = parse_at_expr(tokens, idx, token_count, &op->u.take_until.at);
-                if (err2 != E_OK) {
-                    return err2;
-                }
-            } else {
-                op->u.take_until.has_at = false;
+            op->u.take_until.has_at = args.u.until.has_at;
+            if (args.u.until.has_at) {
+                op->u.take_until.at = args.u.until.at;
             }
-        } else {
+
+        } else {  // TAKE_LEN
             op->kind = OP_TAKE_LEN;
-            if (is_keyword(next_tok, &kw_len)) {
-                (*idx)++;
-                if (*idx >= token_count) {
-                    error_detail_set(E_PARSE, cmd_idx, "missing length value for 'take len'");
-                    return E_PARSE;
-                }
-            }
-            enum Err err = parse_offset(tokens[*idx], &op->u.take_len.offset, &op->u.take_len.unit);
-            if (err != E_OK) {
-                const char* ctx = is_keyword(next_tok, &kw_len) ? "take len" : "take";
-                error_detail_set(E_PARSE, *idx, "invalid offset '%.*s' for '%s'", tokens[*idx].len, tokens[*idx].bytes, ctx);
-                return err;
-            }
-            (*idx)++;
+            op->u.take_len.offset = args.u.len.offset;
+            op->u.take_len.unit = args.u.len.unit;
         }
 
         /************************************************************
@@ -1448,18 +1701,19 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
     } else if (is_keyword(cmd_tok, &kw_label)) {
         op->kind = OP_LABEL;
 
-        if (*idx >= token_count) {
-            error_detail_set(E_PARSE, cmd_idx, "missing label name for 'label'");
-            return E_PARSE;
+        // Parse arguments
+        TmpLabelArgs args;
+        enum Err err = parse_label_args(tokens, idx, token_count, cmd_idx, &args);
+        if (err != E_OK) {
+            return err;
         }
-        String name_tok = tokens[*idx];
-        (*idx)++;
 
-        if (!is_label_name_valid(name_tok)) {
+        // Validate and materialize
+        if (!is_label_name_valid(args.name_tok)) {
             return E_LABEL_FMT;
         }
 
-        i32 name_idx = find_or_add_label(prg, labels, name_tok);
+        i32 name_idx = find_or_add_label(prg, labels, args.name_tok);
         if (name_idx < 0) {
             return E_CAPACITY;
         }
@@ -1471,43 +1725,26 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
     } else if (is_keyword(cmd_tok, &kw_view)) {
         op->kind = OP_VIEWSET;
 
-        if (*idx >= token_count) {
-            error_detail_set(E_PARSE, cmd_idx, "missing start location for 'view'");
-            return E_PARSE;
-        }
-        enum Err err = parse_loc_expr(tokens, idx, token_count, &op->u.viewset.a, prg, labels);
+        // Parse arguments
+        TmpViewArgs args;
+        enum Err err = parse_view_args(tokens, idx, token_count, cmd_idx, &args, prg, labels);
         if (err != E_OK) {
             return err;
         }
 
-        if (*idx >= token_count) {
-            error_detail_set(E_PARSE, cmd_idx, "missing end location for 'view'");
-            return E_PARSE;
-        }
-        err = parse_loc_expr(tokens, idx, token_count, &op->u.viewset.b, prg, labels);
-        if (err != E_OK) {
-            return err;
-        }
+        // Materialize: populate Op from parsed args
+        op->u.viewset.a = args.a;
+        op->u.viewset.b = args.b;
 
     } else if (is_keyword(cmd_tok, &kw_clear)) {
-        // Parse second token to determine what to clear
-        if (*idx >= token_count) {
-            error_detail_set(E_PARSE, cmd_idx, "missing target for 'clear'");
-            return E_PARSE;
+        // Parse arguments
+        enum Err err = parse_clear_args(tokens, idx, token_count, cmd_idx);
+        if (err != E_OK) {
+            return err;
         }
 
-        i32 target_idx = *idx;
-        String target_tok = tokens[*idx];
-        (*idx)++;
-
-        if (is_keyword(target_tok, &kw_view)) {
-            op->kind = OP_VIEWCLEAR;
-            // No additional parsing needed
-        } else {
-            // Future: clear <LABEL> - for now, error
-            error_detail_set(E_PARSE, target_idx, "unsupported clear target '%.*s'", target_tok.len, target_tok.bytes);
-            return E_PARSE;
-        }
+        // Materialize (currently only "clear view" is supported)
+        op->kind = OP_VIEWCLEAR;
 
         /************************************************************
          * OUTPUT/UTILITY OPERATIONS
@@ -1515,23 +1752,23 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
     } else if (is_keyword(cmd_tok, &kw_print) || is_keyword(cmd_tok, &kw_echo)) {
         op->kind = OP_PRINT;
 
-        // Parse string
-        if (*idx >= token_count) {
-            error_detail_set(E_PARSE, cmd_idx, "missing string for '%.*s'", cmd_tok.len, cmd_tok.bytes);
-            return E_PARSE;
+        // Parse arguments
+        TmpPrintArgs args;
+        enum Err err = parse_print_args(tokens, idx, token_count, cmd_idx, cmd_tok, &args);
+        if (err != E_OK) {
+            return err;
         }
-        const String str_tok = tokens[*idx];
-        (*idx)++;
 
+        // Validate and materialize
         i32 segments = 0;
-        if (!compute_print_stats(str_tok, NULL, &segments, NULL)) {
+        if (!compute_print_stats(args.str_tok, NULL, &segments, NULL)) {
             error_detail_set(E_PARSE, cmd_idx, "invalid escape in print literal");
             return E_PARSE;
         }
 
-        enum Err err = E_OK;
+        err = E_OK;
         i32 parsed_marks = 0;
-        op->u.print.string = parse_string_to_bytes(str_tok, str_pool, str_pool_off, str_pool_cap, &err, &parsed_marks);
+        op->u.print.string = parse_string_to_bytes(args.str_tok, str_pool, str_pool_off, str_pool_cap, &err, &parsed_marks);
         if (err != E_OK) {
             return err;
         }
@@ -1541,16 +1778,16 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
     } else if (is_keyword(cmd_tok, &kw_fail)) {
         op->kind = OP_FAIL;
 
-        // Parse message
-        if (*idx >= token_count) {
-            error_detail_set(E_PARSE, cmd_idx, "missing message for 'fail'");
-            return E_PARSE;
+        // Parse arguments
+        TmpPrintArgs args;
+        enum Err err = parse_print_args(tokens, idx, token_count, cmd_idx, cmd_tok, &args);
+        if (err != E_OK) {
+            return err;
         }
-        const String message_tok = tokens[*idx];
-        (*idx)++;
 
-        enum Err err = E_OK;
-        op->u.fail.message = parse_string_to_bytes(message_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
+        // Materialize
+        err = E_OK;
+        op->u.fail.message = parse_string_to_bytes(args.str_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
         if (err != E_OK) {
             return err;
         }
