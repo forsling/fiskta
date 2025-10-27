@@ -9,8 +9,8 @@
 // by FISKTA_OVERLAP_MAX unless overridden at build time.
 
 #pragma once
-#include "fiskta.h"
 #include "fileio.h"
+#include "fiskta.h"
 
 // Search for literal needle in file window [win_lo, win_hi)
 // Returns match position in [ms, me) on success, E_NO_MATCH if not found

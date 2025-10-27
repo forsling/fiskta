@@ -5,8 +5,8 @@
 #include "runtime.h"
 #include "engine.h"
 #include "error.h"
-#include "fiskta.h"
 #include "fileio.h"
+#include "fiskta.h"
 #include "parse.h"
 #include "regex_prog.h"
 #include "util.h"
@@ -451,7 +451,7 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
 // =============================================================================
 
 int program_requirements(i32 token_count, const String* tokens,
-                        RuntimeRequirements* out)
+    RuntimeRequirements* out)
 {
     if (!tokens || !out) {
         return FISKTA_EXIT_PARSE;
@@ -553,18 +553,7 @@ int program_requirements(i32 token_count, const String* tokens,
 
     // Sum everything with overflow checking
     size_t total = search_buf_size;
-    if (add_overflow(total, clauses_size, &total) ||
-        add_overflow(total, ops_size, &total) ||
-        add_overflow(total, re_prog_size, &total) ||
-        add_overflow(total, re_ins_size, &total) ||
-        add_overflow(total, re_cls_size, &total) ||
-        add_overflow(total, str_pool_size, &total) ||
-        add_overflow(total, re_thrbufs_size, &total) ||
-        add_overflow(total, re_seen_size, &total) ||
-        add_overflow(total, ranges_size, &total) ||
-        add_overflow(total, labels_size, &total) ||
-        add_overflow(total, inline_size, &total) ||
-        add_overflow(total, 64, &total)) { // small cushion
+    if (add_overflow(total, clauses_size, &total) || add_overflow(total, ops_size, &total) || add_overflow(total, re_prog_size, &total) || add_overflow(total, re_ins_size, &total) || add_overflow(total, re_cls_size, &total) || add_overflow(total, str_pool_size, &total) || add_overflow(total, re_thrbufs_size, &total) || add_overflow(total, re_seen_size, &total) || add_overflow(total, ranges_size, &total) || add_overflow(total, labels_size, &total) || add_overflow(total, inline_size, &total) || add_overflow(total, 64, &total)) { // small cushion
         print_err(E_OOM, "arena size overflow");
         return FISKTA_EXIT_RESOURCE;
     }
@@ -578,8 +567,8 @@ int program_requirements(i32 token_count, const String* tokens,
 // =============================================================================
 
 int build_program(i32 token_count, const String* tokens,
-                  Program* prog_out,
-                  RuntimeScratch* scratch_out)
+    Program* prog_out,
+    RuntimeScratch* scratch_out)
 {
     if (!tokens || !prog_out || !scratch_out) {
         return FISKTA_EXIT_PARSE;
@@ -761,16 +750,16 @@ int build_program(i32 token_count, const String* tokens,
     scratch_out->sum_inline_lits = plan.sum_inline_lits;
     scratch_out->arena_block = block;
     scratch_out->arena_size = total;
-    scratch_out->arena_owned = true;  // We malloc'd it, we own it
+    scratch_out->arena_owned = true; // We malloc'd it, we own it
 
     return FISKTA_EXIT_OK;
 }
 
 // Build program with caller-provided arena (zero-malloc variant)
 int build_program_with_scratch(i32 token_count, const String* tokens,
-                               Program* prog_out,
-                               void* arena_block, size_t arena_size,
-                               RuntimeScratch* scratch_out)
+    Program* prog_out,
+    void* arena_block, size_t arena_size,
+    RuntimeScratch* scratch_out)
 {
     if (!tokens || !prog_out || !scratch_out || !arena_block) {
         return FISKTA_EXIT_PARSE;
@@ -912,7 +901,7 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
     scratch_out->sum_inline_lits = plan.sum_inline_lits;
     scratch_out->arena_block = arena_block;
     scratch_out->arena_size = arena_size;
-    scratch_out->arena_owned = false;  // Caller provided it, caller owns it
+    scratch_out->arena_owned = false; // Caller provided it, caller owns it
 
     return FISKTA_EXIT_OK;
 }
@@ -922,9 +911,9 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
 // =============================================================================
 
 int runtime_execute(const Program* prog,
-                   const char* file_path,
-                   RuntimeScratch* scratch,
-                   const RuntimeConfig* config)
+    const char* file_path,
+    RuntimeScratch* scratch,
+    const RuntimeConfig* config)
 {
     if (!prog || !file_path || !scratch || !config) {
         return FISKTA_EXIT_PARSE;
@@ -1063,8 +1052,8 @@ int run_program(i32 token_count, const String* tokens, const RuntimeConfig* conf
         return FISKTA_EXIT_PARSE;
     }
 
-    Program prog = {0};
-    RuntimeScratch scratch = {0};
+    Program prog = { 0 };
+    RuntimeScratch scratch = { 0 };
 
     // Phase 1: Build (parsing, allocation, compilation)
     int ret = build_program(token_count, tokens, &prog, &scratch);

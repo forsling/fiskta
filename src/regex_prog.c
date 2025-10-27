@@ -1,6 +1,6 @@
 #include "regex_prog.h"
-#include "fileio.h"
 #include "error.h"
+#include "fileio.h"
 #include <ctype.h>
 #include <limits.h>
 #include <stdio.h>
@@ -1674,7 +1674,6 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
 /*************
  * PUBLIC API
  *************/
-
 
 enum Err re_compile_into(String pattern,
     ReProg* out,

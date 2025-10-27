@@ -4,10 +4,10 @@
 
 #include "engine.h"
 #include "error.h"
-#include "fiskta.h"
 #include "fileio.h"
-#include "search_literal.h"
+#include "fiskta.h"
 #include "regex_vm.h"
+#include "search_literal.h"
 #include "util.h"
 #include <errno.h>
 #include <limits.h>

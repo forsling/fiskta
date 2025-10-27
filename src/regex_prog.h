@@ -16,7 +16,7 @@ typedef enum {
               //   - alternation (a|b): x=first alt, y=second alt (leftmost wins)
     RI_JMP,
     RI_COUNTER_RESET, // Reset counter[x] = 0; continue to next instruction
-    RI_COUNTER_INC,   // Increment counter[x]; continue to next instruction
+    RI_COUNTER_INC, // Increment counter[x]; continue to next instruction
     RI_COUNTER_CHECK, // If counter[x] >= y, fail thread; else continue
     RI_COUNTER_CHECK_MIN, // If counter[x] < y, fail thread; else continue
     RI_MATCH
@@ -61,8 +61,8 @@ typedef struct ReProg {
     int nins;
     ReClass* classes;
     int nclasses;
-    int counter_count;  // Number of counters used (0 if none)
-    unsigned char has_lazy;  // 1 if pattern contains lazy quantifiers
+    int counter_count; // Number of counters used (0 if none)
+    unsigned char has_lazy; // 1 if pattern contains lazy quantifiers
 } ReProg;
 
 // Compile pattern into preallocated pools; appends instructions/classes to the pools.
@@ -78,11 +78,11 @@ enum Err re_compile_into(String pattern,
 
 // Runtime memory requirements for a compiled regex program
 typedef struct {
-    size_t nins;           // Number of compiled instructions (diagnostic/logging)
-    size_t seen_bytes;     // Seen table size: nins × RE_SEEN_SLOTS × sizeof(u32), aligned
-    size_t thread_cap;     // Recommended thread list capacity
-    int counter_count;     // Number of {n,m} quantifiers
-    bool has_lazy;         // True if lazy quantifiers present (affects priority tracking)
+    size_t nins; // Number of compiled instructions (diagnostic/logging)
+    size_t seen_bytes; // Seen table size: nins × RE_SEEN_SLOTS × sizeof(u32), aligned
+    size_t thread_cap; // Recommended thread list capacity
+    int counter_count; // Number of {n,m} quantifiers
+    bool has_lazy; // True if lazy quantifiers present (affects priority tracking)
 } ReProgRequirements;
 
 // Compute execution requirements for a compiled regex program

@@ -16,8 +16,8 @@
 // Uses preallocated scratch space (no runtime allocation).
 
 #pragma once
-#include "fiskta.h"
 #include "fileio.h"
+#include "fiskta.h"
 #include "regex_prog.h"
 
 // Regex search in file window [win_lo, win_hi)

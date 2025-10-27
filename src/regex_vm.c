@@ -65,7 +65,8 @@ static inline u32 re_counters_sig(const int* cnt, int n)
         h ^= h >> 13;
         h *= 0x9E3779B1u;
     }
-    if (h == 0) h = 1; // reserve 0 for "empty"
+    if (h == 0)
+        h = 1; // reserve 0 for "empty"
     return h;
 }
 
@@ -125,7 +126,7 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
         // Dedup by (pc, counter_signature)
         u32 sig = (counter_count > 0) ? re_counters_sig(local_counters, counter_count) : 1;
         if (re_seen_hit_or_set(seen, pc, sig)) {
-            return E_OK;  // Already visited this (pc, counter_state) combination
+            return E_OK; // Already visited this (pc, counter_state) combination
         }
 
         ReInst* i = &p->ins[pc];
@@ -147,8 +148,8 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
             u64 prio_x, prio_y;
             if (repeat && lazy) {
                 // Lazy quantifier SPLIT: x=exit (preferred), y=loop (penalized)
-                prio_x = priority;       // X-branch: no penalty (lazy exit)
-                prio_y = priority + 1;   // Y-branch: +1 penalty (lazy loop)
+                prio_x = priority; // X-branch: no penalty (lazy exit)
+                prio_y = priority + 1; // Y-branch: +1 penalty (lazy loop)
             } else {
                 // Greedy quantifier or alternation: no penalty
                 prio_x = priority;
@@ -224,10 +225,10 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
             if (start == min_start) {
                 *match_found = 1;
             }
-            // DEBUG: Print match info
-            #ifdef DEBUG_PRIORITY
+// DEBUG: Print match info
+#ifdef DEBUG_PRIORITY
             fprintf(stderr, "MATCH: start=%lld, pos=%lld, priority=%llu\n", (long long)start, (long long)pos, (unsigned long long)priority);
-            #endif
+#endif
             // Add the thread to the list so consumption step can detect it
             if (l->n >= l->cap) {
                 return E_CAPACITY; // Thread list is full
@@ -293,7 +294,7 @@ enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
         error_detail_set(E_CAPACITY, -1,
             "regex: seen buffer too small (need %zu bytes, have %zu); increase re_ins_estimate",
             need_seen, io->re.seen_bytes);
-        return E_CAPACITY;  // Seen buffer not large enough for regex
+        return E_CAPACITY; // Seen buffer not large enough for regex
     }
 
     ReThread* curr_buf = io->re.curr;
@@ -309,7 +310,7 @@ enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
 
     i64 best_ms = -1;
     i64 best_me = -1;
-    u64 best_priority = UINT64_MAX;  // Worst priority (higher = worse)
+    u64 best_priority = UINT64_MAX; // Worst priority (higher = worse)
     i64 min_start = 0;
     int have_min = 0;
 
@@ -405,7 +406,7 @@ enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
             min_start = pos;
             seen_clear_bytes(seen_curr, need_seen);
             int match_found = 0;
-            int zero_counters[MAX_RE_COUNTERS] = {0};
+            int zero_counters[MAX_RE_COUNTERS] = { 0 };
             enum Err err = add_thread_ordered(re, &curr, 0, pos, pos, win_lo, win_hi, io->size,
                 seen_curr, &match_found, min_start, curr_c, prev_char, at_bol, at_eol, zero_counters, 0ULL, 0);
             if (err != E_OK) {
@@ -416,8 +417,7 @@ enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
                 // Find the priority of the best MATCH thread at min_start
                 u64 match_priority = UINT64_MAX;
                 for (int i = 0; i < curr.n; i++) {
-                    if (curr.v[i].start == min_start && curr.v[i].pc >= 0 &&
-                        curr.v[i].pc < re->nins && re->ins[curr.v[i].pc].op == RI_MATCH) {
+                    if (curr.v[i].start == min_start && curr.v[i].pc >= 0 && curr.v[i].pc < re->nins && re->ins[curr.v[i].pc].op == RI_MATCH) {
                         if (curr.v[i].priority < match_priority) {
                             match_priority = curr.v[i].priority;
                         }
@@ -432,25 +432,25 @@ enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
                 //     - Worse priority AND shorter/equal end → reject
                 int accept_match = 0;
                 if (best_ms < 0) {
-                    accept_match = 1;  // First match
+                    accept_match = 1; // First match
                 } else if (min_start < best_ms) {
-                    accept_match = 1;  // Tier 1: Earlier start wins
+                    accept_match = 1; // Tier 1: Earlier start wins
                 } else if (min_start == best_ms) {
                     // Lexicographic comparison: (priority, -end)
                     // Lower priority is better; for equal priority, longer end is better
                     if (match_priority < best_priority) {
-                        accept_match = 1;  // Better priority
+                        accept_match = 1; // Better priority
                     } else if (match_priority == best_priority && pos > best_me) {
-                        accept_match = 1;  // Equal priority, longer end
+                        accept_match = 1; // Equal priority, longer end
                     }
                     // Note: worse priority is rejected even if longer
                 }
 
-                #ifdef DEBUG_PRIORITY
+#ifdef DEBUG_PRIORITY
                 fprintf(stderr, "Epsilon-1: min_start=%lld, pos=%lld, match_prio=%llu, best_ms=%lld, best_me=%lld, best_prio=%llu, accept=%d\n",
                     (long long)min_start, (long long)pos, (unsigned long long)match_priority,
                     (long long)best_ms, (long long)best_me, (unsigned long long)best_priority, accept_match);
-                #endif
+#endif
                 if (accept_match) {
                     best_ms = min_start;
                     best_me = pos;
@@ -499,8 +499,7 @@ enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
                 // Find the priority of the best MATCH thread at min_start
                 u64 match_priority = UINT64_MAX;
                 for (int i = 0; i < curr.n; i++) {
-                    if (curr.v[i].start == min_start && curr.v[i].pc >= 0 &&
-                        curr.v[i].pc < re->nins && re->ins[curr.v[i].pc].op == RI_MATCH) {
+                    if (curr.v[i].start == min_start && curr.v[i].pc >= 0 && curr.v[i].pc < re->nins && re->ins[curr.v[i].pc].op == RI_MATCH) {
                         if (curr.v[i].priority < match_priority) {
                             match_priority = curr.v[i].priority;
                         }
@@ -517,14 +516,14 @@ enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
                 // Backward search: apply three-tier comparison
                 int accept_match = 0;
                 if (best_ms < 0) {
-                    accept_match = 1;  // First match
+                    accept_match = 1; // First match
                 } else if (min_start < best_ms) {
-                    accept_match = 1;  // Tier 1: Earlier start wins
+                    accept_match = 1; // Tier 1: Earlier start wins
                 } else if (min_start == best_ms) {
                     if (match_priority < best_priority) {
-                        accept_match = 1;  // Tier 2: Better priority → ALWAYS wins
+                        accept_match = 1; // Tier 2: Better priority → ALWAYS wins
                     } else if (match_priority == best_priority && pos > best_me) {
-                        accept_match = 1;  // Tier 3: SAME priority → longer end wins
+                        accept_match = 1; // Tier 3: SAME priority → longer end wins
                     }
                 }
 
@@ -602,8 +601,7 @@ enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
             // Find the priority of the best MATCH thread at min_start
             u64 match_priority = UINT64_MAX;
             for (int i = 0; i < next.n; i++) {
-                if (next.v[i].start == min_start && next.v[i].pc >= 0 &&
-                    next.v[i].pc < re->nins && re->ins[next.v[i].pc].op == RI_MATCH) {
+                if (next.v[i].start == min_start && next.v[i].pc >= 0 && next.v[i].pc < re->nins && re->ins[next.v[i].pc].op == RI_MATCH) {
                     if (next.v[i].priority < match_priority) {
                         match_priority = next.v[i].priority;
                     }
@@ -613,22 +611,22 @@ enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
             // Three-tier comparison
             int accept_match = 0;
             if (best_ms < 0) {
-                accept_match = 1;  // First match
+                accept_match = 1; // First match
             } else if (min_start < best_ms) {
-                accept_match = 1;  // Tier 1: Earlier start wins
+                accept_match = 1; // Tier 1: Earlier start wins
             } else if (min_start == best_ms) {
                 if (match_priority < best_priority) {
-                    accept_match = 1;  // Tier 2: Better priority → ALWAYS wins
+                    accept_match = 1; // Tier 2: Better priority → ALWAYS wins
                 } else if (match_priority == best_priority && (pos + 1) > best_me) {
-                    accept_match = 1;  // Tier 3: SAME priority → longer end wins
+                    accept_match = 1; // Tier 3: SAME priority → longer end wins
                 }
             }
 
-            #ifdef DEBUG_PRIORITY
+#ifdef DEBUG_PRIORITY
             fprintf(stderr, "Consume: min_start=%lld, pos+1=%lld, match_prio=%llu, best_ms=%lld, best_me=%lld, best_prio=%llu, accept=%d\n",
-                (long long)min_start, (long long)(pos+1), (unsigned long long)match_priority,
+                (long long)min_start, (long long)(pos + 1), (unsigned long long)match_priority,
                 (long long)best_ms, (long long)best_me, (unsigned long long)best_priority, accept_match);
-            #endif
+#endif
             if (accept_match) {
                 best_ms = min_start;
                 best_me = pos + 1;

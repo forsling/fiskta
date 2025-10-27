@@ -1,7 +1,7 @@
 #include "parse.h"
 #include "error.h"
-#include "fiskta.h"
 #include "fileio.h"
+#include "fiskta.h"
 #include "util.h"
 #include <ctype.h>
 #include <limits.h>
@@ -526,7 +526,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                     // Group quantifiers like (...)+ duplicate the group content
                     i32 base_classes = 0;
                     i32 group_depth = 0;
-                    i32 group_start_classes[16] = {0};  // Track classes at each group level
+                    i32 group_start_classes[16] = { 0 }; // Track classes at each group level
                     i32 max_depth = 0;
 
                     for (i32 pi = 0; pi < pat_tok.len; ++pi) {
@@ -537,7 +537,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                             if (string_char_in_set(next, "dDwWsS")) {
                                 base_classes++;
                             }
-                            pi++;  // Skip next char
+                            pi++; // Skip next char
                             continue;
                         }
 
@@ -546,7 +546,8 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                                 group_start_classes[group_depth] = base_classes;
                             }
                             group_depth++;
-                            if (group_depth > max_depth) max_depth = group_depth;
+                            if (group_depth > max_depth)
+                                max_depth = group_depth;
                         } else if (c == ')' && group_depth > 0) {
                             group_depth--;
                             // Check for quantifier after group
@@ -682,7 +683,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                             // (Same logic as find:re)
                             i32 base_classes = 0;
                             i32 group_depth = 0;
-                            i32 group_start_classes[16] = {0};
+                            i32 group_start_classes[16] = { 0 };
                             i32 max_depth = 0;
 
                             for (i32 pi = 0; pi < pat_tok.len; ++pi) {
@@ -702,7 +703,8 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                                         group_start_classes[group_depth] = base_classes;
                                     }
                                     group_depth++;
-                                    if (group_depth > max_depth) max_depth = group_depth;
+                                    if (group_depth > max_depth)
+                                        max_depth = group_depth;
                                 } else if (c == ')' && group_depth > 0) {
                                     group_depth--;
                                     if (pi + 1 < pat_tok.len) {
