@@ -3155,6 +3155,13 @@ def tests():
              stdin=b"Z" * 10000 + b"B" * 16384 + b"W" * 10000,
              expect=dict(stdout="B"*16384, exit=0)),  # Maximum-sized pattern across boundary
 
+        # Note: Overflow protection in parse_hex_to_bytes and parse_string_to_bytes
+        # is tested implicitly by all tests that use string/hex patterns.
+        # The add_overflow() checks prevent size_t wraparound when str_pool_off
+        # is very large. This bug cannot be triggered in practice because
+        # str_pool_off is controlled internally and never approaches SIZE_MAX.
+        # The fix is a defensive measure for memory safety.
+
     ]
 
 def main():

@@ -183,7 +183,8 @@ String parse_hex_to_bytes(String hex_str, char* str_pool, size_t* str_pool_off, 
     }
 
     size_t byte_count = hex_digit_count / 2;
-    if (*str_pool_off + byte_count > str_pool_cap) {
+    size_t new_off;
+    if (add_overflow(*str_pool_off, byte_count, &new_off) || new_off > str_pool_cap) {
         if (err_out) {
             *err_out = E_CAPACITY;
         }
@@ -213,7 +214,7 @@ String parse_hex_to_bytes(String hex_str, char* str_pool, size_t* str_pool_off, 
         }
     }
 
-    *str_pool_off += byte_count;
+    *str_pool_off = new_off;
     out.bytes = dst;
     out.len = (i32)byte_count;
     return out;
@@ -315,7 +316,8 @@ String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, s
         dst_len++;
     }
 
-    if (*str_pool_off + dst_len > str_pool_cap) {
+    size_t new_off;
+    if (add_overflow(*str_pool_off, dst_len, &new_off) || new_off > str_pool_cap) {
         if (err_out) {
             *err_out = E_CAPACITY;
         }
@@ -380,7 +382,7 @@ String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, s
         dst[dst_pos++] = str.bytes[i];
     }
 
-    *str_pool_off += dst_len;
+    *str_pool_off = new_off;
     out.bytes = dst;
     out.len = (i32)dst_len;
     return out;
