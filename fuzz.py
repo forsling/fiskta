@@ -52,6 +52,7 @@ class Config:
     min_ops: int
     max_ops: int
     save_all: bool
+    save_capacity: bool
 
 @dataclass
 class TestResult:
@@ -68,6 +69,7 @@ class Stats:
     saved: int = 0
     timeouts: int = 0
     crashed: int = 0
+    capacity_errors: int = 0
     exits: dict[int, int] = field(default_factory=dict)
     start_time: float = field(default_factory=time.time)
 
@@ -163,6 +165,8 @@ Examples:
                         help="Max operations per command (default: 15)")
     parser.add_argument("--save-all", action="store_true",
                         help="Save all cases, not just crashes")
+    parser.add_argument("--save-capacity", action="store_true",
+                        help="Save capacity errors (exit 14) in addition to crashes")
     parser.add_argument("--quick", action="store_true",
                         help="Quick test (10k cases, 2 workers)")
     parser.add_argument("--repro-case", type=int, metavar="N",
@@ -204,6 +208,7 @@ Examples:
         min_ops=args.min_ops,
         max_ops=args.max_ops,
         save_all=args.save_all,
+        save_capacity=args.save_capacity,
     )
 
 # ========= Random helpers =========
@@ -908,7 +913,7 @@ def worker_fn(args: tuple) -> dict:
     if cfg.use_corpus:
         load_corpus(cfg.corpus_dir)
 
-    stats = {'total': 0, 'saved': 0, 'timeouts': 0, 'crashed': 0, 'exits': {}}
+    stats = {'total': 0, 'saved': 0, 'timeouts': 0, 'crashed': 0, 'capacity_errors': 0, 'exits': {}}
 
     def write_worker_stats():
         """Write current stats to file for coordinator to read (atomic)"""
@@ -919,6 +924,7 @@ def worker_fn(args: tuple) -> dict:
             f"saved={stats['saved']}",
             f"timeouts={stats['timeouts']}",
             f"crashed={stats['crashed']}",
+            f"capacity_errors={stats['capacity_errors']}",
         ]
         for code, count in stats['exits'].items():
             lines.append(f"exit[{code}]={count}")
@@ -958,12 +964,16 @@ def worker_fn(args: tuple) -> dict:
         stats['exits'][res.exit_code] = stats['exits'].get(res.exit_code, 0) + 1
         if res.timed_out:
             stats['timeouts'] += 1
-        if res.crashed or res.exit_code in [10, 11, 14]:
+        if res.crashed or res.exit_code in [10, 11]:
             stats['crashed'] += 1
+        if res.exit_code == 14:
+            stats['capacity_errors'] += 1
 
         # Check if interesting
         interesting = (res.timed_out or res.crashed or
-                      res.exit_code in [2, 10, 11, 14] or cfg.save_all)
+                      res.exit_code in [2, 10, 11] or
+                      (res.exit_code == 14 and cfg.save_capacity) or
+                      cfg.save_all)
 
         if interesting:
             final_ops = ops
@@ -1033,6 +1043,7 @@ def run_fuzzer(cfg: Config):
         'min_ops': cfg.min_ops,
         'max_ops': cfg.max_ops,
         'save_all': cfg.save_all,
+        'save_capacity': cfg.save_capacity,
     }
 
     # Prepare worker arguments
@@ -1111,6 +1122,7 @@ def run_fuzzer(cfg: Config):
             agg_stats.saved += stats['saved']
             agg_stats.timeouts += stats['timeouts']
             agg_stats.crashed += stats['crashed']
+            agg_stats.capacity_errors += stats['capacity_errors']
             for code, count in stats['exits'].items():
                 agg_stats.exits[code] = agg_stats.exits.get(code, 0) + count
     else:
@@ -1130,6 +1142,8 @@ def run_fuzzer(cfg: Config):
                                 agg_stats.timeouts += int(val)
                             elif key == 'crashed':
                                 agg_stats.crashed += int(val)
+                            elif key == 'capacity_errors':
+                                agg_stats.capacity_errors += int(val)
                             elif key.startswith('exit['):
                                 # Parse exit[N]=count
                                 code = int(key[5:-1])
@@ -1148,6 +1162,7 @@ def run_fuzzer(cfg: Config):
         f"saved={agg_stats.saved}",
         f"timeouts={agg_stats.timeouts}",
         f"crashed={agg_stats.crashed}",
+        f"capacity_errors={agg_stats.capacity_errors}",
     ]
     for code, count in sorted(agg_stats.exits.items()):
         summary_lines.append(f"exit[{code}]={count}")
@@ -1167,6 +1182,7 @@ def run_fuzzer(cfg: Config):
     print(f"Time elapsed:   {format_time(elapsed)}")
     print(f"Crashes:        {agg_stats.crashed}")
     print(f"Timeouts:       {agg_stats.timeouts}")
+    print(f"Capacity errors: {agg_stats.capacity_errors}")
     print(f"Saved cases:    {agg_stats.saved}")
 
     if agg_stats.exits:
@@ -1175,8 +1191,6 @@ def run_fuzzer(cfg: Config):
             print(f"  exit {code}: {count}")
 
     print(f"\nRun directory: {cfg.run_dir}")
-    if agg_stats.saved > 0:
-        print("Reproduce: ./fuzz.py --repro-case N")
     print()
 
 # ========= Repro modes =========
