@@ -3111,6 +3111,36 @@ def tests():
              tokens=["find:re","(\\w*){0,10}"], input_file="-", stdin=b"test",
              expect=dict(exit=0, alt_exit=11)),  # Allow bounded quantifier, but may hit capacity in practice
 
+        # Quantifier overflow protection
+        # Max safe parseable value: (INT_MAX - 9) / 10 * 10 + 9 = 2147483639
+        dict(id="overflow-001-huge-quantifier",
+             tokens=["find:re","a{30000000000}"], input_file="-", stdin=b"a",
+             expect=dict(exit=REGEX_EXIT)),  # Reject: overflows during parsing
+
+        dict(id="overflow-002-over-int-max",
+             tokens=["find:re","a{2147483648}"], input_file="-", stdin=b"a",
+             expect=dict(exit=REGEX_EXIT)),  # Reject: over INT_MAX
+
+        dict(id="overflow-003-just-over-safe",
+             tokens=["find:re","a{2147483640}"], input_file="-", stdin=b"a",
+             expect=dict(exit=REGEX_EXIT)),  # Reject: would overflow during parsing
+
+        dict(id="overflow-004-max-safe-value",
+             tokens=["find:re","a{2147483639}","take","to","match-end"], input_file="-", stdin=b"a" * 200,
+             expect=dict(exit=PROGRAM_FAIL_EXIT)),  # Accept parsing but won't match (not enough input)
+
+        dict(id="overflow-005-range-max-overflow",
+             tokens=["find:re","a{1,9999999999}"], input_file="-", stdin=b"a",
+             expect=dict(exit=REGEX_EXIT)),  # Reject: max overflows
+
+        dict(id="overflow-006-range-min-overflow",
+             tokens=["find:re","a{9999999999,10000000000}"], input_file="-", stdin=b"a",
+             expect=dict(exit=REGEX_EXIT)),  # Reject: min overflows
+
+        dict(id="overflow-007-valid-large",
+             tokens=["find:re","a{100000}","take","to","match-end"], input_file="-", stdin=b"a" * 200,
+             expect=dict(exit=PROGRAM_FAIL_EXIT)),  # Accept parsing but won't match (not enough input)
+
     ]
 
 def main():

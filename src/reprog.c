@@ -2,6 +2,7 @@
 #include "iosearch.h"
 #include "error.h"
 #include <ctype.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -706,6 +707,11 @@ static enum Err parse_quantifier(String pat, int* i_inout, int* min_count, int* 
         // Parse minimum count
         *min_count = 0;
         while (i < pat.len && isdigit(pat.bytes[i])) {
+            // Check for overflow before multiplication
+            // Safe limit: (INT_MAX - 9) / 10 to ensure count * 10 + digit fits in int
+            if (*min_count > (INT_MAX - 9) / 10) {
+                return E_PARSE; // quantifier too large
+            }
             *min_count = *min_count * 10 + (pat.bytes[i] - '0');
             i++;
         }
@@ -730,6 +736,10 @@ static enum Err parse_quantifier(String pat, int* i_inout, int* min_count, int* 
                 // {n,m} - between n and m times
                 *max_count = 0;
                 while (i < pat.len && isdigit(pat.bytes[i])) {
+                    // Check for overflow before multiplication
+                    if (*max_count > (INT_MAX - 9) / 10) {
+                        return E_PARSE; // quantifier too large
+                    }
                     *max_count = *max_count * 10 + (pat.bytes[i] - '0');
                     i++;
                 }
