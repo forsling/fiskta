@@ -112,6 +112,7 @@ typedef struct File {
         ReThread* curr;
         ReThread* next;
         int cap; // capacity in ReThread entries for curr/next each
+        u64 work_budget; // max thread enqueues per search (prevents step-count explosion)
         unsigned char* seen_curr;
         unsigned char* seen_next;
         size_t seen_bytes; // bytes available in seen_* (must be >= re->nins)
@@ -131,12 +132,13 @@ enum Err io_emit(File* io, i64 start, i64 end, FILE* out);
 // The lifetime of these buffers must outlive 'io' or at least any
 // active regex_search_window() call on it.
 static inline void io_set_regex_scratch(File* io,
-    ReThread* curr, ReThread* next, int cap,
+    ReThread* curr, ReThread* next, int cap, u64 work_budget,
     unsigned char* seen_curr, unsigned char* seen_next, size_t seen_bytes)
 {
     io->re.curr = curr;
     io->re.next = next;
     io->re.cap = cap;
+    io->re.work_budget = work_budget;
     io->re.seen_curr = seen_curr;
     io->re.seen_next = seen_next;
     io->re.seen_bytes = seen_bytes;

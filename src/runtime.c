@@ -34,6 +34,16 @@
 // Regex budget calculation
 // =============================================================================
 
+// Default work budget: max thread enqueues per regex search
+//
+// This limits "step count explosion" - patterns like ((X?){50}){50} that don't
+// blow out thread_cap (width) but burn massive CPU exploring state variations.
+//
+// 50M enqueues = room for legitimate searches over large files while catching
+// adversarial nested quantifiers that would spin for seconds. Pathological patterns
+// hit this limit in ~0.5-1s on modern CPU, well below the 2s global timeout.
+#define REGEX_WORK_BUDGET_DEFAULT (50 * 1000 * 1000)
+
 // Compute thread capacity from total budget and maximum seen table requirement.
 // Returns 0 if budget is insufficient (caller should fail with E_CAPACITY).
 static int compute_thread_cap_from_budget(size_t total_budget, size_t max_seen_bytes)
@@ -807,6 +817,7 @@ int build_program(i32 token_count, const String* tokens,
     scratch_out->re_curr = re_curr_thr;
     scratch_out->re_next = re_next_thr;
     scratch_out->re_thread_cap = actual_thread_cap;  // Use derived cap, not allocated cap
+    scratch_out->regex_work_budget = REGEX_WORK_BUDGET_DEFAULT;
     scratch_out->seen_curr = seen_curr;
     scratch_out->seen_next = seen_next;
     scratch_out->seen_bytes = actual_seen_bytes;  // Use actual requirement
@@ -992,6 +1003,7 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
     scratch_out->re_curr = re_curr_thr;
     scratch_out->re_next = re_next_thr;
     scratch_out->re_thread_cap = actual_thread_cap;
+    scratch_out->regex_work_budget = REGEX_WORK_BUDGET_DEFAULT;
     scratch_out->seen_curr = seen_curr;
     scratch_out->seen_next = seen_next;
     scratch_out->seen_bytes = actual_seen_bytes;
@@ -1031,7 +1043,7 @@ int runtime_execute(const Program* prog,
     }
 
     io_set_regex_scratch(&io, scratch->re_curr, scratch->re_next, scratch->re_thread_cap,
-        scratch->seen_curr, scratch->seen_next, scratch->seen_bytes);
+        scratch->regex_work_budget, scratch->seen_curr, scratch->seen_next, scratch->seen_bytes);
 
     /*****************************************************
      * PHASE 7: EXECUTE PROGRAM

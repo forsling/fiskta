@@ -109,8 +109,16 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
     i64 pos, i64 win_lo, i64 win_hi, i64 file_size,
     unsigned char* seen, int* match_found, i64 min_start,
     unsigned char curr_char, unsigned char prev_char,
-    int at_bol, int at_eol, const int* counters, u64 priority, int depth)
+    int at_bol, int at_eol, const int* counters, u64 priority, int depth,
+    u64* work_count, u64 work_budget)
 {
+    // Guard against work budget exhaustion (step-count explosion from nested quantifiers)
+    if (++(*work_count) > work_budget) {
+        error_detail_set(E_CAPACITY, -1,
+            "regex: work budget exceeded (pattern too complex or adversarial)");
+        return E_CAPACITY;
+    }
+
     // Guard against stack overflow from pathological patterns like ((x*){0}){999,}
     if (depth > MAX_EPSILON_RECURSION_DEPTH) {
         error_detail_set(E_CAPACITY, -1,
@@ -163,7 +171,7 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
             }
 
             // Explore X-branch first (always preferred by compiler's x/y assignment)
-            enum Err err = add_thread_ordered(p, l, i->x, start, pos, win_lo, win_hi, file_size, seen, match_found, min_start, curr_char, prev_char, at_bol, at_eol, local_counters, prio_x, depth + 1);
+            enum Err err = add_thread_ordered(p, l, i->x, start, pos, win_lo, win_hi, file_size, seen, match_found, min_start, curr_char, prev_char, at_bol, at_eol, local_counters, prio_x, depth + 1, work_count, work_budget);
             if (err != E_OK) {
                 return err;
             }
@@ -324,6 +332,10 @@ enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
     i64 min_start = 0;
     int have_min = 0;
 
+    // Work budget: prevent step-count explosion from nested quantifiers
+    u64 work_count = 0;
+    u64 work_budget = io->re.work_budget;
+
     i64 pos = win_lo;
     i64 block_lo = win_lo;
     i64 block_hi = win_lo;
@@ -418,7 +430,8 @@ enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
             int match_found = 0;
             int zero_counters[MAX_RE_COUNTERS] = { 0 };
             enum Err err = add_thread_ordered(re, &curr, 0, pos, pos, win_lo, win_hi, io->size,
-                seen_curr, &match_found, min_start, curr_c, prev_char, at_bol, at_eol, zero_counters, 0ULL, 0);
+                seen_curr, &match_found, min_start, curr_c, prev_char, at_bol, at_eol, zero_counters, 0ULL, 0,
+                &work_count, work_budget);
             if (err != E_OK) {
                 return err;
             }
@@ -499,7 +512,8 @@ enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
             for (int k = 0; k < curr.n; k++) {
                 // IMPORTANT: keep global min_start
                 enum Err err = add_thread_ordered(re, &curr, curr.v[k].pc, curr.v[k].start, pos, win_lo, win_hi, io->size,
-                    seen_curr, &match_found, min_start, curr_char, prev_char, at_bol, at_eol, curr.v[k].counters, curr.v[k].priority, 0);
+                    seen_curr, &match_found, min_start, curr_char, prev_char, at_bol, at_eol, curr.v[k].counters, curr.v[k].priority, 0,
+                    &work_count, work_budget);
                 if (err != E_OK) {
                     return err;
                 }
@@ -568,7 +582,8 @@ enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
             switch (inst->op) {
             case RI_CHAR:
                 if (c == inst->ch) {
-                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol, curr.v[i].counters, curr.v[i].priority, 0);
+                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol, curr.v[i].counters, curr.v[i].priority, 0,
+                        &work_count, work_budget);
                     if (err != E_OK) {
                         return err;
                     }
@@ -576,7 +591,8 @@ enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
                 break;
             case RI_ANY:
                 if (c != '\n') { // dot ≠ newline
-                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol, curr.v[i].counters, curr.v[i].priority, 0);
+                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol, curr.v[i].counters, curr.v[i].priority, 0,
+                        &work_count, work_budget);
                     if (err != E_OK) {
                         return err;
                     }
@@ -584,7 +600,8 @@ enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
                 break;
             case RI_CLASS:
                 if (inst->cls_idx >= 0 && inst->cls_idx < re->nclasses && cls_has(&re->classes[inst->cls_idx], c)) {
-                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol, curr.v[i].counters, curr.v[i].priority, 0);
+                    enum Err err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol, curr.v[i].counters, curr.v[i].priority, 0,
+                        &work_count, work_budget);
                     if (err != E_OK) {
                         return err;
                     }

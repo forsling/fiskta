@@ -106,6 +106,7 @@ typedef struct {
     ReThread* re_curr;
     ReThread* re_next;
     int re_thread_cap;
+    u64 regex_work_budget;  // Max thread enqueues per search (prevents step-count explosion)
     unsigned char* seen_curr;
     unsigned char* seen_next;
     size_t seen_bytes;
