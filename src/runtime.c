@@ -405,7 +405,7 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
         char* inline_tmp = NULL;
         if (ic > 0) {
             if (!inline_cursor || !inline_end || inline_cursor + (size_t)ic * INLINE_LIT_CAP > inline_end) {
-                iter_result.status = ITER_RESOURCE_ERROR;
+                iter_result.status = ITER_CAPACITY_ERROR;
                 iter_result.last_err = E_CAPACITY;
                 return iter_result;
             }
@@ -506,9 +506,8 @@ int program_requirements(i32 token_count, const String* tokens,
     enum Err e = parse_preflight(token_count, tokens, NULL, &plan, &path);
     if (e != E_OK) {
         print_err(e, "parse preflight");
-        // E_CAPACITY during preflight means regex pattern is too complex - treat as regex error
         if (e == E_CAPACITY) {
-            return FISKTA_EXIT_REGEX;
+            return FISKTA_EXIT_CAPACITY;
         }
         return FISKTA_EXIT_PARSE;
     }
@@ -618,9 +617,8 @@ int build_program(i32 token_count, const String* tokens,
     enum Err e = parse_preflight(token_count, tokens, NULL, &plan, &path);
     if (e != E_OK) {
         print_err(e, "parse preflight");
-        // E_CAPACITY during preflight means regex pattern is too complex - treat as regex error
         if (e == E_CAPACITY) {
-            return FISKTA_EXIT_REGEX;
+            return FISKTA_EXIT_CAPACITY;
         }
         return FISKTA_EXIT_PARSE;
     }

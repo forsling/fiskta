@@ -79,7 +79,7 @@ typedef struct {
 } RuntimeConfig;
 
 // =============================================================================
-// Two-phase execution API (library-friendly)
+// Two-phase execution API
 // =============================================================================
 
 // RuntimeScratch: All execution-time working memory for one Program.
@@ -185,7 +185,8 @@ typedef struct {
 // Error handling:
 //   - Returns FISKTA_EXIT_OK on success, fills *out
 //   - Returns FISKTA_EXIT_PARSE if tokens invalid
-//   - Returns FISKTA_EXIT_REGEX if pattern invalid (includes capacity errors)
+//   - Returns FISKTA_EXIT_REGEX if pattern invalid
+//   - Returns FISKTA_EXIT_CAPACITY if capacity exceeded
 //   - Sets error_detail_* for human-readable diagnostics
 int program_requirements(i32 token_count, const String* tokens,
     RuntimeRequirements* out);
@@ -205,7 +206,7 @@ int program_requirements(i32 token_count, const String* tokens,
 // On failure:
 //   - scratch_out may be partially initialized
 //   - Caller must call runtime_scratch_free(scratch_out) regardless
-//   - Returns FISKTA_EXIT_PARSE, FISKTA_EXIT_REGEX, or FISKTA_EXIT_RESOURCE
+//   - Returns FISKTA_EXIT_PARSE, FISKTA_EXIT_REGEX, FISKTA_EXIT_CAPACITY, or FISKTA_EXIT_RESOURCE
 //
 // Memory ownership:
 //   - Program is a read-only view into scratch_out->arena_block
@@ -268,7 +269,8 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
 //   - FISKTA_EXIT_PROGRAM_FAIL (1)  - Program failed
 //   - FISKTA_EXIT_TIMEOUT (2)       - Timeout reached
 //   - FISKTA_EXIT_IO (10)           - File I/O error
-//   - FISKTA_EXIT_RESOURCE (11)     - Resource exhaustion during execution
+//   - FISKTA_EXIT_RESOURCE (11)     - Resource exhaustion (OOM)
+//   - FISKTA_EXIT_CAPACITY (14)     - Capacity exceeded
 int runtime_execute(const Program* prog,
     const char* file_path,
     RuntimeScratch* scratch,
@@ -278,7 +280,7 @@ int runtime_execute(const Program* prog,
 void runtime_scratch_free(RuntimeScratch* s);
 
 // =============================================================================
-// One-shot convenience API (CLI-friendly)
+// One-shot convenience API
 // =============================================================================
 
 // Single-call wrapper: build + execute + cleanup
@@ -306,7 +308,8 @@ void runtime_scratch_free(RuntimeScratch* s);
 //   FISKTA_EXIT_IO (10)           - File I/O error
 //   FISKTA_EXIT_RESOURCE (11)     - Resource exhaustion (OOM)
 //   FISKTA_EXIT_PARSE (12)        - Parse error in operations
-//   FISKTA_EXIT_REGEX (13)        - Regex compilation error (includes capacity errors)
+//   FISKTA_EXIT_REGEX (13)        - Regex compilation error
+//   FISKTA_EXIT_CAPACITY (14)     - Capacity exceeded
 //
 // Execution phases:
 //   1. Parse preflight (estimate memory requirements)
