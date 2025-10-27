@@ -249,7 +249,7 @@ static enum Err find_bytes_op(
 
     i64 ms;
     i64 me;
-    err = io_find_window(io, win_lo, win_hi,
+    err = literal_search_window(io, win_lo, win_hi,
         (const unsigned char*)needle->bytes,
         (size_t)needle->len, dir, &ms, &me);
     if (err != E_OK) {
@@ -294,7 +294,7 @@ static enum Err find_regex_op(
 
     i64 ms;
     i64 me;
-    err = io_find_regex_window(io, win_lo, win_hi, op->u.findr.prog, dir, &ms, &me);
+    err = regex_search_window(io, win_lo, win_hi, op->u.findr.prog, dir, &ms, &me);
     if (err != E_OK) {
         return err;
     }
@@ -569,14 +569,14 @@ static enum Err take_until_common(
     i64 me;
     enum Err err;
     if (kind == OP_TAKE_UNTIL_RE) {
-        err = io_find_regex_window(io, view_clamp(c_view, io, *c_cursor), view_eof(c_view, io),
+        err = regex_search_window(io, view_clamp(c_view, io, *c_cursor), view_eof(c_view, io),
             op->u.take_until_re.prog, DIR_FWD, &ms, &me);
     } else if (kind == OP_TAKE_UNTIL_BIN) {
-        err = io_find_window(io, view_clamp(c_view, io, *c_cursor), view_eof(c_view, io),
+        err = literal_search_window(io, view_clamp(c_view, io, *c_cursor), view_eof(c_view, io),
             (const unsigned char*)op->u.take_until_bin.needle.bytes,
             (size_t)op->u.take_until_bin.needle.len, DIR_FWD, &ms, &me);
     } else { // OP_TAKE_UNTIL
-        err = io_find_window(io, view_clamp(c_view, io, *c_cursor), view_eof(c_view, io),
+        err = literal_search_window(io, view_clamp(c_view, io, *c_cursor), view_eof(c_view, io),
             (const unsigned char*)op->u.take_until.needle.bytes,
             (size_t)op->u.take_until.needle.len, DIR_FWD, &ms, &me);
     }

@@ -43,5 +43,5 @@
 //   - No heap allocation during search
 //   - File position unchanged on return
 //   - Thread/seen buffers must be sized per ReProg requirements (see regex_prog.h)
-enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
+enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
     const ReProg* re, enum Dir dir, i64* ms, i64* me);

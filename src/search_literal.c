@@ -52,7 +52,7 @@ static enum Err bmh_search_forward(const unsigned char* text, size_t text_len,
  * STRING SEARCH
  ****************/
 
-enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
+enum Err literal_search_window(File* io, i64 win_lo, i64 win_hi,
     const unsigned char* needle, size_t nlen,
     enum Dir dir, i64* ms, i64* me)
 {
