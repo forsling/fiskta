@@ -20,5 +20,5 @@ fi
 echo "Building fiskta $VERSION..."
 set -x
 $CC $CFLAGS -DFISKTA_VERSION=\"$VERSION\" -D_POSIX_C_SOURCE=199309L \
-    src/main.c src/parse.c src/runtime.c src/engine.c src/iosearch.c src/fileio.c src/regex_prog.c src/util.c src/error.c \
+    src/main.c src/parse.c src/runtime.c src/engine.c src/iosearch.c src/fileio.c src/search_literal.c src/regex_prog.c src/util.c src/error.c \
     -o fiskta

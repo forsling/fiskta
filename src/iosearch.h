@@ -2,6 +2,7 @@
 #include "fiskta.h"
 #include "regex_prog.h"
 #include "fileio.h"
+#include "search_literal.h"
 #include <stdio.h>
 
 // Search buffer size constants
@@ -24,13 +25,6 @@ enum {
     OVERLAP_MIN = FISKTA_OVERLAP_MIN,
     OVERLAP_MAX = FISKTA_OVERLAP_MAX
 };
-
-enum Dir { DIR_FWD = +1,
-    DIR_BWD = -1 };
-
-enum Err io_find_window(File* io, i64 win_lo, i64 win_hi,
-    const unsigned char* needle, size_t nlen,
-    enum Dir dir, i64* ms, i64* me);
 
 // Regex (ordered Thompson NFA), streaming
 enum Err io_find_regex_window(File* io, i64 win_lo, i64 win_hi,
