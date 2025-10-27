@@ -1,7 +1,7 @@
 #include "parse.h"
 #include "error.h"
 #include "fiskta.h"
-#include "iosearch.h"
+#include "fileio.h"
 #include "util.h"
 #include <ctype.h>
 #include <limits.h>

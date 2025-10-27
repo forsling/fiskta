@@ -1,5 +1,5 @@
 #include "regex_prog.h"
-#include "iosearch.h"
+#include "fileio.h"
 #include "error.h"
 #include <ctype.h>
 #include <limits.h>

@@ -13,14 +13,7 @@
 #define ftello _ftelli64
 #endif
 
-// Search buffer size constants (from iosearch.h - will stay there)
-#ifndef FISKTA_BK_BLK
-#define FISKTA_BK_BLK (3 * 1024 * 1024)
-#endif
-
-enum {
-    BK_BLK = FISKTA_BK_BLK
-};
+// BK_BLK constant is defined in fileio.h
 
 /******************************
  * BOYER-MOORE-HORSPOOL SEARCH

@@ -6,7 +6,7 @@
 #include "engine.h"
 #include "error.h"
 #include "fiskta.h"
-#include "iosearch.h"
+#include "fileio.h"
 #include "parse.h"
 #include "regex_prog.h"
 #include "util.h"
