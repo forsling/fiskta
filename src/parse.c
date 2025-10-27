@@ -11,23 +11,37 @@
 #define TOK_BYTES(tokens, idx) ((tokens)[idx].bytes)
 #define TOK_FIRST(tokens, idx) string_first((tokens)[idx])
 
-// Maximum pattern/needle length (16KB - generous for any legitimate pattern)
+// Maximum pattern/needle length (16 KiB)
+//
+// This limit serves multiple purposes:
+// 1. DoS control: Bounds worst-case regex compile time
+// 2. Arena sizing: String pool capacity is predictable
+// 3. Fuzz fence: Prevents fuzzer from generating pathological inputs
+//
+// 16 KiB is generous for legitimate patterns while keeping memory usage
+// and compilation time reasonable. Raising this significantly could enable
+// compile-time DoS attacks or blow out arena sizing assumptions.
 #define MAX_PATTERN_LENGTH 16384
 
-// Helper function to skip optional token
-static void skip_optional_token(i32* idx, i32 token_count)
+// Advance index by one token if tokens remain
+static void consume_token(i32* idx, i32 token_count)
 {
     if (*idx < token_count) {
         (*idx)++;
     }
 }
 
-// Helper function to skip one token if available
-static void skip_one_token(i32* idx, i32 token_count)
+// Validate pattern length (max size check only)
+// Returns E_OK if valid, E_PARSE if too long
+// Note: Empty pattern check is done elsewhere (in regex compiler for regex patterns,
+// or in literal search for literal needles) to ensure correct exit code mapping.
+static inline enum Err check_pattern_len(String tok, i32 err_pos)
 {
-    if (*idx < token_count) {
-        (*idx)++;
+    if (tok.len > MAX_PATTERN_LENGTH) {
+        error_detail_set(E_PARSE, err_pos, "pattern too long (max %d bytes)", MAX_PATTERN_LENGTH);
+        return E_PARSE;
     }
+    return E_OK;
 }
 
 static int parse_hex_digit(char c)
@@ -115,12 +129,23 @@ static bool compute_print_stats(String token, size_t* out_len, i32* out_segments
     return true;
 }
 
-// Helper function to find inline offset start
+// Find inline offset start in location token
+//
+// Grammar for inline offsets:
+//   <BASE>([+-]<NUMBER><UNIT>)?
+// where BASE = cursor|BOF|EOF|match-start|match-end|line-start|line-end|LABEL
+//
+// We only consider '+' or '-' to start an offset if:
+// 1. It's not the first char (so "BOF-10b" works but "-10b" alone isn't a location)
+// 2. It's immediately followed by a digit (so we don't split on hyphens inside
+//    label names like "FOO-BAR" or "END-OF-SECTION")
+//
+// This must stay in sync with parse_offset().
+//
+// Returns pointer to '+' or '-' that begins offset suffix, or NULL if none.
 static const char* find_inline_offset_start(const char* s)
 {
-    // Return pointer to first '+' or '-' that begins an offset suffix, else NULL.
-    // Skip the first char to avoid treating a leading sign as part of the base token.
-    // Only treat +/- as offset if followed by a digit (not part of base token name).
+    // Skip the first char to avoid treating a leading sign as part of the base token
     for (const char* p = s + 1; *p; ++p) {
         if ((*p == '+' || *p == '-') && isdigit(p[1])) {
             return p;
@@ -287,13 +312,26 @@ static i32 count_counter_quantifiers_in_pattern(String pattern)
     return counter_count;
 }
 
-// Estimate instruction count for regex pattern using the formula from REGEX_IMPLEMENTATION_PLAN.md:
-// nins_est ≤ 2A + 3·Alt + 2·Qu + 6·Qc + max(16, Alt + Qc + Qu)
+// Estimate instruction count for regex pattern
+//
+// Purpose: Conservative capacity planning for instruction + thread arenas.
+// This is NOT for detecting catastrophic patterns (handled elsewhere).
+// This estimate may over-allocate, which is intentional for safety.
+//
+// Formula from REGEX_IMPLEMENTATION_PLAN.md:
+//   nins_est ≤ 2A + 3·Alt + 2·Qu + 6·Qc + max(16, Alt + Qc + Qu)
 // Where:
 //   A = number of atoms (literals, classes, dot, anchors)
 //   Alt = number of | occurrences
 //   Qu = number of simple quantifiers (? * +)
 //   Qc = number of counter quantifiers ({n} {n,} {n,m})
+//
+// Quantified group penalty: Each "(...)+" or "(...)*" can blow up instruction
+// wiring due to loop edges and counter state tracking. We add 10× per quantified
+// group to account for this.
+//
+// Depth multipliers: Patterns with deep nesting require extra instructions for
+// backtracking infrastructure. We scale based on max_paren_depth.
 static i32 estimate_regex_instructions(String pattern)
 {
     i32 atom_count = 0;
@@ -990,12 +1028,12 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
                         idx++; // skip offset
                     }
                 }
-                skip_one_token(&idx, token_count);
+                consume_token(&idx, token_count);
             } else if (is_keyword(cmd_tok, &kw_skip)) {
                 idx++;
                 if (idx < token_count && is_keyword(tokens[idx], &kw_to)) {
                     idx++; // skip "to"
-                    skip_one_token(&idx, token_count); // skip location
+                    consume_token(&idx, token_count); // skip location
                     if (idx < token_count && (TOK_FIRST(tokens, idx) == '+' || TOK_FIRST(tokens, idx) == '-')) {
                         idx++; // skip offset
                     }
@@ -1007,13 +1045,13 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
                     const String next_tok = tokens[idx];
                     if (is_keyword(next_tok, &kw_to)) {
                         idx++;
-                        skip_one_token(&idx, token_count);
+                        consume_token(&idx, token_count);
                         if (idx < token_count && (TOK_FIRST(tokens, idx) == '+' || TOK_FIRST(tokens, idx) == '-')) {
                             idx++; // skip offset
                         }
                     } else if (is_keyword(next_tok, &kw_until) || is_keyword(next_tok, &kw_until_re) || is_keyword(next_tok, &kw_until_bin)) {
                         idx++;
-                        skip_one_token(&idx, token_count);
+                        consume_token(&idx, token_count);
                         if (idx < token_count && is_keyword(tokens[idx], &kw_at_keyword)) {
                             idx++;
                             if (idx < token_count) {
@@ -1052,9 +1090,9 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
                     idx++; // skip offset
                 }
             } else if (is_keyword(cmd_tok, &kw_clear)) {
-                skip_optional_token(&idx, token_count);
+                consume_token(&idx, token_count);
             } else if (is_keyword(cmd_tok, &kw_print) || is_keyword(cmd_tok, &kw_echo)) {
-                skip_one_token(&idx, token_count);
+                consume_token(&idx, token_count);
             } else if (is_keyword(cmd_tok, &kw_fail)) {
                 if (idx < token_count) {
                     idx++;
@@ -1174,16 +1212,16 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         const String needle_tok = tokens[*idx];
         (*idx)++;
 
+        enum Err err = check_pattern_len(needle_tok, *idx - 1);
+        if (err != E_OK) {
+            return err;
+        }
+
         if (needle_tok.len == 0) {
             return E_BAD_NEEDLE;
         }
 
-        if (needle_tok.len > MAX_PATTERN_LENGTH) {
-            error_detail_set(E_PARSE, *idx - 1, "pattern too long (max %d bytes)", MAX_PATTERN_LENGTH);
-            return E_PARSE;
-        }
-
-        enum Err err = E_OK;
+        err = E_OK;
         op->u.find.needle = parse_string_to_bytes(needle_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
         if (err != E_OK) {
             return err;
@@ -1211,12 +1249,12 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         const String pat_tok = tokens[*idx];
         (*idx)++;
 
-        if (pat_tok.len > MAX_PATTERN_LENGTH) {
-            error_detail_set(E_PARSE, *idx - 1, "pattern too long (max %d bytes)", MAX_PATTERN_LENGTH);
-            return E_PARSE;
+        enum Err err = check_pattern_len(pat_tok, *idx - 1);
+        if (err != E_OK) {
+            return err;
         }
 
-        enum Err err = E_OK;
+        err = E_OK;
         op->u.findr.pattern = parse_string_to_bytes(pat_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
         if (err != E_OK) {
             return err;
@@ -1255,16 +1293,16 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         const String hex_tok = tokens[*idx];
         (*idx)++;
 
+        enum Err err = check_pattern_len(hex_tok, *idx - 1);
+        if (err != E_OK) {
+            return err;
+        }
+
         if (hex_tok.len == 0) {
             return E_BAD_NEEDLE;
         }
 
-        if (hex_tok.len > MAX_PATTERN_LENGTH) {
-            error_detail_set(E_PARSE, *idx - 1, "pattern too long (max %d bytes)", MAX_PATTERN_LENGTH);
-            return E_PARSE;
-        }
-
-        enum Err err = E_OK;
+        err = E_OK;
         op->u.findbin.needle = parse_hex_to_bytes(hex_tok, str_pool, str_pool_off, str_pool_cap, &err);
         if (err != E_OK) {
             return err;
@@ -1329,16 +1367,12 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
             const String pattern_tok = tokens[*idx];
             (*idx)++;
 
-            if (pattern_tok.len == 0) {
-                return E_BAD_NEEDLE;
+            enum Err err = check_pattern_len(pattern_tok, *idx - 1);
+            if (err != E_OK) {
+                return err;
             }
 
-            if (pattern_tok.len > MAX_PATTERN_LENGTH) {
-                error_detail_set(E_PARSE, *idx - 1, "pattern too long (max %d bytes)", MAX_PATTERN_LENGTH);
-                return E_PARSE;
-            }
-
-            enum Err err = E_OK;
+            err = E_OK;
             op->u.take_until_re.pattern = parse_string_to_bytes(pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
             if (err != E_OK) {
                 return err;
@@ -1374,16 +1408,16 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
             const String hex_tok = tokens[*idx];
             (*idx)++;
 
+            enum Err err = check_pattern_len(hex_tok, *idx - 1);
+            if (err != E_OK) {
+                return err;
+            }
+
             if (hex_tok.len == 0) {
                 return E_BAD_NEEDLE;
             }
 
-            if (hex_tok.len > MAX_PATTERN_LENGTH) {
-                error_detail_set(E_PARSE, *idx - 1, "pattern too long (max %d bytes)", MAX_PATTERN_LENGTH);
-                return E_PARSE;
-            }
-
-            enum Err err = E_OK;
+            err = E_OK;
             op->u.take_until_bin.needle = parse_hex_to_bytes(hex_tok, str_pool, str_pool_off, str_pool_cap, &err);
             if (err != E_OK) {
                 return err;
@@ -1412,16 +1446,16 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
             const String needle_tok = tokens[*idx];
             (*idx)++;
 
+            enum Err err = check_pattern_len(needle_tok, *idx - 1);
+            if (err != E_OK) {
+                return err;
+            }
+
             if (needle_tok.len == 0) {
                 return E_BAD_NEEDLE;
             }
 
-            if (needle_tok.len > MAX_PATTERN_LENGTH) {
-                error_detail_set(E_PARSE, *idx - 1, "pattern too long (max %d bytes)", MAX_PATTERN_LENGTH);
-                return E_PARSE;
-            }
-
-            enum Err err = E_OK;
+            err = E_OK;
             op->u.take_until.needle = parse_string_to_bytes(needle_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
             if (err != E_OK) {
                 return err;
