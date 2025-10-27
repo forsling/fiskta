@@ -21,6 +21,8 @@
 #pragma once
 
 #include "fiskta.h"
+#include "fileio.h"
+#include "engine.h"
 
 // Loop execution modes
 typedef enum {
@@ -65,16 +67,16 @@ typedef struct {
     size_t search_buf_cap;
 
     // Regex VM scratch (mutated during pattern matching)
-    struct ReThread* re_curr;
-    struct ReThread* re_next;
+    ReThread* re_curr;
+    ReThread* re_next;
     int re_thread_cap;
     unsigned char* seen_curr;
     unsigned char* seen_next;
     size_t seen_bytes;
 
     // Staging buffers for clause execution (mutated per clause)
-    struct Range* clause_ranges;
-    struct LabelWrite* clause_labels;
+    Range* clause_ranges;
+    LabelWrite* clause_labels;
     char* clause_inline;
     i32 sum_inline_lits;
 
