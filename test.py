@@ -2637,6 +2637,18 @@ def tests():
              extra_args=["--ops", str(FIX / "commands_take_plus_2b.txt")],
              expect=dict(stdout="ab", exit=0)),
 
+        # Test MAX_TOKENS limit (1024 tokens)
+        # Each "print X" operation = 2 tokens
+        # 512 operations = 1024 tokens (at limit, should work)
+        dict(id="cli-006-max-tokens-at-limit",
+             tokens=["print", "X"] * 512, input_file="overlap.txt",
+             expect=dict(stdout="X" * 512, exit=0)),
+
+        # 513 operations = 1026 tokens (overflow, should fail with parse error)
+        dict(id="cli-007-max-tokens-overflow",
+             tokens=["print", "X"] * 513, input_file="overlap.txt",
+             expect=dict(stdout="", exit=PARSE_EXIT)),
+
 
         dict(id="loop-001-basic",
              tokens=["take","+2b"], input_file="overlap.txt",

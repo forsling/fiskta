@@ -452,6 +452,10 @@ static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, 
             out->tokens_need_conversion = false; // Already converted
         } else {
             // Multiple tokens or single token without spaces
+            if (token_count > MAX_TOKENS) {
+                fprintf(stderr, "fiskta: too many operation tokens (max %d)\n", MAX_TOKENS);
+                return FISKTA_EXIT_PARSE;
+            }
             out->tokens = tokens_view;
             out->token_count = token_count;
             out->tokens_need_conversion = true;
