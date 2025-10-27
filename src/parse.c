@@ -1801,10 +1801,22 @@ static enum Err parse_offset(String token, i64* offset, Unit* unit)
     }
 
     // Convert to signed and apply sign
-    if (num > (u64)INT64_MAX) {
-        return E_PARSE; // Overflow
+    if (sign < 0) {
+        u64 limit = (u64)INT64_MAX + 1;
+        if (num > limit) {
+            return E_PARSE; // Overflow
+        }
+        if (num == limit) {
+            *offset = INT64_MIN;
+        } else {
+            *offset = -(i64)num;
+        }
+    } else {
+        if (num > (u64)INT64_MAX) {
+            return E_PARSE; // Overflow
+        }
+        *offset = (i64)num;
     }
-    *offset = sign * (i64)num;
     return E_OK;
 }
 

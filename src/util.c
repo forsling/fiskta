@@ -541,10 +541,15 @@ bool string_try_parse_signed(String s, i64* out, Unit* unit)
     }
 
     if (negative) {
-        if (unsigned_val > (u64)INT64_MAX + 1) {
+        u64 limit = (u64)INT64_MAX + 1;
+        if (unsigned_val > limit) {
             return false; // Would overflow
         }
-        *out = -(i64)unsigned_val;
+        if (unsigned_val == limit) {
+            *out = INT64_MIN;
+        } else {
+            *out = -(i64)unsigned_val;
+        }
     } else {
         if (unsigned_val > (u64)INT64_MAX) {
             return false; // Would overflow

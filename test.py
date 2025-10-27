@@ -3162,6 +3162,30 @@ def tests():
         # str_pool_off is controlled internally and never approaches SIZE_MAX.
         # The fix is a defensive measure for memory safety.
 
+        # INT64_MIN edge case in signed integer parsing
+        # INT64_MIN = -9223372036854775808
+        # This is a special case because it can't be represented as a positive
+        # signed value (INT64_MAX = 9223372036854775807)
+        dict(id="int64-001-min-value",
+             tokens=["skip","-9223372036854775808b"], input_file="-", stdin=b"X" * 20,
+             expect=dict(stdout="", exit=0)),  # Should parse successfully
+
+        dict(id="int64-002-min-with-unit",
+             tokens=["skip","-9223372036854775808l"], input_file="-", stdin=b"A\n" * 20,
+             expect=dict(stdout="", exit=0)),  # INT64_MIN with line unit
+
+        dict(id="int64-003-over-min",
+             tokens=["skip","-9223372036854775809b"], input_file="-", stdin=b"X",
+             expect=dict(exit=PARSE_EXIT)),  # One less than INT64_MIN - should fail
+
+        dict(id="int64-004-max-value",
+             tokens=["skip","9223372036854775807b"], input_file="-", stdin=b"X" * 20,
+             expect=dict(stdout="", exit=0)),  # INT64_MAX should work
+
+        dict(id="int64-005-over-max",
+             tokens=["skip","9223372036854775808b"], input_file="-", stdin=b"X",
+             expect=dict(exit=PARSE_EXIT)),  # Over INT64_MAX - should fail
+
     ]
 
 def main():
