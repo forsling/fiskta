@@ -75,7 +75,11 @@ static inline u32 re_counters_sig(const int* cnt, int n)
 static inline int re_seen_hit_or_set(unsigned char* seen, int pc, u32 sig)
 {
     // Base pointer to this pc's slot array
+    // Note: seen buffer is allocated with alignof(u32) in runtime.c, so this cast is safe
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-align"
     u32* slots = (u32*)(seen + ((size_t)pc * RE_SEEN_SLOTS * sizeof(u32)));
+#pragma GCC diagnostic pop
 
     // Exact match or empty slot fast path
     for (int i = 0; i < RE_SEEN_SLOTS; i++) {
