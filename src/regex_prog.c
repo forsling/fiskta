@@ -1764,3 +1764,28 @@ enum Err re_compile_into(String pattern,
     }
     return E_OK;
 }
+
+// =============================================================================
+// Resource requirements API
+// =============================================================================
+
+void regex_prog_requirements(const ReProg* prog, ReProgRequirements* out)
+{
+    if (!prog || !out) {
+        return;
+    }
+
+    out->nins = (size_t)prog->nins;
+
+    // Seen table: nins × RE_SEEN_SLOTS × sizeof(u32), aligned to 4-byte boundary
+    // RE_SEEN_SLOTS = 8 (defined in regex_vm.c)
+    size_t raw = (size_t)prog->nins * 8 * sizeof(u32);
+    out->seen_bytes = (raw + 3) & ~(size_t)3; // align up to 4 bytes
+
+    // Thread capacity heuristic: 2× nins, minimum 32
+    // This matches the heuristic used in runtime.c
+    out->thread_cap = (size_t)(prog->nins > 16 ? prog->nins * 2 : 32);
+
+    out->counter_count = prog->counter_count;
+    out->has_lazy = prog->has_lazy != 0;
+}

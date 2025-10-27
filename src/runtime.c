@@ -132,7 +132,8 @@ void runtime_scratch_free(RuntimeScratch* s)
     if (!s) {
         return;
     }
-    if (s->arena_block) {
+    // Only free if we allocated it (not if caller provided via build_program_with_scratch)
+    if (s->arena_owned && s->arena_block) {
         free(s->arena_block);
     }
     memset(s, 0, sizeof(*s));
@@ -446,6 +447,133 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
 }
 
 // =============================================================================
+// Resource requirements query (pre-flight sizing)
+// =============================================================================
+
+int program_requirements(i32 token_count, const String* tokens,
+                        RuntimeRequirements* out)
+{
+    if (!tokens || !out) {
+        return FISKTA_EXIT_PARSE;
+    }
+
+    // Initialize output
+    memset(out, 0, sizeof(*out));
+
+    /************************************************************
+     * PHASE 1: PREFLIGHT PARSE
+     * Analyze operations to determine memory requirements
+     *************************************************************/
+    ParsePlan plan = (ParsePlan) { 0 };
+    const char* path = NULL;
+    enum Err e = parse_preflight(token_count, tokens, NULL, &plan, &path);
+    if (e != E_OK) {
+        print_err(e, "parse preflight");
+        // E_CAPACITY during preflight means regex pattern is too complex - treat as regex error
+        if (e == E_CAPACITY) {
+            return FISKTA_EXIT_REGEX;
+        }
+        return FISKTA_EXIT_PARSE;
+    }
+
+    /************************************************************
+     * PHASE 2: COMPUTE SIZES
+     * Calculate total memory needed for all data structures
+     *************************************************************/
+
+    // File I/O buffer
+    const size_t search_buf_cap = (FW_WIN > (BK_BLK + OVERLAP_MAX)) ? (size_t)FW_WIN : (size_t)(BK_BLK + OVERLAP_MAX);
+    out->search_buf_cap = search_buf_cap;
+
+    // Program structure sizes
+    const size_t ops_bytes = (size_t)plan.total_ops * sizeof(Op);
+    const size_t clauses_bytes = (size_t)plan.clause_count * sizeof(Clause);
+    const size_t str_pool_bytes = plan.needle_bytes;
+
+    // Regex compilation sizes
+    const size_t re_prog_bytes = (size_t)plan.sum_findr_ops * sizeof(ReProg);
+    const size_t re_ins_bytes = (size_t)plan.re_ins_estimate * sizeof(ReInst);
+    const size_t re_cls_bytes = (size_t)plan.re_classes_estimate * sizeof(ReClass);
+
+    // Regex VM scratch (max across all regexes)
+    // Choose per-run thread capacity as ~2x max nins, min 32
+    int re_threads_cap = plan.re_ins_estimate_max > 0 ? 2 * plan.re_ins_estimate_max : 32;
+    if (re_threads_cap < 32) {
+        re_threads_cap = 32;
+    }
+    size_t max_nins = (size_t)(plan.re_ins_estimate_max > 0 ? plan.re_ins_estimate_max : 32);
+    size_t re_seen_bytes_each = max_nins * 8 * sizeof(u32); // RE_SEEN_SLOTS=8
+
+    out->regex_thread_cap_max = (size_t)re_threads_cap;
+    out->regex_seen_bytes_max = re_seen_bytes_each;
+
+    // Staging buffers
+    size_t ranges_bytes = (plan.sum_take_ops > 0) ? (size_t)plan.sum_take_ops * sizeof(Range) : 0;
+    size_t labels_bytes = (plan.sum_label_ops > 0) ? (size_t)plan.sum_label_ops * sizeof(LabelWrite) : 0;
+    size_t inline_bytes = (plan.sum_inline_lits > 0) ? (size_t)plan.sum_inline_lits * INLINE_LIT_CAP : 0;
+    out->staging_bytes = ranges_bytes + labels_bytes + inline_bytes;
+
+    // Fill breakdown fields
+    out->ops_bytes = ops_bytes;
+    out->clauses_bytes = clauses_bytes;
+    out->regex_prog_bytes = re_prog_bytes;
+    out->regex_ins_bytes = re_ins_bytes;
+    out->regex_cls_bytes = re_cls_bytes;
+    out->str_pool_bytes = str_pool_bytes;
+
+    // Regex characteristics (would need additional tracking in ParsePlan)
+    // For now, conservatively assume both are present if there are any regexes
+    out->any_lazy_quantifiers = (plan.sum_findr_ops > 0);
+    out->any_counters = (plan.sum_findr_ops > 0);
+
+    /************************************************************
+     * PHASE 3: COMPUTE TOTAL ARENA SIZE WITH ALIGNMENT
+     *************************************************************/
+    size_t search_buf_size = align_or_die(search_buf_cap, alignof(unsigned char));
+    size_t clauses_size = align_or_die(clauses_bytes, alignof(Clause));
+    size_t ops_size = align_or_die(ops_bytes, alignof(Op));
+    size_t re_prog_size = align_or_die(re_prog_bytes, alignof(ReProg));
+    size_t re_ins_size = align_or_die(re_ins_bytes, alignof(ReInst));
+    size_t re_cls_size = align_or_die(re_cls_bytes, alignof(ReClass));
+    size_t str_pool_size = align_or_die(str_pool_bytes, alignof(char));
+
+    // Two thread buffers + two seen arrays
+    const size_t re_threads_bytes = (size_t)re_threads_cap * sizeof(ReThread);
+    size_t re_seen_size;
+    if (add_overflow(re_seen_bytes_each, re_seen_bytes_each, &re_seen_size)) {
+        print_err(E_OOM, "regex 'seen' size overflow");
+        return FISKTA_EXIT_RESOURCE;
+    }
+    size_t re_thrbufs_size = align_or_die(re_threads_bytes, alignof(ReThread)) * 2;
+
+    // Staging buffers (already computed above, but need alignment)
+    size_t ranges_size = (plan.sum_take_ops > 0) ? align_or_die(ranges_bytes, alignof(Range)) : 0;
+    size_t labels_size = (plan.sum_label_ops > 0) ? align_or_die(labels_bytes, alignof(LabelWrite)) : 0;
+    size_t inline_size = (plan.sum_inline_lits > 0) ? align_or_die(inline_bytes, alignof(char)) : 0;
+
+    // Sum everything with overflow checking
+    size_t total = search_buf_size;
+    if (add_overflow(total, clauses_size, &total) ||
+        add_overflow(total, ops_size, &total) ||
+        add_overflow(total, re_prog_size, &total) ||
+        add_overflow(total, re_ins_size, &total) ||
+        add_overflow(total, re_cls_size, &total) ||
+        add_overflow(total, str_pool_size, &total) ||
+        add_overflow(total, re_thrbufs_size, &total) ||
+        add_overflow(total, re_seen_size, &total) ||
+        add_overflow(total, ranges_size, &total) ||
+        add_overflow(total, labels_size, &total) ||
+        add_overflow(total, inline_size, &total) ||
+        add_overflow(total, 64, &total)) { // small cushion
+        print_err(E_OOM, "arena size overflow");
+        return FISKTA_EXIT_RESOURCE;
+    }
+
+    out->arena_bytes = total;
+    return FISKTA_EXIT_OK;
+}
+
+// =============================================================================
 // Build program (compile-time phase)
 // =============================================================================
 
@@ -633,6 +761,158 @@ int build_program(i32 token_count, const String* tokens,
     scratch_out->sum_inline_lits = plan.sum_inline_lits;
     scratch_out->arena_block = block;
     scratch_out->arena_size = total;
+    scratch_out->arena_owned = true;  // We malloc'd it, we own it
+
+    return FISKTA_EXIT_OK;
+}
+
+// Build program with caller-provided arena (zero-malloc variant)
+int build_program_with_scratch(i32 token_count, const String* tokens,
+                               Program* prog_out,
+                               void* arena_block, size_t arena_size,
+                               RuntimeScratch* scratch_out)
+{
+    if (!tokens || !prog_out || !scratch_out || !arena_block) {
+        return FISKTA_EXIT_PARSE;
+    }
+
+    // Initialize outputs
+    memset(prog_out, 0, sizeof(*prog_out));
+    memset(scratch_out, 0, sizeof(*scratch_out));
+
+    // Perform same build logic as build_program(), but use provided arena
+    // This is essentially a copy of build_program() with malloc() replaced
+
+    /************************************************************
+     * PHASE 1: PREFLIGHT PARSE
+     *************************************************************/
+    ParsePlan plan = (ParsePlan) { 0 };
+    const char* path = NULL;
+    enum Err e = parse_preflight(token_count, tokens, NULL, &plan, &path);
+    if (e != E_OK) {
+        print_err(e, "parse preflight");
+        if (e == E_CAPACITY) {
+            return FISKTA_EXIT_REGEX;
+        }
+        return FISKTA_EXIT_PARSE;
+    }
+
+    /************************************************************
+     * PHASE 2: COMPUTE SIZES (to verify arena is large enough)
+     *************************************************************/
+    const size_t search_buf_cap = (FW_WIN > (BK_BLK + OVERLAP_MAX)) ? (size_t)FW_WIN : (size_t)(BK_BLK + OVERLAP_MAX);
+    const size_t ops_bytes = (size_t)plan.total_ops * sizeof(Op);
+    const size_t clauses_bytes = (size_t)plan.clause_count * sizeof(Clause);
+    const size_t str_pool_bytes = plan.needle_bytes;
+    const size_t re_prog_bytes = (size_t)plan.sum_findr_ops * sizeof(ReProg);
+    const size_t re_ins_bytes = (size_t)plan.re_ins_estimate * sizeof(ReInst);
+    const size_t re_cls_bytes = (size_t)plan.re_classes_estimate * sizeof(ReClass);
+
+    int re_threads_cap = plan.re_ins_estimate_max > 0 ? 2 * plan.re_ins_estimate_max : 32;
+    if (re_threads_cap < 32) {
+        re_threads_cap = 32;
+    }
+    const size_t re_threads_bytes = (size_t)re_threads_cap * sizeof(ReThread);
+
+    size_t max_nins = (size_t)(plan.re_ins_estimate_max > 0 ? plan.re_ins_estimate_max : 32);
+    size_t re_seen_bytes_each = max_nins * 8 * sizeof(u32);
+
+    /************************************************************
+     * PHASE 3: USE PROVIDED ARENA
+     *************************************************************/
+    Arena arena;
+    arena_init(&arena, arena_block, arena_size);
+
+    /************************************************************
+     * PHASE 4: CARVE ARENA SLICES (same as build_program)
+     *************************************************************/
+    unsigned char* search_buf = arena_alloc(&arena, search_buf_cap, alignof(unsigned char));
+    Clause* clauses_buf = arena_alloc(&arena, clauses_bytes, alignof(Clause));
+    Op* ops_buf = arena_alloc(&arena, ops_bytes, alignof(Op));
+    ReThread* re_curr_thr = arena_alloc(&arena, re_threads_bytes, alignof(ReThread));
+    ReThread* re_next_thr = arena_alloc(&arena, re_threads_bytes, alignof(ReThread));
+    unsigned char* seen_curr = arena_alloc(&arena, re_seen_bytes_each, alignof(u32));
+    unsigned char* seen_next = arena_alloc(&arena, re_seen_bytes_each, alignof(u32));
+    ReProg* re_progs = arena_alloc(&arena, re_prog_bytes, alignof(ReProg));
+    ReInst* re_ins = arena_alloc(&arena, re_ins_bytes, alignof(ReInst));
+    ReClass* re_cls = arena_alloc(&arena, re_cls_bytes, alignof(ReClass));
+    char* str_pool = arena_alloc(&arena, str_pool_bytes, alignof(char));
+    Range* clause_ranges = (plan.sum_take_ops > 0) ? arena_alloc(&arena, (size_t)plan.sum_take_ops * sizeof(Range), alignof(Range)) : NULL;
+    LabelWrite* clause_labels = (plan.sum_label_ops > 0) ? arena_alloc(&arena, (size_t)plan.sum_label_ops * sizeof(LabelWrite), alignof(LabelWrite)) : NULL;
+    char* clause_inline = (plan.sum_inline_lits > 0) ? arena_alloc(&arena, (size_t)plan.sum_inline_lits * INLINE_LIT_CAP, alignof(char)) : NULL;
+
+    if (!search_buf || !clauses_buf || !ops_buf
+        || !re_curr_thr || !re_next_thr || !seen_curr || !seen_next
+        || !re_progs || !re_ins || !re_cls || !str_pool
+        || (plan.sum_take_ops > 0 && !clause_ranges)
+        || (plan.sum_label_ops > 0 && !clause_labels)
+        || (plan.sum_inline_lits > 0 && !clause_inline)) {
+        print_err(E_OOM, "arena carve (provided arena too small?)");
+        return FISKTA_EXIT_RESOURCE;
+    }
+
+    /************************************************************
+     * PHASE 5: BUILD PROGRAM (same as build_program)
+     *************************************************************/
+    e = parse_build(token_count, tokens, NULL, prog_out, &path,
+        clauses_buf, ops_buf, str_pool, str_pool_bytes);
+    if (e != E_OK) {
+        print_err(e, "parse build");
+        return FISKTA_EXIT_PARSE;
+    }
+    if (prog_out->clause_count == 0) {
+        print_err(E_PARSE, "no operations parsed");
+        return FISKTA_EXIT_PARSE;
+    }
+
+    // Compile all regex patterns upfront
+    i32 re_prog_idx = 0;
+    i32 re_ins_idx = 0;
+    i32 re_cls_idx = 0;
+    for (i32 ci = 0; ci < prog_out->clause_count; ++ci) {
+        Clause* clause = &prog_out->clauses[ci];
+        for (i32 i = 0; i < clause->op_count; ++i) {
+            Op* op = &clause->ops[i];
+            if (op->kind == OP_FIND_RE) {
+                ReProg* prog = &re_progs[re_prog_idx++];
+                enum Err err = re_compile_into(op->u.findr.pattern, prog,
+                    re_ins, (i32)(re_ins_bytes / sizeof(ReInst)), &re_ins_idx,
+                    re_cls, (i32)(re_cls_bytes / sizeof(ReClass)), &re_cls_idx);
+                if (err != E_OK) {
+                    print_err(err, "regex compile");
+                    return (err == E_PARSE || err == E_BAD_NEEDLE) ? FISKTA_EXIT_REGEX : FISKTA_EXIT_RESOURCE;
+                }
+                op->u.findr.prog = prog;
+            } else if (op->kind == OP_TAKE_UNTIL_RE) {
+                ReProg* prog = &re_progs[re_prog_idx++];
+                enum Err err = re_compile_into(op->u.take_until_re.pattern, prog,
+                    re_ins, (i32)(re_ins_bytes / sizeof(ReInst)), &re_ins_idx,
+                    re_cls, (i32)(re_cls_bytes / sizeof(ReClass)), &re_cls_idx);
+                if (err != E_OK) {
+                    print_err(err, "regex compile");
+                    return (err == E_PARSE || err == E_BAD_NEEDLE) ? FISKTA_EXIT_REGEX : FISKTA_EXIT_RESOURCE;
+                }
+                op->u.take_until_re.prog = prog;
+            }
+        }
+    }
+
+    // Fill RuntimeScratch with buffers from PROVIDED arena
+    scratch_out->search_buf = search_buf;
+    scratch_out->search_buf_cap = search_buf_cap;
+    scratch_out->re_curr = re_curr_thr;
+    scratch_out->re_next = re_next_thr;
+    scratch_out->re_thread_cap = re_threads_cap;
+    scratch_out->seen_curr = seen_curr;
+    scratch_out->seen_next = seen_next;
+    scratch_out->seen_bytes = re_seen_bytes_each;
+    scratch_out->clause_ranges = clause_ranges;
+    scratch_out->clause_labels = clause_labels;
+    scratch_out->clause_inline = clause_inline;
+    scratch_out->sum_inline_lits = plan.sum_inline_lits;
+    scratch_out->arena_block = arena_block;
+    scratch_out->arena_size = arena_size;
+    scratch_out->arena_owned = false;  // Caller provided it, caller owns it
 
     return FISKTA_EXIT_OK;
 }

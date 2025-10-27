@@ -83,7 +83,69 @@ typedef struct {
     // Arena for cleanup (owns all memory above)
     void* arena_block;
     size_t arena_size;
+    bool arena_owned;  // true if we malloc'd it, false if caller provided
 } RuntimeScratch;
+
+// Runtime memory requirements for executing a Program
+//
+// Returned by program_requirements() to expose all memory needs BEFORE allocation.
+// Enables:
+//   - Pre-flight inspection (validate resource needs before committing)
+//   - DoS detection (large allocations surface early)
+//   - Custom allocators (zero-malloc embedding)
+//   - Resource monitoring (log/enforce limits)
+typedef struct {
+    // Per-run working memory (mutable scratch)
+    size_t search_buf_cap;         // File I/O buffer size
+
+    // Regex VM scratch (max across all regexes in program)
+    // Runtime needs ONE shared scratch sized for the worst-case regex
+    size_t regex_seen_bytes_max;   // Largest seen table across all regexes
+    size_t regex_thread_cap_max;   // Largest thread capacity across all regexes
+
+    // Per-clause temporary working memory at runtime
+    // (ranges, label writes, inline expansion buffer)
+    size_t staging_bytes;
+
+    // Static program data (compiled clauses, regexes, string pool)
+    // This is the total arena size needed
+    size_t arena_bytes;
+
+    // Arena breakdown (informational, for debugging/monitoring)
+    size_t ops_bytes;              // Op array
+    size_t clauses_bytes;          // Clause array
+    size_t regex_prog_bytes;       // ReProg structs
+    size_t regex_ins_bytes;        // ReInst instruction pool
+    size_t regex_cls_bytes;        // ReClass character class pool
+    size_t str_pool_bytes;         // String literal pool
+
+    // Program-level regex characteristics (fast-path selection hints)
+    bool any_lazy_quantifiers;     // True if any regex has lazy quantifiers
+    bool any_counters;             // True if any regex has {n,m} quantifiers
+} RuntimeRequirements;
+
+// Analyze program and compute memory requirements WITHOUT allocating
+//
+// This is the preflight query: returns what memory you'd need to run tokens.
+// Useful for:
+//   - Validating input before committing to execution
+//   - Enforcing resource limits (fail early on DoS inputs)
+//   - Custom allocator sizing for zero-malloc embedding
+//
+// Side effects: NONE
+//   - Does not malloc
+//   - Does not touch disk
+//   - Does not mutate global state
+//   - May run regex compiler in "dry-run" mode to count instructions
+//
+// Error handling:
+//   - Returns FISKTA_EXIT_OK on success, fills *out
+//   - Returns FISKTA_EXIT_PARSE if tokens invalid
+//   - Returns FISKTA_EXIT_REGEX if pattern invalid
+//   - Returns FISKTA_EXIT_CAPACITY if exceeds safety limits
+//   - Sets error_detail_* for human-readable diagnostics
+int program_requirements(i32 token_count, const String* tokens,
+                        RuntimeRequirements* out);
 
 // Build program from tokens (compile-time phase)
 //
@@ -109,6 +171,37 @@ typedef struct {
 int build_program(i32 token_count, const String* tokens,
                   Program* prog_out,
                   RuntimeScratch* scratch_out);
+
+// Build program using caller-provided pre-allocated arena (zero-malloc variant)
+//
+// Enables zero-malloc execution for embedded/realtime systems.
+//
+// Caller must:
+//   1. Call program_requirements() to get req.arena_bytes
+//   2. Allocate arena_block with at least that size
+//   3. Pass it here
+//
+// On success:
+//   - prog_out points into caller's arena_block
+//   - scratch_out->arena_block = arena_block (NOT owned by us)
+//   - scratch_out->arena_owned = false
+//   - Returns FISKTA_EXIT_OK
+//
+// On failure:
+//   - Returns error code, arena_block untouched
+//   - Caller still owns arena_block
+//
+// Memory layout inside arena_block is currently opaque (may change).
+// Treat it as a black box until you're done executing.
+//
+// Cleanup:
+//   - Call runtime_scratch_free() as usual
+//   - It will NOT free arena_block (because arena_owned=false)
+//   - Caller must free arena_block separately
+int build_program_with_scratch(i32 token_count, const String* tokens,
+                               Program* prog_out,
+                               void* arena_block, size_t arena_size,
+                               RuntimeScratch* scratch_out);
 
 // Execute program against file (runtime phase)
 //

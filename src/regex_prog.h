@@ -61,3 +61,29 @@ enum Err re_compile_into(String pattern,
     ReProg* out,
     ReInst* ins_base, int ins_cap, int* ins_used,
     ReClass* cls_base, int cls_cap, int* cls_used);
+
+// =============================================================================
+// Resource requirements API
+// =============================================================================
+
+// Runtime memory requirements for a compiled regex program
+typedef struct {
+    size_t nins;           // Number of compiled instructions (diagnostic/logging)
+    size_t seen_bytes;     // Seen table size: nins × RE_SEEN_SLOTS × sizeof(u32), aligned
+    size_t thread_cap;     // Recommended thread list capacity
+    int counter_count;     // Number of {n,m} quantifiers
+    bool has_lazy;         // True if lazy quantifiers present (affects priority tracking)
+} ReProgRequirements;
+
+// Compute execution requirements for a compiled regex program
+//
+// Returns the memory requirements needed to execute this program.
+// All sizes are pre-aligned and ready for allocation.
+//
+// Usage:
+//   ReProg prog = ...;
+//   ReProgRequirements req;
+//   regex_prog_requirements(&prog, &req);
+//
+//   // Allocate scratch buffers using req.seen_bytes, req.thread_cap, etc.
+void regex_prog_requirements(const ReProg* prog, ReProgRequirements* out);
