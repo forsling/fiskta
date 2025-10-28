@@ -1316,7 +1316,12 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
         }
         i++;
     } else {
-        ch = (unsigned char)pat.bytes[i++];
+        ch = (unsigned char)pat.bytes[i];
+        // Check for bare quantifiers at pattern start
+        if (ch == '+' || ch == '*' || ch == '?') {
+            return E_PARSE; // quantifiers require an atom to quantify
+        }
+        i++;
         ak = A_CHAR;
     }
 

@@ -341,6 +341,34 @@ def tests():
              tokens=["find:re","[unclosed"], input_file="small.txt",
              expect=dict(stdout="", exit=8)),
 
+        dict(id="error-008a-bare-plus-quantifier",
+             tokens=["find:re","+"], input_file="small.txt",
+             expect=dict(stdout="", exit=8)),
+
+        dict(id="error-008b-bare-star-quantifier",
+             tokens=["find:re","*"], input_file="small.txt",
+             expect=dict(stdout="", exit=8)),
+
+        dict(id="error-008c-bare-question-quantifier",
+             tokens=["find:re","?"], input_file="small.txt",
+             expect=dict(stdout="", exit=8)),
+
+        dict(id="error-008d-bare-lazy-plus",
+             tokens=["find:re","+?"], input_file="small.txt",
+             expect=dict(stdout="", exit=8)),
+
+        dict(id="error-008e-bare-lazy-star",
+             tokens=["find:re","*?"], input_file="small.txt",
+             expect=dict(stdout="", exit=8)),
+
+        dict(id="error-008f-bare-lazy-question",
+             tokens=["find:re","??"], input_file="small.txt",
+             expect=dict(stdout="", exit=8)),
+
+        dict(id="error-008g-bare-quantifier-after-alternation",
+             tokens=["find:re","a|+"], input_file="small.txt",
+             expect=dict(stdout="", exit=8)),
+
         dict(id="error-009-take-until-not-found",
              tokens=["take","until","NOTFOUND"], input_file="small.txt",
              expect=dict(stdout="", exit=PROGRAM_FAIL_EXIT)),
