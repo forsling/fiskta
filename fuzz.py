@@ -283,7 +283,7 @@ def gen_random_regex() -> str:
                                   '\\(', '\\)', '\\{', '\\}', '\\|', '\\^', '\\$'])
         elif choice <= 14:
             # Character class [...]
-            class_type = random.randint(1, 8)
+            class_type = random.randint(1, 11)
             if class_type == 1:
                 return f"[{random.choice(['a-z', '0-9', 'A-Z', 'a-zA-Z'])}]"
             elif class_type == 2:
@@ -303,12 +303,34 @@ def gen_random_regex() -> str:
             elif class_type == 7:
                 # Edge cases with special characters
                 return random.choice(['[]]', '[-]', '[^]]', '[--/]', '[a-]', '[-z]'])
-            else:
+            elif class_type == 8:
                 # Mixed literals and escapes
                 return random.choice(['[a-z\\d]', '[A-Z_\\w]', '[0-9\\s]', '[^a-z\\d]'])
+            elif class_type == 9:
+                # Whitespace escapes inside brackets
+                return random.choice(['[\\n\\t]', '[\\r\\n]', '[\\f\\v]', '[\\t\\r\\n]', '[^\\n]', '[^\\r\\n]'])
+            elif class_type == 10:
+                # Escaped metacharacters inside brackets
+                return random.choice(['[\\[\\]]', '[\\(\\)]', '[\\{\\}]', '[\\^\\$]', '[\\*\\+\\?]', '[\\|\\\\]'])
+            else:
+                # Reversed ranges (auto-corrected by parser)
+                return random.choice(['[z-a]', '[9-0]', '[Z-A]', '[f-a]'])
         elif choice <= 16:
             # Anchors (sometimes as atoms in sequences)
-            return random.choice(['^', '$'])
+            anchor_type = random.randint(1, 5)
+            if anchor_type == 1:
+                return '^'
+            elif anchor_type == 2:
+                return '$'
+            elif anchor_type == 3:
+                # Multiple consecutive anchors
+                return random.choice(['^$', '^^', '$$', '$^'])
+            elif anchor_type == 4:
+                # Anchor with CRLF
+                return random.choice(['^\\r\\n', '\\r\\n$', '^\\n', '\\n$'])
+            else:
+                # Mixed anchor patterns
+                return random.choice(['^.', '.$', '^.*', '.*$'])
         elif choice == 17:
             # CRLF sequences for anchor testing
             return random.choice(['\\r', '\\r\\n', '\\n\\r'])
@@ -364,10 +386,23 @@ def gen_random_regex() -> str:
             return f"({inner})" + (quantifier() if random.random() < 0.5 else '')
 
     def alternation(depth=0):
-        """Generate alternation (a|b|c)"""
-        num_alts = random.randint(2, random.choice([3, 5, 10, 50, 200]))
-        if num_alts > 256:  # Respect MAX_ALTS limit
-            num_alts = random.randint(200, 256)
+        """Generate alternation (a|b|c) with boundary and empty testing"""
+        alt_type = random.randint(1, 10)
+
+        if alt_type == 1:
+            # Exactly at MAX_ALTS limit (256)
+            num_alts = 256
+        elif alt_type == 2:
+            # Just over limit (257) - should trigger capacity error
+            num_alts = 257
+        elif alt_type == 3:
+            # Empty alternations
+            return random.choice(['|', 'a|', '|b', 'a||b', '||', '(|)', '(a|)', '(|b)', 'x||y||z'])
+        else:
+            # Normal range
+            num_alts = random.randint(2, random.choice([3, 5, 10, 50, 200]))
+            if num_alts > 256:
+                num_alts = random.randint(200, 256)
 
         parts = [term(depth) for _ in range(num_alts)]
         result = '|'.join(parts)
@@ -410,7 +445,7 @@ def gen_random_regex() -> str:
 
     else:  # pathological
         # Patterns designed to trigger edge cases
-        pattern_type = random.randint(1, 12)
+        pattern_type = random.randint(1, 15)
         if pattern_type <= 2:
             # Nested quantifiers: ((a+)+)+ (greedy or lazy via quantifier())
             base = atom()
@@ -431,12 +466,26 @@ def gen_random_regex() -> str:
         elif pattern_type <= 7:
             # Empty patterns (mix of greedy and lazy)
             return random.choice(['()*', '(|a)*', '(a|)*', '()*?', '()+', '()+?', '()', '(|)*?'])
-        elif pattern_type <= 9:
+        elif pattern_type == 8:
+            # Empty group quantifiers
+            return random.choice(['(){5}', '(){10}', '(){2,5}', '(){1,}', '(){0,10}',
+                                  '(){5}?', '(){2,5}?', '(){1,}?', '(){0,10}?'])
+        elif pattern_type == 9:
+            # Deeply nested empty groups
+            depth = random.randint(3, 6)
+            result = '()'
+            for _ in range(depth):
+                result = f'({result})'
+            return result
+        elif pattern_type <= 11:
             # Extreme quantifiers (greedy)
             return atom() + random.choice(['{0,999999}', '{999,}', '{100,}'])
-        elif pattern_type == 10:
+        elif pattern_type == 12:
             # Extreme lazy quantifiers
             return atom() + random.choice(['{0,999999}?', '{999,}?', '{100,}?', '{50,}?'])
+        elif pattern_type == 13:
+            # Exact boundary quantifiers
+            return atom() + random.choice(['{0}', '{0,0}', '{100}', '{100,100}', '{256}'])
         else:
             # Mixed: group with alternation and quantifier
             alts = '|'.join(atom() for _ in range(random.randint(5, 20)))
