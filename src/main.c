@@ -241,6 +241,36 @@ static bool parse_cli_args(int argc, char** argv,
             argi++;
             continue;
         }
+        if (strcmp(arg, "--ops-file") == 0) {
+            if (ops_arg || ops_file) {
+                fprintf(stderr, "fiskta: --ops-file conflicts with previous --ops/--ops-file\n");
+                *exit_code_out = FISKTA_EXIT_USAGE;
+                return false;
+            }
+            if (argi + 1 >= argc) {
+                fprintf(stderr, "fiskta: --ops-file requires a path\n");
+                *exit_code_out = FISKTA_EXIT_USAGE;
+                return false;
+            }
+            ops_file = argv[argi + 1];
+            argi += 2;
+            continue;
+        }
+        if (strncmp(arg, "--ops-file=", 12) == 0) {
+            if (ops_arg || ops_file) {
+                fprintf(stderr, "fiskta: --ops-file conflicts with previous --ops/--ops-file\n");
+                *exit_code_out = FISKTA_EXIT_USAGE;
+                return false;
+            }
+            if (arg[12] == '\0') {
+                fprintf(stderr, "fiskta: --ops-file requires a path\n");
+                *exit_code_out = FISKTA_EXIT_USAGE;
+                return false;
+            }
+            ops_file = arg + 12;
+            argi++;
+            continue;
+        }
         if (arg[0] == '-') {
             if (arg[1] == '\0' || isdigit((unsigned char)arg[1])) {
                 break;

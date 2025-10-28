@@ -186,7 +186,8 @@ Evaluation is strictly left-to-right (no operator precedence).
 - `-i, --input <path>` - Read from file instead of stdin
 
 **Command Modes:**
-- `--ops <string|file>` - Provide operations as a string or file path
+- `--ops <string>` - Provide operations as a single inline string
+- `--ops-file <path>` - Load operations from a file
 - `--` - Treat remaining args as operations
 
 **Looping:**
@@ -204,6 +205,9 @@ fiskta find "ERROR" take to line-end < log.txt
 
 # Operations as string
 fiskta --ops 'find "ERROR" take to line-end' --input log.txt
+
+# Operations from file
+fiskta --ops-file program.fisk --input log.txt
 
 # Tail/follow behavior with 1s cadence (append THEN skip to EOF)
 fiskta --continue 1s --until-idle 0 --input service.log find "ERROR" take to line-end THEN skip to EOF
