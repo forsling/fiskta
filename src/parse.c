@@ -1051,13 +1051,15 @@ typedef struct {
     bool has_to;
     LocExpr to;
     String pattern_tok;
-    i32 pattern_idx;  // Token index for error reporting
-    enum { FIND_LITERAL, FIND_REGEX, FIND_BINARY } kind;
+    i32 pattern_idx; // Token index for error reporting
+    enum { FIND_LITERAL,
+        FIND_REGEX,
+        FIND_BINARY } kind;
 } TmpFindArgs;
 
 // Temporary data for skip operations
 typedef struct {
-    bool is_location;  // true = "skip to LOC", false = "skip OFFSET"
+    bool is_location; // true = "skip to LOC", false = "skip OFFSET"
     union {
         LocExpr to_location;
         struct {
@@ -1069,19 +1071,23 @@ typedef struct {
 
 // Temporary data for take operations
 typedef struct {
-    enum { TAKE_TO, TAKE_UNTIL, TAKE_UNTIL_RE, TAKE_UNTIL_BIN, TAKE_LEN } kind;
+    enum { TAKE_TO,
+        TAKE_UNTIL,
+        TAKE_UNTIL_RE,
+        TAKE_UNTIL_BIN,
+        TAKE_LEN } kind;
     union {
-        LocExpr to;  // for TAKE_TO
+        LocExpr to; // for TAKE_TO
         struct {
             String pattern_tok;
             i32 pattern_idx;
             bool has_at;
             LocExpr at;
-        } until;  // for TAKE_UNTIL, TAKE_UNTIL_RE, TAKE_UNTIL_BIN
+        } until; // for TAKE_UNTIL, TAKE_UNTIL_RE, TAKE_UNTIL_BIN
         struct {
             i64 offset;
             Unit unit;
-        } len;  // for TAKE_LEN
+        } len; // for TAKE_LEN
     } u;
 } TmpTakeArgs;
 
@@ -1100,7 +1106,7 @@ typedef struct {
 // Temporary data for label operations
 typedef struct {
     String name_tok;
-    i32 name_idx_token;  // Token index for error reporting
+    i32 name_idx_token; // Token index for error reporting
 } TmpLabelArgs;
 
 /************************************************************
@@ -1114,7 +1120,9 @@ typedef struct {
  ************************************************************/
 
 // Kind of find operation for parse_find_like_args
-enum FindKind { FIND_LIT, FIND_RE, FIND_BIN };
+enum FindKind { FIND_LIT,
+    FIND_RE,
+    FIND_BIN };
 
 // Parse arguments for find/find:re/find:bin
 // Grammar: [to LOCATION] PATTERN
@@ -1123,7 +1131,8 @@ static enum Err parse_find_like_args(const String* tokens, i32* idx, i32 token_c
     TmpFindArgs* out, Program* prg, LabelTable* labels)
 {
     out->has_to = false;
-    out->kind = (kind == FIND_LIT) ? FIND_LITERAL : (kind == FIND_RE) ? FIND_REGEX : FIND_BINARY;
+    out->kind = (kind == FIND_LIT) ? FIND_LITERAL : (kind == FIND_RE) ? FIND_REGEX
+                                                                      : FIND_BINARY;
 
     // Check for optional "to LOCATION"
     if (*idx < token_count && is_keyword(tokens[*idx], &kw_to)) {
@@ -1137,8 +1146,10 @@ static enum Err parse_find_like_args(const String* tokens, i32* idx, i32 token_c
 
     // Parse pattern/needle
     if (*idx >= token_count) {
-        const char* op_name = (kind == FIND_LIT) ? "find" : (kind == FIND_RE) ? "find:re" : "find:bin";
-        const char* what = (kind == FIND_BIN) ? "hex bytes" : (kind == FIND_LIT) ? "needle" : "pattern";
+        const char* op_name = (kind == FIND_LIT) ? "find" : (kind == FIND_RE) ? "find:re"
+                                                                              : "find:bin";
+        const char* what = (kind == FIND_BIN) ? "hex bytes" : (kind == FIND_LIT) ? "needle"
+                                                                                 : "pattern";
         error_detail_set(E_PARSE, cmd_idx, "missing %s for '%s'", what, op_name);
         return E_PARSE;
     }
@@ -1689,7 +1700,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
                 op->u.take_until.at = args.u.until.at;
             }
 
-        } else {  // TAKE_LEN
+        } else { // TAKE_LEN
             op->kind = OP_TAKE_LEN;
             op->u.take_len.offset = args.u.len.offset;
             op->u.take_len.unit = args.u.len.unit;

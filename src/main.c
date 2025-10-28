@@ -167,7 +167,10 @@ static bool parse_cli_args(int argc, char** argv,
                 if (val && *val) {
                     const unsigned char* p = (const unsigned char*)val;
                     int base = 0;
-                    while (*p >= '0' && *p <= '9') { base = base * 10 + (int)(*p - '0'); p++; }
+                    while (*p >= '0' && *p <= '9') {
+                        base = base * 10 + (int)(*p - '0');
+                        p++;
+                    }
                     if (p != (const unsigned char*)val) {
                         const char* suf = (const char*)p;
                         if (*suf == '\0') {
@@ -494,7 +497,7 @@ static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, 
 int main(int argc, char** argv)
 {
 #ifdef _WIN32
-    _setmode(_fileno(stdin),  _O_BINARY);
+    _setmode(_fileno(stdin), _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
 #endif
 

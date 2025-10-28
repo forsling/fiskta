@@ -43,7 +43,7 @@
 // Future: Can expose via CLI (--regex-budget) or build-time flags.
 //
 #ifndef FISKTA_REGEX_BUDGET_DEFAULT
-#define FISKTA_REGEX_BUDGET_DEFAULT (2 * 1024 * 1024)  // 2 MiB total
+#define FISKTA_REGEX_BUDGET_DEFAULT (2 * 1024 * 1024) // 2 MiB total
 #endif
 
 // Minimum viable thread capacity (NFA needs at least this many concurrent states)
@@ -98,7 +98,7 @@ typedef struct {
     ReThread* re_curr;
     ReThread* re_next;
     int re_thread_cap;
-    u64 regex_work_budget;  // Max thread enqueues per search (prevents step-count explosion)
+    u64 regex_work_budget; // Max thread enqueues per search (prevents step-count explosion)
     unsigned char* seen_curr;
     unsigned char* seen_next;
     size_t seen_bytes;

@@ -785,11 +785,11 @@ int build_program(i32 token_count, const String* tokens,
     scratch_out->search_buf_cap = search_buf_cap;
     scratch_out->re_curr = re_curr_thr;
     scratch_out->re_next = re_next_thr;
-    scratch_out->re_thread_cap = actual_thread_cap;  // Use derived cap, not allocated cap
+    scratch_out->re_thread_cap = actual_thread_cap; // Use derived cap, not allocated cap
     scratch_out->regex_work_budget = REGEX_WORK_BUDGET_DEFAULT;
     scratch_out->seen_curr = seen_curr;
     scratch_out->seen_next = seen_next;
-    scratch_out->seen_bytes = actual_seen_bytes;  // Use actual requirement
+    scratch_out->seen_bytes = actual_seen_bytes; // Use actual requirement
     scratch_out->clause_ranges = clause_ranges;
     scratch_out->clause_labels = clause_labels;
     scratch_out->clause_inline = clause_inline;
