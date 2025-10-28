@@ -104,11 +104,11 @@ static inline void print_usage(void)
     printf("  0               Success (includes normal --until-idle stop)\n");
     printf("  1               Program failure (no clause succeeded in only/final iteration)\n");
     printf("  2               Execution timeout (--for elapsed)\n");
+    printf("  7               Usage error (unknown flags, invalid flag combinations, missing values)\n");
+    printf("  8               Parse error (program grammar or regex syntax)\n");
+    printf("  9               Capacity exceeded (policy limits: pattern too complex, too many labels/ops)\n");
     printf("  10              I/O error (open/read/write failure)\n");
-    printf("  11              Resource exhaustion (out of memory)\n");
-    printf("  12              Parse error (invalid syntax, unknown operation)\n");
-    printf("  13              Regex error (invalid regex pattern)\n");
-    printf("  14              Capacity exceeded (pattern too complex for configured limits)\n");
+    printf("  11              Resource exhaustion (malloc failed, out of memory)\n");
     printf("\n");
     printf("OPTIONS:\n");
     printf("  -i, --input <path>          Read input from path (default: stdin)\n");

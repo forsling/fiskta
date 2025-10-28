@@ -177,8 +177,7 @@ typedef struct {
 //
 // Error handling:
 //   - Returns FISKTA_EXIT_OK on success, fills *out
-//   - Returns FISKTA_EXIT_PARSE if tokens invalid
-//   - Returns FISKTA_EXIT_REGEX if pattern invalid
+//   - Returns FISKTA_EXIT_PARSE if tokens or pattern invalid
 //   - Returns FISKTA_EXIT_CAPACITY if capacity exceeded
 //   - Sets error_detail_* for human-readable diagnostics
 int program_requirements(i32 token_count, const String* tokens,
@@ -199,7 +198,7 @@ int program_requirements(i32 token_count, const String* tokens,
 // On failure:
 //   - scratch_out may be partially initialized
 //   - Caller must call runtime_scratch_free(scratch_out) regardless
-//   - Returns FISKTA_EXIT_PARSE, FISKTA_EXIT_REGEX, FISKTA_EXIT_CAPACITY, or FISKTA_EXIT_RESOURCE
+//   - Returns FISKTA_EXIT_PARSE, FISKTA_EXIT_CAPACITY, or FISKTA_EXIT_RESOURCE
 //
 // Memory ownership:
 //   - Program is a read-only view into scratch_out->arena_block
@@ -262,7 +261,7 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
 //   - FISKTA_EXIT_TIMEOUT (2)       - Timeout reached
 //   - FISKTA_EXIT_IO (10)           - File I/O error
 //   - FISKTA_EXIT_RESOURCE (11)     - Resource exhaustion (OOM)
-//   - FISKTA_EXIT_CAPACITY (14)     - Capacity exceeded
+//   - FISKTA_EXIT_CAPACITY (9)      - Capacity exceeded
 int runtime_execute(const Program* prog,
     const char* file_path,
     RuntimeScratch* scratch,
@@ -297,11 +296,11 @@ void runtime_scratch_free(RuntimeScratch* s);
 //   FISKTA_EXIT_OK (0)            - Program completed successfully
 //   FISKTA_EXIT_PROGRAM_FAIL (1)  - Program failed (clause failed, no match, etc.)
 //   FISKTA_EXIT_TIMEOUT (2)       - Timeout reached (--for or --until-idle)
+//   FISKTA_EXIT_USAGE (7)         - CLI misuse (unknown flags, missing values)
+//   FISKTA_EXIT_PARSE (8)         - Parse error (program grammar, regex syntax)
+//   FISKTA_EXIT_CAPACITY (9)      - Policy limit exceeded (input too complex)
 //   FISKTA_EXIT_IO (10)           - File I/O error
-//   FISKTA_EXIT_RESOURCE (11)     - Resource exhaustion (OOM)
-//   FISKTA_EXIT_PARSE (12)        - Parse error in operations
-//   FISKTA_EXIT_REGEX (13)        - Regex compilation error
-//   FISKTA_EXIT_CAPACITY (14)     - Capacity exceeded
+//   FISKTA_EXIT_RESOURCE (11)     - System resource exhaustion (malloc failed, OOM)
 //
 // Execution phases:
 //   1. Parse preflight (estimate memory requirements)

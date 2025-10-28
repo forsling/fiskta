@@ -695,6 +695,9 @@ int build_program(i32 token_count, const String* tokens,
     if (e != E_OK) {
         print_err(e, "parse build");
         free(block);
+        if (e == E_CAPACITY) {
+            return FISKTA_EXIT_CAPACITY;
+        }
         return FISKTA_EXIT_PARSE;
     }
     if (prog_out->clause_count == 0) {
@@ -720,7 +723,7 @@ int build_program(i32 token_count, const String* tokens,
                     print_err(err, "regex compile");
                     free(block);
                     if (err == E_PARSE || err == E_BAD_NEEDLE) {
-                        return FISKTA_EXIT_REGEX;
+                        return FISKTA_EXIT_PARSE;
                     } else if (err == E_CAPACITY) {
                         return FISKTA_EXIT_CAPACITY;
                     } else {
@@ -737,7 +740,7 @@ int build_program(i32 token_count, const String* tokens,
                     print_err(err, "regex compile");
                     free(block);
                     if (err == E_PARSE || err == E_BAD_NEEDLE) {
-                        return FISKTA_EXIT_REGEX;
+                        return FISKTA_EXIT_PARSE;
                     } else if (err == E_CAPACITY) {
                         return FISKTA_EXIT_CAPACITY;
                     } else {
@@ -824,7 +827,7 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
     if (e != E_OK) {
         print_err(e, "parse preflight");
         if (e == E_CAPACITY) {
-            return FISKTA_EXIT_REGEX;
+            return FISKTA_EXIT_CAPACITY;
         }
         return FISKTA_EXIT_PARSE;
     }
@@ -888,6 +891,9 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
         clauses_buf, ops_buf, str_pool, str_pool_bytes);
     if (e != E_OK) {
         print_err(e, "parse build");
+        if (e == E_CAPACITY) {
+            return FISKTA_EXIT_CAPACITY;
+        }
         return FISKTA_EXIT_PARSE;
     }
     if (prog_out->clause_count == 0) {
@@ -911,7 +917,7 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
                 if (err != E_OK) {
                     print_err(err, "regex compile");
                     if (err == E_PARSE || err == E_BAD_NEEDLE) {
-                        return FISKTA_EXIT_REGEX;
+                        return FISKTA_EXIT_PARSE;
                     } else if (err == E_CAPACITY) {
                         return FISKTA_EXIT_CAPACITY;
                     } else {
@@ -927,7 +933,7 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
                 if (err != E_OK) {
                     print_err(err, "regex compile");
                     if (err == E_PARSE || err == E_BAD_NEEDLE) {
-                        return FISKTA_EXIT_REGEX;
+                        return FISKTA_EXIT_PARSE;
                     } else if (err == E_CAPACITY) {
                         return FISKTA_EXIT_CAPACITY;
                     } else {

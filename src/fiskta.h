@@ -81,12 +81,12 @@ enum FisktaExitCode {
     FISKTA_EXIT_OK = 0,
     FISKTA_EXIT_PROGRAM_FAIL = 1,
     FISKTA_EXIT_TIMEOUT = 2,
-    // 3-9 reserved for future user-controlled outcomes
+    // 3-6 reserved for future outcomes
+    FISKTA_EXIT_USAGE = 7,      // CLI misuse (unknown flags, missing values)
+    FISKTA_EXIT_PARSE = 8,      // Parse error (program grammar, regex syntax)
+    FISKTA_EXIT_CAPACITY = 9,   // Policy limit exceeded (input too complex)
     FISKTA_EXIT_IO = 10,
-    FISKTA_EXIT_RESOURCE = 11,
-    FISKTA_EXIT_PARSE = 12,
-    FISKTA_EXIT_REGEX = 13,
-    FISKTA_EXIT_CAPACITY = 14
+    FISKTA_EXIT_RESOURCE = 11   // System resource exhaustion (malloc failed, OOM)
 };
 
 typedef struct {

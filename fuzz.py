@@ -166,7 +166,7 @@ Examples:
     parser.add_argument("--save-all", action="store_true",
                         help="Save all cases, not just crashes")
     parser.add_argument("--save-capacity", action="store_true",
-                        help="Save capacity errors (exit 14) in addition to crashes")
+                        help="Save capacity errors (exit 9) in addition to crashes")
     parser.add_argument("--quick", action="store_true",
                         help="Quick test (10k cases, 2 workers)")
     parser.add_argument("--repro-case", type=int, metavar="N",
@@ -966,19 +966,19 @@ def worker_fn(args: tuple) -> dict:
             stats['timeouts'] += 1
         if res.crashed or res.exit_code in [10, 11]:
             stats['crashed'] += 1
-        if res.exit_code == 14:
+        if res.exit_code == 9:
             stats['capacity_errors'] += 1
 
         # Check if interesting
         interesting = (res.timed_out or res.crashed or
                       res.exit_code in [2, 10, 11] or
-                      (res.exit_code == 14 and cfg.save_capacity) or
+                      (res.exit_code == 9 and cfg.save_capacity) or
                       cfg.save_all)
 
         if interesting:
             final_ops = ops
-            # Minimize crashes (but not parse errors - exit code 12)
-            if cfg.minimize and res.exit_code != 12:
+            # Minimize crashes (but not parse errors - exit code 8)
+            if cfg.minimize and res.exit_code != 8:
                 final_ops = minimize_tokens(ops, tmp_path, res, cfg.timeout_ms, cfg.fiskta_path)
 
             save_case(case_id, final_ops, input_data, res, cfg.run_dir)

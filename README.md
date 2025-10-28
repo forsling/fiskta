@@ -518,19 +518,22 @@ fiskta uses exit codes to indicate success, failure, and the type of error encou
   - Returned when every clause in the last iteration failed
   - Suppressed by `--ignore-failures` while looping
 - **2**: Execution timeout (`--for` elapsed)
+- **7**: Usage error (CLI misuse)
+  - Unknown or unsupported flags, invalid flag combinations
+  - Missing required option values
+- **8**: Parse error (program grammar or regex syntax)
+  - Invalid operation syntax, unknown operation, missing arguments
+  - Invalid regex pattern syntax or semantics
+  - Caught during program parsing, before execution
+- **9**: Capacity exceeded (policy limits)
+  - Regex pattern exceeded execution budget (thread limit, seen table, work budget)
+  - Too many operations, labels, or alternations in regex
+  - Operations string or file too long
 - **10**: I/O error (open/read/write failure)
   - File not found, permission denied, read/write errors
-- **11**: Resource exhaustion (out of memory)
-  - Out of memory during allocation
-  - Buffer allocation failures
-- **12**: Parse error (invalid syntax, unknown operation)
-  - Invalid syntax, unknown operation, missing arguments
-  - Caught during program parsing, before execution
-- **13**: Regex error (invalid regex pattern)
-  - Invalid regex pattern syntax
-- **14**: Capacity exceeded (pattern too complex for configured limits)
-  - Regex pattern exceeded execution budget (thread limit, seen table size)
-  - Too many operations or labels
+- **11**: Resource exhaustion (system/environment)
+  - malloc() failed, out of memory
+  - Arena allocation failure
 
 ## Views and Scoping
 

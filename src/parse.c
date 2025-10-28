@@ -29,14 +29,14 @@ static enum Err parse_op_dry_run(const String* tokens, i32* idx, i32 token_count
     Program* prg, LabelTable* labels);
 
 // Validate pattern length (max size check only)
-// Returns E_OK if valid, E_PARSE if too long
+// Returns E_OK if valid, E_CAPACITY if too long
 // Note: Empty pattern check is done elsewhere (in regex compiler for regex patterns,
 // or in literal search for literal needles) to ensure correct exit code mapping.
 static inline enum Err check_pattern_len(String tok, i32 err_pos)
 {
     if (tok.len > MAX_PATTERN_LENGTH) {
-        error_detail_set(E_PARSE, err_pos, "pattern too long (max %d bytes)", MAX_PATTERN_LENGTH);
-        return E_PARSE;
+        error_detail_set(E_CAPACITY, err_pos, "pattern too long (max %d bytes)", MAX_PATTERN_LENGTH);
+        return E_CAPACITY;
     }
     return E_OK;
 }

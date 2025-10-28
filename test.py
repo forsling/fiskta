@@ -29,10 +29,10 @@ def repo_version() -> str:
 VERSION = repo_version()
 VERSION_LINE = f"fiskta - (fi)nd (sk)ip (ta)ke v{VERSION}\n"
 PROGRAM_FAIL_EXIT = 1
+USAGE_EXIT = 7
+PARSE_EXIT = 8
+CAPACITY_EXIT = 9
 RESOURCE_EXIT = 11
-PARSE_EXIT = 12
-REGEX_EXIT = 13
-CAPACITY_EXIT = 14
 
 def write(path: Path, data: bytes):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -291,11 +291,11 @@ def tests():
 
         dict(id="gram-003-empty-needle-invalid",
              tokens=["find",""], input_file="small.txt",
-             expect=dict(stdout="", exit=12)),
+             expect=dict(stdout="", exit=8)),
 
         dict(id="gram-004-label-name-validation",
              tokens=["label","Bad"], input_file="small.txt",
-             expect=dict(stdout="", exit=12)),
+             expect=dict(stdout="", exit=8)),
 
         dict(id="gram-005-view-inline-offsets",
              tokens=["view","BOF+2b","BOF+5b","take","+3b"], input_file="overlap.txt",
@@ -309,24 +309,24 @@ def tests():
 
         dict(id="gram-009-print-hex-invalid",
              tokens=["print", r"\x0G"], input_file="overlap.txt",
-             expect=dict(stdout="", exit=12)),
+             expect=dict(stdout="", exit=8)),
 
         # ---------- Error path tests ----------
         dict(id="error-001-unknown-operation",
              tokens=["unknown","arg"], input_file="small.txt",
-             expect=dict(stdout="", exit=12)),
+             expect=dict(stdout="", exit=8)),
 
         dict(id="error-002-missing-argument",
              tokens=["find"], input_file="small.txt",
-             expect=dict(stdout="", exit=12)),
+             expect=dict(stdout="", exit=8)),
 
         dict(id="error-003-invalid-number",
              tokens=["take","notanumber"], input_file="small.txt",
-             expect=dict(stdout="", exit=12)),
+             expect=dict(stdout="", exit=8)),
 
         dict(id="error-004-invalid-unit",
              tokens=["take","10x"], input_file="small.txt",
-             expect=dict(stdout="", exit=12)),
+             expect=dict(stdout="", exit=8)),
 
         dict(id="error-005-invalid-location",
              tokens=["skip","to","NOTEXIST"], input_file="small.txt",
@@ -339,7 +339,7 @@ def tests():
 
         dict(id="error-008-invalid-regex",
              tokens=["find:re","[unclosed"], input_file="small.txt",
-             expect=dict(stdout="", exit=13)),
+             expect=dict(stdout="", exit=8)),
 
         dict(id="error-009-take-until-not-found",
              tokens=["take","until","NOTFOUND"], input_file="small.txt",
@@ -580,7 +580,7 @@ def tests():
 
         dict(id="find-105-empty-string",
              tokens=["find",""], input_file="overlap.txt",
-             expect=dict(stdout="", exit=12)),
+             expect=dict(stdout="", exit=8)),
 
         dict(id="find-106-binary-data",
              tokens=["find","BINARY_DATA","take","+11b"], input_file="binary-data.bin",
@@ -690,7 +690,7 @@ def tests():
 
         dict(id="take-until-109-empty-needle",
              tokens=["take","until",""], input_file="overlap.txt",
-             expect=dict(stdout="", exit=12)),
+             expect=dict(stdout="", exit=8)),
 
         dict(id="take-until-110-binary-data",
              tokens=["take","until","BINARY_DATA"], input_file="binary-data.bin",
@@ -1603,7 +1603,7 @@ def tests():
 
         dict(id="regex-043-empty-pattern",
              tokens=["find:re",""], input_file="overlap.txt",
-             expect=dict(stdout="", exit=13)),
+             expect=dict(stdout="", exit=8)),
 
         dict(id="regex-044-invalid-escape",
              tokens=["find:re","\\z","take","+1b"], input_file="-", stdin=b"abc",
@@ -2241,21 +2241,21 @@ def tests():
         # Error cases - odd number of hex digits
         dict(id="findbin-013-odd-hex-digits",
              tokens=["find:bin","DEA","take","+1b"], input_file="hex-test.bin",
-             expect=dict(stdout="", exit=12)),
+             expect=dict(stdout="", exit=8)),
 
         # Error cases - invalid hex characters
         dict(id="findbin-014-invalid-hex-char",
              tokens=["find:bin","DEFG","take","+1b"], input_file="hex-test.bin",
-             expect=dict(stdout="", exit=12)),
+             expect=dict(stdout="", exit=8)),
 
         dict(id="findbin-015-invalid-hex-special",
              tokens=["find:bin","DE$F","take","+1b"], input_file="hex-test.bin",
-             expect=dict(stdout="", exit=12)),
+             expect=dict(stdout="", exit=8)),
 
         # Error cases - empty pattern
         dict(id="findbin-016-empty-pattern",
              tokens=["find:bin",""], input_file="hex-test.bin",
-             expect=dict(stdout="", exit=12)),
+             expect=dict(stdout="", exit=8)),
 
         # Large file search (buffer boundary testing)
         dict(id="findbin-017-large-file-search",
@@ -2298,7 +2298,7 @@ def tests():
         # Whitespace-only pattern (should fail as odd digits after removing whitespace if spaces only)
         dict(id="findbin-025-whitespace-only",
              tokens=["find:bin","   ","take","+1b"], input_file="hex-test.bin",
-             expect=dict(stdout="", exit=12)),
+             expect=dict(stdout="", exit=8)),
 
         # All zeros pattern
         dict(id="findbin-026-all-zeros",
@@ -2360,15 +2360,15 @@ def tests():
 
         dict(id="takeuntilbin-008-odd-hex-digits",
              tokens=["take","until:bin","DEA"], input_file="hex-test.bin",
-             expect=dict(stdout="", exit=12)),
+             expect=dict(stdout="", exit=8)),
 
         dict(id="takeuntilbin-009-invalid-hex",
              tokens=["take","until:bin","DEFG"], input_file="hex-test.bin",
-             expect=dict(stdout="", exit=12)),
+             expect=dict(stdout="", exit=8)),
 
         dict(id="takeuntilbin-010-empty-pattern",
              tokens=["take","until:bin",""], input_file="hex-test.bin",
-             expect=dict(stdout="", exit=12)),
+             expect=dict(stdout="", exit=8)),
 
         # Integration with views
         dict(id="takeuntilbin-011-within-view",
@@ -2648,7 +2648,7 @@ def tests():
         # 513 operations = 1026 tokens (overflow, should fail with parse error)
         dict(id="cli-007-max-tokens-overflow",
              tokens=["print", "X"] * 513, input_file="overlap.txt",
-             expect=dict(stdout="", exit=PARSE_EXIT)),
+             expect=dict(stdout="", exit=CAPACITY_EXIT)),
 
 
         dict(id="loop-001-basic",
@@ -2955,7 +2955,7 @@ def tests():
 
         dict(id="edge-007-find-pattern-too-long",
              tokens=["find","A"*16385], input_file="overlap.txt",
-             expect=dict(stdout="", exit=12, stderr_contains="pattern too long")),
+             expect=dict(stdout="", exit=9, stderr_contains="pattern too long")),
 
         dict(id="edge-008-find-re-pattern-max-length",
              tokens=["find:re","A"*16384], input_file="overlap.txt",
@@ -2963,7 +2963,7 @@ def tests():
 
         dict(id="edge-009-find-re-pattern-too-long",
              tokens=["find:re","A"*16385], input_file="overlap.txt",
-             expect=dict(stdout="", exit=12, stderr_contains="pattern too long")),
+             expect=dict(stdout="", exit=9, stderr_contains="pattern too long")),
 
         dict(id="edge-010-find-bin-pattern-max-length",
              tokens=["find:bin"," ".join(["FF"]*5461)], input_file="overlap.txt",
@@ -2971,48 +2971,48 @@ def tests():
 
         dict(id="edge-011-find-bin-pattern-too-long",
              tokens=["find:bin"," ".join(["FF"]*5462)], input_file="overlap.txt",
-             expect=dict(stdout="", exit=12, stderr_contains="pattern too long")),  # 5462*3-1=16385 bytes
+             expect=dict(stdout="", exit=9, stderr_contains="pattern too long")),  # 5462*3-1=16385 bytes
 
         dict(id="edge-012-take-until-pattern-too-long",
              tokens=["take","until","A"*16385], input_file="overlap.txt",
-             expect=dict(stdout="", exit=12, stderr_contains="pattern too long")),
+             expect=dict(stdout="", exit=9, stderr_contains="pattern too long")),
 
         dict(id="edge-013-take-until-re-pattern-too-long",
              tokens=["take","until:re","A"*16385], input_file="overlap.txt",
-             expect=dict(stdout="", exit=12, stderr_contains="pattern too long")),
+             expect=dict(stdout="", exit=9, stderr_contains="pattern too long")),
 
         dict(id="edge-014-take-until-bin-pattern-too-long",
              tokens=["take","until:bin"," ".join(["FF"]*5462)], input_file="overlap.txt",
-             expect=dict(stdout="", exit=12, stderr_contains="pattern too long")),  # 5462*3-1=16385 bytes
+             expect=dict(stdout="", exit=9, stderr_contains="pattern too long")),  # 5462*3-1=16385 bytes
 
         # Regex quantifier validation
         dict(id="edge-015-regex-quantifier-inverted-bounds",
              tokens=["find:re","x{50,2}"], input_file="overlap.txt",
-             expect=dict(stdout="", exit=13, stderr_contains="parse error")),
+             expect=dict(stdout="", exit=8, stderr_contains="parse error")),
 
         dict(id="edge-016-regex-quantifier-missing-closing-brace",
              tokens=["find:re","{{99"], input_file="overlap.txt",
-             expect=dict(stdout="", exit=13, stderr_contains="parse error")),
+             expect=dict(stdout="", exit=8, stderr_contains="parse error")),
 
         dict(id="edge-017-regex-quantifier-missing-brace-after-comma",
              tokens=["find:re","x{5,"], input_file="overlap.txt",
-             expect=dict(stdout="", exit=13, stderr_contains="parse error")),
+             expect=dict(stdout="", exit=8, stderr_contains="parse error")),
 
         dict(id="edge-018-regex-empty-alternative-quantified-leading",
              tokens=["find:re","(|a)*"], input_file="overlap.txt",
-             expect=dict(stdout="", exit=12, stderr_contains="empty alternative in quantified group")),
+             expect=dict(stdout="", exit=8, stderr_contains="empty alternative in quantified group")),
 
         dict(id="edge-019-regex-empty-alternative-quantified-trailing",
              tokens=["find:re","(a|)*"], input_file="overlap.txt",
-             expect=dict(stdout="", exit=12, stderr_contains="empty alternative in quantified group")),
+             expect=dict(stdout="", exit=8, stderr_contains="empty alternative in quantified group")),
 
         dict(id="edge-020-regex-empty-alternative-quantified-double",
              tokens=["find:re","(||)*"], input_file="overlap.txt",
-             expect=dict(stdout="", exit=12, stderr_contains="empty alternative in quantified group")),
+             expect=dict(stdout="", exit=8, stderr_contains="empty alternative in quantified group")),
 
         dict(id="edge-021-regex-empty-alternative-take-until",
              tokens=["take","until:re","(|x)+"], input_file="overlap.txt",
-             expect=dict(stdout="", exit=12, stderr_contains="empty alternative in quantified group")),
+             expect=dict(stdout="", exit=8, stderr_contains="empty alternative in quantified group")),
 
         # Regex group quantifier with character class in alternation (fuzzer found)
         dict(id="regex-group-quantifier-charclass-alt",
@@ -3040,11 +3040,11 @@ def tests():
         # These patterns were causing exit 14 (capacity during compile) and must now pass preflight
         dict(id="capacity-004-nested-with-alternation",
              tokens=["find:re","([0-9]{3}|\\w*|(\\w)|(( {1,2}){13,37})*)+","take","to","match-end"], input_file="-", stdin=b"test",
-             expect=dict(exit=13)),  # Rejected: unbounded + on nullable pattern (\\w*)
+             expect=dict(exit=8)),  # Rejected: unbounded + on nullable pattern (\\w*)
 
         dict(id="capacity-005-deeply-nested-quantifiers",
              tokens=["find:re","((a{20,34}){40,80}|([^a-z]{16,34})+|a|^|[\\d\\w]+)+","take","to","match-end"], input_file="-", stdin=b"test",
-             expect=dict(exit=13)),  # Rejected: unbounded + on nullable pattern (^)
+             expect=dict(exit=8)),  # Rejected: unbounded + on nullable pattern (^)
 
         # Negative tests for grouped min enforcement (from implementation_feedback)
         dict(id="regex-group-min-001",
@@ -3059,7 +3059,7 @@ def tests():
         # These patterns must compile without exit 14 (may match or not, but should not crash capacity)
         dict(id="capacity-006-extreme-alternation",
              tokens=["take","until:re","([A-Z]|$|$|\\s|\\w|\\s|\\D|[\\d\\w]|[^ 	]|\\r|$)+"], input_file="-", stdin=b"test",
-             expect=dict(exit=13)),  # Rejected: unbounded + on nullable pattern ($ anchors)
+             expect=dict(exit=8)),  # Rejected: unbounded + on nullable pattern ($ anchors)
 
         dict(id="capacity-007-complex-nested-ranges",
              tokens=["find:re","^([y0z]{5,33}){20}|\\d+|([^0-9]{0}){0,1}|\\w{50}([^a-z]{5}){20}"], input_file="-", stdin=b"test",
@@ -3094,27 +3094,27 @@ def tests():
         # Regression tests for nullable pattern detection (prevents infinite empty matching)
         dict(id="nullable-001-star-on-star",
              tokens=["find:re","(a*)*"], input_file="-", stdin=b"test",
-             expect=dict(exit=13)),  # Reject: unbounded * on nullable a*
+             expect=dict(exit=8)),  # Reject: unbounded * on nullable a*
 
         dict(id="nullable-002-plus-on-nullable",
              tokens=["find:re","(\\W*){10,}"], input_file="-", stdin=b"test",
-             expect=dict(exit=13)),  # Reject: unbounded {10,} on nullable \\W*
+             expect=dict(exit=8)),  # Reject: unbounded {10,} on nullable \\W*
 
         dict(id="nullable-003-nested-zero-large",
              tokens=["find:re","(((\\s{0,1})){0}){0,999999}"], input_file="-", stdin=b"test",
-             expect=dict(exit=13, alt_exit=11)),  # Reject as parse error or capacity (deep nesting triggers recursion guard)
+             expect=dict(exit=8, alt_exit=11)),  # Reject as parse error or capacity (deep nesting triggers recursion guard)
 
         dict(id="nullable-004-nested-zero-alt",
              tokens=["find:re","(((.{0}){13,39})){0,999999}"], input_file="-", stdin=b"test",
-             expect=dict(exit=13, alt_exit=11)),  # Reject as parse error or capacity (deep nesting triggers recursion guard)
+             expect=dict(exit=8, alt_exit=11)),  # Reject as parse error or capacity (deep nesting triggers recursion guard)
 
         dict(id="nullable-005-anchor-plus",
              tokens=["find:re","(^)+"], input_file="-", stdin=b"test",
-             expect=dict(exit=13)),  # Reject: unbounded + on nullable anchor
+             expect=dict(exit=8)),  # Reject: unbounded + on nullable anchor
 
         dict(id="nullable-006-anchor-star",
              tokens=["find:re","($)*"], input_file="-", stdin=b"test",
-             expect=dict(exit=13)),  # Reject: unbounded * on nullable anchor
+             expect=dict(exit=8)),  # Reject: unbounded * on nullable anchor
 
         dict(id="nullable-007-bounded-ok",
              tokens=["find:re","(a*){0,5}"], input_file="-", stdin=b"test",
@@ -3122,21 +3122,21 @@ def tests():
 
         dict(id="nullable-008-bounded-ok-10",
              tokens=["find:re","(\\w*){0,10}"], input_file="-", stdin=b"test",
-             expect=dict(exit=0, alt_exit=14)),  # Allow bounded quantifier, but may hit capacity in practice
+             expect=dict(exit=0, alt_exit=9)),  # Allow bounded quantifier, but may hit capacity in practice
 
         # Quantifier overflow protection
         # Max safe parseable value: (INT_MAX - 9) / 10 * 10 + 9 = 2147483639
         dict(id="overflow-001-huge-quantifier",
              tokens=["find:re","a{30000000000}"], input_file="-", stdin=b"a",
-             expect=dict(exit=REGEX_EXIT)),  # Reject: overflows during parsing
+             expect=dict(exit=PARSE_EXIT)),  # Reject: overflows during parsing
 
         dict(id="overflow-002-over-int-max",
              tokens=["find:re","a{2147483648}"], input_file="-", stdin=b"a",
-             expect=dict(exit=REGEX_EXIT)),  # Reject: over INT_MAX
+             expect=dict(exit=PARSE_EXIT)),  # Reject: over INT_MAX
 
         dict(id="overflow-003-just-over-safe",
              tokens=["find:re","a{2147483640}"], input_file="-", stdin=b"a",
-             expect=dict(exit=REGEX_EXIT)),  # Reject: would overflow during parsing
+             expect=dict(exit=PARSE_EXIT)),  # Reject: would overflow during parsing
 
         dict(id="overflow-004-max-safe-value",
              tokens=["find:re","a{2147483639}","take","to","match-end"], input_file="-", stdin=b"a" * 200,
@@ -3144,11 +3144,11 @@ def tests():
 
         dict(id="overflow-005-range-max-overflow",
              tokens=["find:re","a{1,9999999999}"], input_file="-", stdin=b"a",
-             expect=dict(exit=REGEX_EXIT)),  # Reject: max overflows
+             expect=dict(exit=PARSE_EXIT)),  # Reject: max overflows
 
         dict(id="overflow-006-range-min-overflow",
              tokens=["find:re","a{9999999999,10000000000}"], input_file="-", stdin=b"a",
-             expect=dict(exit=REGEX_EXIT)),  # Reject: min overflows
+             expect=dict(exit=PARSE_EXIT)),  # Reject: min overflows
 
         dict(id="overflow-007-valid-large",
              tokens=["find:re","a{100000}","take","to","match-end"], input_file="-", stdin=b"a" * 200,
