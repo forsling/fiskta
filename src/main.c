@@ -50,8 +50,7 @@ static bool parse_cli_args(int argc, char** argv,
         .loop_enabled = false,
         .ignore_loop_failures = false,
         .idle_timeout_ms = -1,
-        .exec_timeout_ms = -1,
-        .loop_mode = LOOP_MODE_CONTINUE
+        .exec_timeout_ms = -1
     };
     const char* ops_arg = NULL;
     const char* ops_file = NULL;
@@ -177,20 +176,7 @@ static bool parse_cli_args(int argc, char** argv,
             argi++;
             continue;
         }
-        if (strcmp(arg, "-m") == 0 || strcmp(arg, "--monitor") == 0) {
-            cfg.loop_mode = LOOP_MODE_MONITOR;
-            cfg.loop_enabled = true;
-            argi++;
-            continue;
-        }
         if (strcmp(arg, "-c") == 0 || strcmp(arg, "--continue") == 0) {
-            cfg.loop_mode = LOOP_MODE_CONTINUE;
-            cfg.loop_enabled = true;
-            argi++;
-            continue;
-        }
-        if (strcmp(arg, "-f") == 0 || strcmp(arg, "--follow") == 0) {
-            cfg.loop_mode = LOOP_MODE_FOLLOW;
             cfg.loop_enabled = true;
             argi++;
             continue;

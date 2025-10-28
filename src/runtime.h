@@ -11,7 +11,7 @@
 // Responsibilities:
 //   - Memory allocation and arena management
 //   - Regex compilation from parsed patterns
-//   - Loop/streaming modes (--follow, --monitor, --continue)
+//   - Continue loop mode (enabled by --continue or --every)
 //   - Timeout handling (--for, --until-idle)
 //   - Output formatting and emission
 //
@@ -60,13 +60,6 @@
 // Runtime configuration
 // =============================================================================
 
-// Loop execution modes
-typedef enum {
-    LOOP_MODE_FOLLOW, // --follow, -f: only new data (delta)
-    LOOP_MODE_MONITOR, // --monitor, -m: restart from BOF (rescan)
-    LOOP_MODE_CONTINUE // --continue, -c: resume from cursor (default)
-} LoopMode;
-
 // Runtime configuration from CLI
 typedef struct {
     const char* input_path;
@@ -75,7 +68,6 @@ typedef struct {
     bool ignore_loop_failures;
     i32 idle_timeout_ms;
     i32 exec_timeout_ms;
-    LoopMode loop_mode;
 } RuntimeConfig;
 
 // =============================================================================
@@ -252,7 +244,7 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
 //
 // Execute a previously-built Program against the given file.
 //
-// This is the "runtime" phase: file I/O, VM execution, looping/streaming.
+// This is the "runtime" phase: file I/O, VM execution, continue loop.
 //
 // Uses and mutates scratch:
 //   - Regex thread lists
@@ -260,10 +252,9 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
 //   - VM state (cursor, view, label positions)
 //
 // Blocking behavior (per config):
-//   - FOLLOW mode: loops forever, processing new data
-//   - MONITOR mode: loops forever, rescanning from BOF
-//   - CONTINUE mode: single pass, resuming from saved cursor
+//   - Continue loop: resumes from saved cursor position each iteration
 //   - Honors --every interval and --for/--until-idle timeouts
+//   - Use program clauses for follow/monitor emulation (see README recipes)
 //
 // Returns FISKTA_EXIT_* code:
 //   - FISKTA_EXIT_OK (0)            - Success
@@ -300,7 +291,7 @@ void runtime_scratch_free(RuntimeScratch* s);
 // Parameters:
 //   token_count: Number of operation tokens (from parse)
 //   tokens:      Array of operation strings (e.g., "find", "ERROR", "take", "5c")
-//   config:      Runtime settings (file path, loop mode, timeouts, etc.)
+//   config:      Runtime settings (file path, loop enabled, timeouts, etc.)
 //
 // Returns: Exit code
 //   FISKTA_EXIT_OK (0)            - Program completed successfully
@@ -318,7 +309,7 @@ void runtime_scratch_free(RuntimeScratch* s);
 //   3. Parse build (construct Program from tokens)
 //   4. Compile regexes (all patterns compiled upfront)
 //   5. Open file
-//   6. Execute program (possibly in loop for streaming modes)
+//   6. Execute program (possibly in continue loop)
 //
 // Memory allocation:
 //   - Single arena allocated based on preflight estimates

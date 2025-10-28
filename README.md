@@ -75,12 +75,12 @@ $ fiskta --input source --continue --every 200ms find:re "^BEGIN" take until:re 
 
 **Tail log file, stop when no new data appears for 1 minute:**
 ```bash
-$ fiskta --follow --every 1s --ignore-failures --until-idle 1m --input service.log find "ERROR" take to line-end
+$ fiskta --every 1s --ignore-failures --until-idle 1m --input service.log find "ERROR" take to line-end THEN skip to EOF
 ```
 
 **Monitor changing file content:**
 ```bash
-$ fiskta --input status.txt --monitor --every 2s --for 8h find "DISCONNECTED" take -10l
+$ fiskta --input status.txt --every 2s --for 8h clear view THEN skip to BOF THEN find "DISCONNECTED" take -10l THEN skip to EOF
 ```
 
 ## Overview
@@ -189,14 +189,14 @@ Evaluation is strictly left-to-right (no operator precedence).
 - `--ops <string|file>` - Provide operations as a string or file path
 - `--` - Treat remaining args as operations
 
-**Looping & Streaming:**
-- `-m, --monitor` - Re-run operations from BOF each iteration
-- `-c, --continue` - Resume from last cursor position (default behavior)
-- `-f, --follow` - Process only new data appended since the previous iteration
-- `--every <time>` - Delay between loop iterations (`ms`, `s`, `m`, `h`; default `0` for a tight loop)
+**Looping:**
+- `-c, --continue` - Enable looping (optional, implied by `--every`)
+- `--every <time>` - Delay between loop iterations (enables looping; `ms`, `s`, `m`, `h`; default `0` for tight loop)
 - `--for <time>` - Stop after total wall-clock time elapses
-- `-u, --until-idle <time>` - Stop once the input stops growing for the given duration (`0` exits immediately on idle)
+- `-u, --until-idle <time>` - Stop once the input window is empty for the given duration (`0` exits immediately on idle)
 - `-k, --ignore-failures` - Keep looping even if clause pipelines fail (suppresses program-failure exits)
+
+Loop mode resumes from the last cursor position. For follow/monitor emulation, see the Looping section below.
 
 **Examples:**
 ```bash
@@ -206,8 +206,8 @@ fiskta find "ERROR" take to line-end < log.txt
 # Operations as string
 fiskta --ops 'find "ERROR" take to line-end' --input log.txt
 
-# Tail/follow behavior with 1s cadence
-fiskta --follow --every 1s --until-idle 0 --input service.log find "ERROR" take to line-end
+# Tail/follow behavior with 1s cadence (append THEN skip to EOF)
+fiskta --every 1s --until-idle 0 --input service.log find "ERROR" take to line-end THEN skip to EOF
 ```
 
 ## Installation
@@ -473,44 +473,39 @@ find "user=" skip 5b take until " " OR fail "Could not extract username\n"
 
 Supports the same escape sequences as `print`.
 
-## Streaming Modes
+## Looping (Continue Mode)
 
-fiskta can loop over your operations as files grow or change.
+fiskta can loop over your operations as files grow or change. Loop mode resumes from the previous cursor location, preserving labels and view state between runs.
 
-### Shared Loop Options
+### Loop Options
 
-- `--every <time>` — wait between iterations (`ms`, `s`, `m`, `h`; default `0` for a tight loop)
-- `--for <time>` — stop after the total run time hits the limit (also works for a single execution)
-- `-u, --until-idle <time>` — stop once the input stops growing for the given period (`0` exits immediately on idle)
-- `-k, --ignore-failures` — keep looping even if clauses fail (suppresses program-failure exit)
-
-Specifying `--every` alone enables looping in *continue* mode. Adding a mode flag lets you pick how the next iteration determines its starting point.
-
-### Continue Mode (default / `-c`, `--continue`)
-
-Resumes from the previous cursor location, preserving labels and view state between runs.
+- `--continue` / `-c` — Enable looping (optional, implied by `--every`)
+- `--every <time>` — Wait between iterations (enables looping; `ms`, `s`, `m`, `h`; default `0` for tight loop)
+- `--for <time>` — Stop after total run time hits limit (works for single execution too)
+- `-u` / `--until-idle <time>` — Stop once the input window is empty for the given period (`0` exits immediately on idle)
+- `-k` / `--ignore-failures` — Keep looping even if clauses fail (suppresses program-failure exit)
 
 ```bash
 fiskta --every 200ms --input metrics.log \
     find "latency=" take until " " print "\n"
 ```
 
-### Follow Mode (`-f`, `--follow`)
+### Emulating Follow Mode
 
-Processes only the new data appended since the previous iteration—ideal for tailing logs.
+To process only new data appended since the previous iteration (like tailing logs), append `THEN skip to EOF` to your program:
 
 ```bash
-fiskta --follow --every 1s --until-idle 0 --input service.log \
-    find "WARNING:" take to line-end
+fiskta --every 1s --until-idle 0 --input service.log \
+    find "WARNING:" take to line-end THEN skip to EOF
 ```
 
-### Monitor Mode (`-m`, `--monitor`)
+### Emulating Monitor Mode
 
-Re-scans the entire file each time. Use it when the file content mutates instead of only growing.
+To re-scan the entire file each iteration (for files that mutate instead of only growing), prefix `clear view THEN skip to BOF` and append `THEN skip to EOF`:
 
 ```bash
-fiskta --monitor --every 5m --input status.txt \
-    find "STATE=READY" take to line-end
+fiskta --every 5m --input status.txt \
+    clear view THEN skip to BOF THEN find "STATE=READY" take to line-end THEN skip to EOF
 ```
 
 ## Exit Codes

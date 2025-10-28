@@ -116,14 +116,17 @@ static inline void print_usage(void)
     printf("      --                      Treat subsequent arguments as operations\n");
     printf("      --for <time>            Halt execution after set duration\n");
     printf("  -k, --ignore-failures       Suppress exit code 1 when all clauses fail (keep going)\n");
-    printf("                              Especially useful with iterative modes to continue looping\n");
+    printf("                              Especially useful with looping to continue iterations\n");
     printf("  -h, --help                  Show this help message\n");
     printf("  -v, --version               Show version information\n");
-    printf("Iterative modes and options:\n");
-    printf("      --continue, -c           Re-run fiskta and resume from last cursor position each iteration\n");
-    printf("      --follow, -f             Re-run fiskta but process only new data since last iteration\n");
-    printf("      --monitor, -m            Re-run fiskta and re-scan entire file each iteration\n");
-    printf("      --every <time>           Interval between iterations (default 0 = tight loop)\n");
-    printf("      -u, --until-idle <time>  Stop when input has not grown for specified duration\n");
+    printf("\n");
+    printf("LOOPING (CONTINUE MODE):\n");
+    printf("      --continue, -c           Enable looping (optional, implied by --every)\n");
+    printf("      --every <time>           Interval between iterations (enables looping)\n");
+    printf("      -u, --until-idle <time>  Stop when input window is empty for specified duration\n");
+    printf("\n");
+    printf("  Continue loop resumes from saved cursor position each iteration.\n");
+    printf("  Emulate follow mode: append 'THEN skip to EOF' to your program\n");
+    printf("  Emulate monitor mode: prefix 'clear view THEN skip to BOF' and append 'THEN skip to EOF'\n");
     printf("\n");
 }

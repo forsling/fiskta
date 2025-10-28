@@ -86,12 +86,10 @@ typedef struct {
 // Loop state (internal to runtime)
 typedef struct {
     bool enabled;
-    LoopMode mode;
     i32 loop_ms, idle_timeout_ms, exec_timeout_ms;
     u64 t0_ms, last_activity_ms;
-    i64 baseline; // FOLLOW: last processed end; CONTINUE: unused; MONITOR: 0
     i64 last_size; // last observed file size
-    VM vm; // CONTINUE state (vm.cursor == VM_CURSOR_UNSET => none)
+    VM vm; // Continue loop state (vm.cursor == VM_CURSOR_UNSET => none)
     IterResult last_result;
     int exit_code;
     int exit_reason; // 0 normal, 2 exec timeout
@@ -219,7 +217,6 @@ static void loop_init(LoopState* state, const RuntimeConfig* config)
 
     memset(state, 0, sizeof *state);
     state->enabled = config->loop_enabled;
-    state->mode = config->loop_mode;
     state->loop_ms = config->loop_ms;
     state->idle_timeout_ms = config->idle_timeout_ms;
     state->exec_timeout_ms = config->exec_timeout_ms;
@@ -233,56 +230,33 @@ static void loop_init(LoopState* state, const RuntimeConfig* config)
     };
 
     // Initialize last_size to -1 so first iteration sees file as "changed"
-    // This ensures MONITOR mode runs at least once before checking idle timeout
     state->last_size = -1;
 
     state->vm.cursor = VM_CURSOR_UNSET;
     for (i32 i = 0; i < MAX_LABELS; i++) {
         state->vm.label_pos[i] = -1;
     }
-
-    // All modes start at beginning; FOLLOW advances baseline to EOF after first successful iteration
-    state->baseline = 0;
 }
 
 static void loop_compute_window(LoopState* state, File* io, i64* lo, i64* hi, bool* out_size_changed)
 {
-    bool size_changed = false;
+    (void)out_size_changed; // unused in continue-only mode
     refresh_file_size(io);
     i64 size = io_size(io);
     if (size != state->last_size) {
         state->last_size = size;
         state->last_activity_ms = now_millis(); // data arrived/truncated
-        size_changed = true;
-    }
-    if (state->mode == LOOP_MODE_FOLLOW && size < state->baseline) {
-        state->baseline = size; // file shrank: restart tail at new EOF
     }
     *hi = size;
 
-    switch (state->mode) {
-    case LOOP_MODE_MONITOR:
+    // Continue mode: resume from cursor (or 0 if unset)
+    if (state->vm.cursor != VM_CURSOR_UNSET) {
+        *lo = clamp64(state->vm.cursor, 0, size);
+    } else {
         *lo = 0;
-        break;
-    case LOOP_MODE_FOLLOW:
-        *lo = state->baseline;
-        break;
-    case LOOP_MODE_CONTINUE:
-        if (state->vm.cursor != VM_CURSOR_UNSET) {
-            *lo = clamp64(state->vm.cursor, 0, size);
-        } else {
-            *lo = 0;
-        }
-        break;
-    default:
-        *lo = 0;
-        break;
     }
     if (*lo > *hi) {
         *lo = *hi; // truncation safety
-    }
-    if (out_size_changed) {
-        *out_size_changed = size_changed;
     }
 }
 
@@ -317,21 +291,13 @@ static bool loop_should_wait_or_stop(LoopState* state, bool no_new_data, int* ou
 
 static void loop_commit(LoopState* state, i64 data_hi, IterResult result, bool ignore_fail)
 {
+    (void)data_hi; // unused in continue-only mode
     state->last_result = result;
 
     switch (result.status) {
     case ITER_OK:
-        // success: mark activity and bump baselines
+        // success: mark activity
         state->last_activity_ms = now_millis();
-        if (state->mode == LOOP_MODE_CONTINUE) {
-            if (state->vm.cursor != VM_CURSOR_UNSET) {
-                // baseline becomes new cursor for next pass
-                state->baseline = clamp64(state->vm.cursor, 0, data_hi);
-            }
-        } else if (state->mode == LOOP_MODE_FOLLOW) {
-            state->baseline = data_hi; // tail at EOF
-        } else { /* MONITOR: stays 0 */
-        }
         state->exit_code = FISKTA_EXIT_OK;
         break;
     case ITER_PROGRAM_FAIL:
@@ -1047,7 +1013,7 @@ int runtime_execute(const Program* prog,
 
     /*****************************************************
      * PHASE 7: EXECUTE PROGRAM
-     * Run operations with optional looping for streaming
+     * Run operations with optional continue loop
      *****************************************************/
     LoopState loop_state;
     loop_init(&loop_state, config);
@@ -1063,18 +1029,10 @@ int runtime_execute(const Program* prog,
 
         i64 lo;
         i64 hi;
-        bool size_changed = false;
-        loop_compute_window(&loop_state, &io, &lo, &hi, &size_changed);
+        loop_compute_window(&loop_state, &io, &lo, &hi, NULL);
 
-        // Detect idle condition (mode-dependent)
-        bool no_new_data = false;
-        if (loop_state.mode == LOOP_MODE_MONITOR) {
-            // MONITOR: re-scans entire file, so idle = file unchanged
-            no_new_data = !size_changed;
-        } else {
-            // FOLLOW/CONTINUE: scan window [lo, hi), so idle = empty window
-            no_new_data = (lo >= hi);
-        }
+        // Detect idle condition: empty window [lo, hi)
+        bool no_new_data = (lo >= hi);
 
         // Handle idle timeout if enabled and no new data
         if (loop_state.enabled && no_new_data) {
@@ -1094,9 +1052,8 @@ int runtime_execute(const Program* prog,
             }
         }
 
-        // CONTINUE passes saved VM; other modes run with ephemeral VM
-        VM* vm_ptr = (loop_state.mode == LOOP_MODE_CONTINUE) ? &loop_state.vm : NULL;
-        IterResult iteration = execute_program_iteration(prog, &io, vm_ptr,
+        // Continue mode: pass saved VM to preserve cursor and labels
+        IterResult iteration = execute_program_iteration(prog, &io, &loop_state.vm,
             scratch->clause_ranges, scratch->clause_labels,
             scratch->clause_inline, scratch->sum_inline_lits,
             lo, hi);
@@ -1108,17 +1065,15 @@ int runtime_execute(const Program* prog,
             break;
         }
 
-        // Throttle non-FOLLOW modes between passes; FOLLOW sleeps only when there's no new data.
-        if (loop_state.mode != LOOP_MODE_FOLLOW) {
-            if (loop_state.loop_ms > 0) {
-                sleep_msec(loop_state.loop_ms);
-            }
-            // still honor --for (exec timeout)
-            reason = 0;
-            (void)loop_should_wait_or_stop(&loop_state, /*no_new_data=*/false, &reason); // only checks exec timeout here
-            if ((loop_state.exit_reason = reason) != 0) {
-                break;
-            }
+        // Throttle between iterations
+        if (loop_state.loop_ms > 0) {
+            sleep_msec(loop_state.loop_ms);
+        }
+        // Honor --for (exec timeout)
+        reason = 0;
+        (void)loop_should_wait_or_stop(&loop_state, /*no_new_data=*/false, &reason);
+        if ((loop_state.exit_reason = reason) != 0) {
+            break;
         }
     }
 

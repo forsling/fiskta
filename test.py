@@ -2657,13 +2657,13 @@ def tests():
              expect=dict(stdout="abcdefghij", exit=0)),  # consumes all data before idle
 
         dict(id="loop-010-follow-idle-empty",
-             tokens=["take","0b"], input_file="empty.txt",
-             extra_args=["--follow","-u","0"],
+             tokens=["take","0b","THEN","skip","to","EOF"], input_file="empty.txt",
+             extra_args=["-u","0"],
              expect=dict(stdout="", exit=0)),
 
-        dict(id="loop-011-ignore-failures-monitor",
-             tokens=["find","MISSING"], input_file="empty.txt",
-             extra_args=["--monitor","--until-idle","0","--ignore-failures"],
+        dict(id="loop-011-ignore-failures-rescan-emulation",
+             tokens=["clear","view","THEN","skip","to","BOF","THEN","find","MISSING","THEN","skip","to","EOF"], input_file="empty.txt",
+             extra_args=["--until-idle","0","--ignore-failures"],
              expect=dict(stdout="", exit=0)),
 
         dict(id="loop-012-naked-every-continue",
@@ -2681,23 +2681,23 @@ def tests():
              extra_args=["--for","0"],
              expect=dict(stdout="", exit=2)),
 
-        dict(id="loop-015-monitor-until-idle",
-             tokens=["take","+1b"], input_file="overlap.txt",
-             extra_args=["--monitor","--every","1ms","-u","2ms"],
+        dict(id="loop-015-rescan-emulation-until-idle",
+             tokens=["clear","view","THEN","skip","to","BOF","THEN","take","+1b","THEN","skip","to","EOF"], input_file="overlap.txt",
+             extra_args=["--every","1ms","-u","2ms"],
              expect=dict(stdout="a", exit=0)),
 
         # ---------- Slow iterative mode tests ----------
-        # FOLLOW mode: processes existing data first
+        # Follow emulation: processes existing data first (using THEN skip to EOF)
         dict(id="loop-slow-follow-001-existing-data",
-             tokens=["take","1l"], input_file="small.txt",
-             extra_args=["--follow","-u","50ms"],
+             tokens=["take","1l","THEN","skip","to","EOF"], input_file="small.txt",
+             extra_args=["-u","50ms"],
              expect=dict(stdout="Header\n", exit=0),
              slow=True),
 
-        # FOLLOW mode: with --every and multiple iterations before idle
+        # Follow emulation: with --every and multiple iterations before idle
         dict(id="loop-slow-follow-002-throttled",
-             tokens=["take","+1b"], input_file="overlap.txt",
-             extra_args=["--follow","--every","20ms","-u","100ms"],
+             tokens=["take","+1b","THEN","skip","to","EOF"], input_file="overlap.txt",
+             extra_args=["--every","20ms","-u","100ms"],
              expect=dict(stdout="a", exit=0),
              slow=True),
 
@@ -2715,24 +2715,24 @@ def tests():
              expect=dict(stdout="abcdefghij", exit=0),
              slow=True),
 
-        # MONITOR mode: re-scans file multiple times
-        dict(id="loop-slow-monitor-001-rescan",
-             tokens=["take","+1b"], input_file="overlap.txt",
-             extra_args=["--monitor","--every","20ms","-u","100ms"],
+        # Rescan emulation: re-scans file multiple times (monitor recipe)
+        dict(id="loop-slow-rescan-001-throttled",
+             tokens=["clear","view","THEN","skip","to","BOF","THEN","take","+1b","THEN","skip","to","EOF"], input_file="overlap.txt",
+             extra_args=["--every","20ms","-u","100ms"],
              expect=dict(stdout="a", exit=0),
              slow=True),
 
-        # MONITOR mode: with --for timeout (exec timeout wins)
-        dict(id="loop-slow-monitor-002-for-timeout",
-             tokens=["take","+1b"], input_file="overlap.txt",
-             extra_args=["--monitor","--every","10ms","--for","80ms"],
+        # Rescan emulation: with --for timeout producing multiple outputs (monitor recipe)
+        dict(id="loop-slow-rescan-002-for-timeout",
+             tokens=["clear","view","THEN","skip","to","BOF","THEN","take","+1b","THEN","skip","to","EOF"], input_file="overlap.txt",
+             extra_args=["--every","10ms","--for","80ms"],
              expect=dict(stdout="aaaaaaaa", exit=2),  # ~8 iterations (80ms / 10ms)
              slow=True),
 
-        # Idle timeout: -u 0 with FOLLOW exits immediately on idle
+        # Idle timeout: -u 0 with follow emulation exits immediately on idle
         dict(id="loop-slow-idle-001-u0-follow",
-             tokens=["take","+3b"], input_file="overlap.txt",
-             extra_args=["--follow","-u","0"],
+             tokens=["take","+3b","THEN","skip","to","EOF"], input_file="overlap.txt",
+             extra_args=["-u","0"],
              expect=dict(stdout="abc", exit=0),
              slow=True),
 
@@ -2743,10 +2743,10 @@ def tests():
              expect=dict(stdout="abcdefghij", exit=0),
              slow=True),
 
-        # Idle timeout: MONITOR with -u 0 exits after one scan if unchanged
-        dict(id="loop-slow-idle-003-monitor-u0",
-             tokens=["take","+2b"], input_file="overlap.txt",
-             extra_args=["--monitor","--every","10ms","-u","0"],
+        # Idle timeout: Rescan emulation with -u 0 exits after one scan if unchanged
+        dict(id="loop-slow-idle-003-rescan-u0",
+             tokens=["clear","view","THEN","skip","to","BOF","THEN","take","+2b","THEN","skip","to","EOF"], input_file="overlap.txt",
+             extra_args=["--every","10ms","-u","0"],
              expect=dict(stdout="ab", exit=0),
              slow=True),
 
@@ -2757,17 +2757,17 @@ def tests():
              expect=dict(stdout="abcde", exit=2),  # ~5 iterations (50ms / 10ms)
              slow=True),
 
-        # MONITOR with ignore-failures: keeps running despite failures
-        dict(id="loop-slow-monitor-003-ignore-failures",
-             tokens=["find","NOTHERE"], input_file="overlap.txt",
-             extra_args=["--monitor","--every","20ms","-u","80ms","--ignore-failures"],
+        # Rescan emulation with ignore-failures: keeps running despite failures (monitor recipe)
+        dict(id="loop-slow-rescan-003-ignore-failures",
+             tokens=["clear","view","THEN","skip","to","BOF","THEN","find","NOTHERE","THEN","skip","to","EOF"], input_file="overlap.txt",
+             extra_args=["--every","20ms","-u","80ms","--ignore-failures"],
              expect=dict(stdout="", exit=0),
              slow=True),
 
-        # FOLLOW mode: exits cleanly with no data
+        # Follow emulation: exits cleanly with no data
         dict(id="loop-slow-follow-003-empty-file",
-             tokens=["take","+1b"], input_file="empty.txt",
-             extra_args=["--follow","-u","50ms"],
+             tokens=["take","+1b","THEN","skip","to","EOF"], input_file="empty.txt",
+             extra_args=["-u","50ms"],
              expect=dict(stdout="", exit=0),
              slow=True),
 
