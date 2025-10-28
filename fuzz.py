@@ -257,7 +257,7 @@ def gen_random_regex() -> str:
 
     def atom():
         """Generate regex atom (character, class, or group)"""
-        choice = random.randint(1, 20)
+        choice = random.randint(1, 21)
         if choice == 1:
             return random.choice(['a', 'b', 'x', '1', '0', ' ', '\n'])
         elif choice == 2:
@@ -283,7 +283,7 @@ def gen_random_regex() -> str:
                                   '\\(', '\\)', '\\{', '\\}', '\\|', '\\^', '\\$'])
         elif choice <= 14:
             # Character class [...]
-            class_type = random.randint(1, 4)
+            class_type = random.randint(1, 8)
             if class_type == 1:
                 return f"[{random.choice(['a-z', '0-9', 'A-Z', 'a-zA-Z'])}]"
             elif class_type == 2:
@@ -292,35 +292,58 @@ def gen_random_regex() -> str:
             elif class_type == 3:
                 chars = ''.join(random.sample('abcxyz0123', random.randint(2, 5)))
                 return f"[{chars}]"
-            else:
+            elif class_type == 4:
                 return "[\\d\\w]"
+            elif class_type == 5:
+                # Multiple ranges
+                return random.choice(['[a-zA-Z]', '[0-9a-f]', '[a-zA-Z0-9]', '[A-Za-z0-9_]'])
+            elif class_type == 6:
+                # Escaped classes within brackets
+                return random.choice(['[\\d\\w]', '[\\s\\S]', '[^\\d]', '[^\\w\\s]', '[\\D\\W]'])
+            elif class_type == 7:
+                # Edge cases with special characters
+                return random.choice(['[]]', '[-]', '[^]]', '[--/]', '[a-]', '[-z]'])
+            else:
+                # Mixed literals and escapes
+                return random.choice(['[a-z\\d]', '[A-Z_\\w]', '[0-9\\s]', '[^a-z\\d]'])
         elif choice <= 16:
             # Anchors (sometimes as atoms in sequences)
             return random.choice(['^', '$'])
+        elif choice == 17:
+            # CRLF sequences for anchor testing
+            return random.choice(['\\r', '\\r\\n', '\\n\\r'])
         else:
             # Empty or single char
             return random.choice(['', 'a', 'x'])
 
     def quantifier():
-        """Generate quantifier"""
+        """Generate quantifier (greedy or lazy)"""
         q_type = random.randint(1, 11)
+        base_q = ''
+
         if q_type <= 3:
-            return random.choice(['*', '+', '?'])
+            base_q = random.choice(['*', '+', '?'])
         elif q_type <= 5:
             # Exact count {n}
             n = random.choice([0, 1, 2, 3, 5, 10, 20, 50, 99])
-            return f"{{{n}}}"
+            base_q = f"{{{n}}}"
         elif q_type <= 7:
             # Safe quantifiers within limits {n,m}
             min_val = random.randint(0, 20)
             max_val = min_val + random.randint(1, 30)
-            return f"{{{min_val},{max_val}}}"
+            base_q = f"{{{min_val},{max_val}}}"
         elif q_type <= 9:
             # Edge case quantifiers near limits
-            return random.choice(['{0,100}', '{99,100}', '{50,100}', '{0,1}', '{1,2}', '{100}'])
+            base_q = random.choice(['{0,100}', '{99,100}', '{50,100}', '{0,1}', '{1,2}', '{100}'])
         else:
             # Extreme quantifiers (may cause resource exhaustion)
-            return random.choice(['{0,999999}', '{999,}', '{40,80}', '{70,99}'])
+            base_q = random.choice(['{0,999999}', '{999,}', '{40,80}', '{70,99}'])
+
+        # 40% chance to make it lazy (non-greedy)
+        if base_q and random.random() < 0.4:
+            base_q += '?'
+
+        return base_q
 
     def term(depth=0):
         """Generate regex term (atom + optional quantifier)"""
@@ -387,23 +410,33 @@ def gen_random_regex() -> str:
 
     else:  # pathological
         # Patterns designed to trigger edge cases
-        pattern_type = random.randint(1, 10)
+        pattern_type = random.randint(1, 12)
         if pattern_type <= 2:
-            # Nested quantifiers: ((a+)+)+
+            # Nested quantifiers: ((a+)+)+ (greedy or lazy via quantifier())
             base = atom()
             for _ in range(random.randint(2, 4)):
                 base = f"({base}{quantifier()})"
             return base
-        elif pattern_type <= 4:
+        elif pattern_type <= 3:
+            # Explicitly lazy nested: ((a*?)+?)*?
+            base = atom()
+            lazy_qs = ['*?', '+?', '??', '{2,5}?', '{1,10}?']
+            for _ in range(random.randint(2, 3)):
+                base = f"({base}{random.choice(lazy_qs)})"
+            return base
+        elif pattern_type <= 5:
             # Many alternations near limit
             num = random.randint(200, 256)
             return '|'.join(atom() for _ in range(num))
-        elif pattern_type <= 6:
-            # Empty patterns
-            return random.choice(['()*', '(|a)*', '(a|)*', '()*?', '()+', '()'])
-        elif pattern_type <= 8:
-            # Extreme quantifiers
+        elif pattern_type <= 7:
+            # Empty patterns (mix of greedy and lazy)
+            return random.choice(['()*', '(|a)*', '(a|)*', '()*?', '()+', '()+?', '()', '(|)*?'])
+        elif pattern_type <= 9:
+            # Extreme quantifiers (greedy)
             return atom() + random.choice(['{0,999999}', '{999,}', '{100,}'])
+        elif pattern_type == 10:
+            # Extreme lazy quantifiers
+            return atom() + random.choice(['{0,999999}?', '{999,}?', '{100,}?', '{50,}?'])
         else:
             # Mixed: group with alternation and quantifier
             alts = '|'.join(atom() for _ in range(random.randint(5, 20)))
