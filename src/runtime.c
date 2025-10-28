@@ -150,14 +150,16 @@ static void print_err(enum Err e, const char* msg)
     fputc('\n', stderr);
 }
 
-static size_t align_or_die(size_t x, size_t align)
+// Align a size value, returning non-zero on failure without exiting.
+static int align_or_fail(size_t x, size_t align, size_t* out)
 {
     size_t aligned = safe_align(x, align);
     if (aligned == SIZE_MAX) {
         print_err(E_OOM, "arena alignment overflow");
-        exit(FISKTA_EXIT_RESOURCE);
+        return -1;
     }
-    return aligned;
+    *out = aligned;
+    return 0;
 }
 
 // =============================================================================
@@ -535,13 +537,16 @@ int program_requirements(i32 token_count, const String* tokens,
     /************************************************************
      * PHASE 3: COMPUTE TOTAL ARENA SIZE WITH ALIGNMENT
      *************************************************************/
-    size_t search_buf_size = align_or_die(search_buf_cap, alignof(unsigned char));
-    size_t clauses_size = align_or_die(clauses_bytes, alignof(Clause));
-    size_t ops_size = align_or_die(ops_bytes, alignof(Op));
-    size_t re_prog_size = align_or_die(re_prog_bytes, alignof(ReProg));
-    size_t re_ins_size = align_or_die(re_ins_bytes, alignof(ReInst));
-    size_t re_cls_size = align_or_die(re_cls_bytes, alignof(ReClass));
-    size_t str_pool_size = align_or_die(str_pool_bytes, alignof(char));
+    size_t search_buf_size, clauses_size, ops_size, re_prog_size, re_ins_size, re_cls_size, str_pool_size;
+    if (align_or_fail(search_buf_cap, alignof(unsigned char), &search_buf_size) != 0
+        || align_or_fail(clauses_bytes, alignof(Clause), &clauses_size) != 0
+        || align_or_fail(ops_bytes, alignof(Op), &ops_size) != 0
+        || align_or_fail(re_prog_bytes, alignof(ReProg), &re_prog_size) != 0
+        || align_or_fail(re_ins_bytes, alignof(ReInst), &re_ins_size) != 0
+        || align_or_fail(re_cls_bytes, alignof(ReClass), &re_cls_size) != 0
+        || align_or_fail(str_pool_bytes, alignof(char), &str_pool_size) != 0) {
+        return FISKTA_EXIT_RESOURCE;
+    }
 
     // Two thread buffers + two seen arrays (using fixed policy budgets)
     const size_t re_threads_bytes = out->regex_thread_cap_max * sizeof(ReThread);
@@ -550,12 +555,29 @@ int program_requirements(i32 token_count, const String* tokens,
         print_err(E_OOM, "regex 'seen' size overflow");
         return FISKTA_EXIT_RESOURCE;
     }
-    size_t re_thrbufs_size = align_or_die(re_threads_bytes, alignof(ReThread)) * 2;
+    size_t re_thrbufs_aligned;
+    if (align_or_fail(re_threads_bytes, alignof(ReThread), &re_thrbufs_aligned) != 0) {
+        return FISKTA_EXIT_RESOURCE;
+    }
+    size_t re_thrbufs_size = re_thrbufs_aligned * 2;
 
     // Staging buffers (already computed above, but need alignment)
-    size_t ranges_size = (plan.sum_take_ops > 0) ? align_or_die(ranges_bytes, alignof(Range)) : 0;
-    size_t labels_size = (plan.sum_label_ops > 0) ? align_or_die(labels_bytes, alignof(LabelWrite)) : 0;
-    size_t inline_size = (plan.sum_inline_lits > 0) ? align_or_die(inline_bytes, alignof(char)) : 0;
+    size_t ranges_size = 0, labels_size = 0, inline_size = 0;
+    if (plan.sum_take_ops > 0) {
+        if (align_or_fail(ranges_bytes, alignof(Range), &ranges_size) != 0) {
+            return FISKTA_EXIT_RESOURCE;
+        }
+    }
+    if (plan.sum_label_ops > 0) {
+        if (align_or_fail(labels_bytes, alignof(LabelWrite), &labels_size) != 0) {
+            return FISKTA_EXIT_RESOURCE;
+        }
+    }
+    if (plan.sum_inline_lits > 0) {
+        if (align_or_fail(inline_bytes, alignof(char), &inline_size) != 0) {
+            return FISKTA_EXIT_RESOURCE;
+        }
+    }
 
     // Sum everything with overflow checking
     size_t total = search_buf_size;
@@ -623,24 +645,44 @@ int build_program(i32 token_count, const String* tokens,
      * PHASE 3: ARENA ALLOCATION
      * Allocate single memory block and compute aligned offsets
      ************************************************************/
-    size_t search_buf_size = align_or_die(search_buf_cap, alignof(unsigned char));
-    size_t clauses_size = align_or_die(clauses_bytes, alignof(Clause));
-    size_t ops_size = align_or_die(ops_bytes, alignof(Op));
-    size_t re_prog_size = align_or_die(re_prog_bytes, alignof(ReProg));
-    size_t re_ins_size = align_or_die(re_ins_bytes, alignof(ReInst));
-    size_t re_cls_size = align_or_die(re_cls_bytes, alignof(ReClass));
-    size_t str_pool_size = align_or_die(str_pool_bytes, alignof(char));
+    size_t search_buf_size, clauses_size, ops_size, re_prog_size, re_ins_size, re_cls_size, str_pool_size;
+    if (align_or_fail(search_buf_cap, alignof(unsigned char), &search_buf_size) != 0
+        || align_or_fail(clauses_bytes, alignof(Clause), &clauses_size) != 0
+        || align_or_fail(ops_bytes, alignof(Op), &ops_size) != 0
+        || align_or_fail(re_prog_bytes, alignof(ReProg), &re_prog_size) != 0
+        || align_or_fail(re_ins_bytes, alignof(ReInst), &re_ins_size) != 0
+        || align_or_fail(re_cls_bytes, alignof(ReClass), &re_cls_size) != 0
+        || align_or_fail(str_pool_bytes, alignof(char), &str_pool_size) != 0) {
+        return FISKTA_EXIT_RESOURCE;
+    }
     // Two thread buffers + two seen arrays (fixed budgets)
     size_t re_seen_size;
     if (add_overflow(re_seen_bytes_each, re_seen_bytes_each, &re_seen_size)) {
         print_err(E_OOM, "regex 'seen' size overflow");
         return FISKTA_EXIT_RESOURCE;
     }
-    size_t re_thrbufs_size = align_or_die(re_threads_bytes, alignof(ReThread)) * 2;
+    size_t re_thrbufs_aligned;
+    if (align_or_fail(re_threads_bytes, alignof(ReThread), &re_thrbufs_aligned) != 0) {
+        return FISKTA_EXIT_RESOURCE;
+    }
+    size_t re_thrbufs_size = re_thrbufs_aligned * 2;
 
-    size_t ranges_bytes = (plan.sum_take_ops > 0) ? align_or_die((size_t)plan.sum_take_ops * sizeof(Range), alignof(Range)) : 0;
-    size_t labels_bytes = (plan.sum_label_ops > 0) ? align_or_die((size_t)plan.sum_label_ops * sizeof(LabelWrite), alignof(LabelWrite)) : 0;
-    size_t inline_bytes = (plan.sum_inline_lits > 0) ? align_or_die((size_t)plan.sum_inline_lits * INLINE_LIT_CAP, alignof(char)) : 0;
+    size_t ranges_bytes = 0, labels_bytes = 0, inline_bytes = 0;
+    if (plan.sum_take_ops > 0) {
+        if (align_or_fail((size_t)plan.sum_take_ops * sizeof(Range), alignof(Range), &ranges_bytes) != 0) {
+            return FISKTA_EXIT_RESOURCE;
+        }
+    }
+    if (plan.sum_label_ops > 0) {
+        if (align_or_fail((size_t)plan.sum_label_ops * sizeof(LabelWrite), alignof(LabelWrite), &labels_bytes) != 0) {
+            return FISKTA_EXIT_RESOURCE;
+        }
+    }
+    if (plan.sum_inline_lits > 0) {
+        if (align_or_fail((size_t)plan.sum_inline_lits * INLINE_LIT_CAP, alignof(char), &inline_bytes) != 0) {
+            return FISKTA_EXIT_RESOURCE;
+        }
+    }
 
     size_t total = search_buf_size;
     if (add_overflow(total, clauses_size, &total) || add_overflow(total, ops_size, &total) || add_overflow(total, re_prog_size, &total) || add_overflow(total, re_ins_size, &total) || add_overflow(total, re_cls_size, &total) || add_overflow(total, str_pool_size, &total) || add_overflow(total, re_thrbufs_size, &total) || add_overflow(total, re_seen_size, &total) || add_overflow(total, ranges_bytes, &total) || add_overflow(total, labels_bytes, &total) || add_overflow(total, inline_bytes, &total) || add_overflow(total, 64, &total)) { // small cushion
