@@ -25,7 +25,6 @@
 typedef struct {
     String* tokens;
     i32 token_count;
-    bool tokens_need_conversion;
 } Operations;
 
 // Forward declarations
@@ -291,7 +290,7 @@ static bool parse_cli_args(int argc, char** argv,
 
 enum {
     MAX_TOKENS = 1024,
-    MAX_NEEDLE_BYTES = 4096
+    MAX_NEEDLE_BYTES = 16384
 };
 
 static int parse_time_option(const char* value, const char* opt_name, i32* out)
@@ -430,7 +429,7 @@ static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, 
 
         out->tokens = tokens_view;
         out->token_count = n;
-        out->tokens_need_conversion = false;
+        /* no-op */
 
     } else if (ops_arg) {
         // Load operations from --ops string
@@ -451,7 +450,7 @@ static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, 
 
         out->tokens = tokens_view;
         out->token_count = n;
-        out->tokens_need_conversion = false;
+        /* no-op */
 
     } else {
         // Load operations from positional arguments
@@ -476,7 +475,7 @@ static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, 
             }
             out->tokens = tokens_view;
             out->token_count = n;
-            out->tokens_need_conversion = false; // Already converted
+            /* no-op */
         } else {
             // Multiple tokens or single token without spaces
             if (token_count > MAX_TOKENS) {
@@ -485,7 +484,6 @@ static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, 
             }
             out->tokens = tokens_view;
             out->token_count = token_count;
-            out->tokens_need_conversion = true;
             convert_tokens_to_strings(tokens, token_count, tokens_view);
         }
     }
