@@ -466,6 +466,7 @@ static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, 
 int main(int argc, char** argv)
 {
 #ifdef _WIN32
+    _setmode(_fileno(stdin),  _O_BINARY);
     _setmode(_fileno(stdout), _O_BINARY);
 #endif
 
