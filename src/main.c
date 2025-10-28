@@ -94,28 +94,10 @@ static bool parse_cli_args(int argc, char** argv,
             argi++;
             continue;
         }
-        if (strcmp(arg, "--every") == 0) {
-            cfg.loop_enabled = true;
-            if (argi + 1 >= argc) {
-                fprintf(stderr, "fiskta: --every requires a time value\n");
-                *exit_code_out = FISKTA_EXIT_USAGE;
-                return false;
-            }
-            if (parse_time_option(argv[argi + 1], "--every", &cfg.loop_ms) != 0) {
-                *exit_code_out = FISKTA_EXIT_USAGE;
-                return false;
-            }
-            argi += 2;
-            continue;
-        }
-        if (strncmp(arg, "--every=", 8) == 0) {
-            cfg.loop_enabled = true;
-            if (parse_time_option(arg + 8, "--every", &cfg.loop_ms) != 0) {
-                *exit_code_out = FISKTA_EXIT_USAGE;
-                return false;
-            }
-            argi++;
-            continue;
+        if (strcmp(arg, "--every") == 0 || strncmp(arg, "--every=", 8) == 0) {
+            fprintf(stderr, "fiskta: --every has been removed. Use '--continue <time>' (or just '--continue' for tight loop).\n");
+            *exit_code_out = FISKTA_EXIT_USAGE;
+            return false;
         }
         if (strcmp(arg, "-u") == 0 || strcmp(arg, "--until-idle") == 0) {
             if (argi + 1 >= argc) {
@@ -178,6 +160,35 @@ static bool parse_cli_args(int argc, char** argv,
         }
         if (strcmp(arg, "-c") == 0 || strcmp(arg, "--continue") == 0) {
             cfg.loop_enabled = true;
+            // Optional time value follows. Only consume if it looks like a time token.
+            if (argi + 1 < argc) {
+                const char* val = argv[argi + 1];
+                // Quick lookahead without emitting parse errors
+                bool ok = false;
+                if (val && *val) {
+                    const unsigned char* p = (const unsigned char*)val;
+                    int base = 0;
+                    while (*p >= '0' && *p <= '9') { base = base * 10 + (int)(*p - '0'); p++; }
+                    if (p != (const unsigned char*)val) {
+                        const char* suf = (const char*)p;
+                        if (*suf == '\0') {
+                            ok = (base == 0);
+                        } else if (strcmp(suf, "ms") == 0 || strcmp(suf, "s") == 0 || strcmp(suf, "m") == 0 || strcmp(suf, "h") == 0) {
+                            ok = true;
+                        }
+                    }
+                }
+                if (ok) {
+                    if (parse_time_option(val, "--continue", &cfg.loop_ms) != 0) {
+                        *exit_code_out = FISKTA_EXIT_USAGE;
+                        return false;
+                    }
+                    argi += 2;
+                    continue;
+                }
+            }
+            // No interval provided: default tight loop
+            cfg.loop_ms = 0;
             argi++;
             continue;
         }

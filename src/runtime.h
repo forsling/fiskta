@@ -11,7 +11,7 @@
 // Responsibilities:
 //   - Memory allocation and arena management
 //   - Regex compilation from parsed patterns
-//   - Continue loop mode (enabled by --continue or --every)
+//   - Continue loop mode (enabled by --continue)
 //   - Timeout handling (--for, --until-idle)
 //   - Output formatting and emission
 //
@@ -252,7 +252,7 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
 //
 // Blocking behavior (per config):
 //   - Continue loop: resumes from saved cursor position each iteration
-//   - Honors --every interval and --for/--until-idle timeouts
+//   - Honors --continue interval and --for/--until-idle timeouts
 //   - Use program clauses for follow/monitor emulation (see README recipes)
 //
 // Returns FISKTA_EXIT_* code:

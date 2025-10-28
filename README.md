@@ -10,7 +10,7 @@ It may be a good fit when grep is insufficient but you don't want to deal with s
 - Regular expressions with character classes, quantifiers, grouping, and anchors
 - Atomic clauses with rollback on failure
 - Views to restrict operations to file regions
-- Continue mode for continuous operation like monitoring streams or changing files
+- Loop mode for continuous operation like monitoring streams or changing files
 - Small footprint: binaries ~60-100 KB, memory use <8 MB (for standard builds)
 - Written with plain C with zero dependencies beyond libc
 
@@ -70,17 +70,17 @@ john@example.com
 
 **Process data in chunks:**
 ```bash
-$ fiskta --input source --continue --every 200ms find:re "^BEGIN" take until:re "\s{4}:"
+$ fiskta --input source --continue 200ms find:re "^BEGIN" take until:re "\s{4}:"
 ```
 
 **Tail log file, stop when no new data appears for 1 minute:**
 ```bash
-$ fiskta --every 1s --ignore-failures --until-idle 1m --input service.log find "ERROR" take to line-end THEN skip to EOF
+$ fiskta --continue 1s --ignore-failures --until-idle 1m --input service.log find "ERROR" take to line-end THEN skip to EOF
 ```
 
 **Monitor changing file content:**
 ```bash
-$ fiskta --input status.txt --every 2s --for 8h clear view THEN skip to BOF THEN find "DISCONNECTED" take -10l THEN skip to EOF
+$ fiskta --input status.txt --continue 2s --for 8h clear view THEN skip to BOF THEN find "DISCONNECTED" take -10l THEN skip to EOF
 ```
 
 ## Overview
@@ -190,8 +190,7 @@ Evaluation is strictly left-to-right (no operator precedence).
 - `--` - Treat remaining args as operations
 
 **Looping:**
-- `-c, --continue` - Enable looping (optional, implied by `--every`)
-- `--every <time>` - Delay between loop iterations (enables looping; `ms`, `s`, `m`, `h`; default `0` for tight loop)
+- `-c, --continue [delay]` - Enable looping; optional delay between iterations (`ms`, `s`, `m`, `h`; default `0` for tight loop)
 - `--for <time>` - Stop after total wall-clock time elapses
 - `-u, --until-idle <time>` - Stop once the input window is empty for the given duration (`0` exits immediately on idle)
 - `-k, --ignore-failures` - Keep looping even if clause pipelines fail (suppresses program-failure exits)
@@ -207,7 +206,7 @@ fiskta find "ERROR" take to line-end < log.txt
 fiskta --ops 'find "ERROR" take to line-end' --input log.txt
 
 # Tail/follow behavior with 1s cadence (append THEN skip to EOF)
-fiskta --every 1s --until-idle 0 --input service.log find "ERROR" take to line-end THEN skip to EOF
+fiskta --continue 1s --until-idle 0 --input service.log find "ERROR" take to line-end THEN skip to EOF
 ```
 
 ## Installation
@@ -479,14 +478,13 @@ fiskta can loop over your operations as files grow or change. Loop mode resumes 
 
 ### Loop Options
 
-- `--continue` / `-c` — Enable looping (optional, implied by `--every`)
-- `--every <time>` — Wait between iterations (enables looping; `ms`, `s`, `m`, `h`; default `0` for tight loop)
+- `--continue [delay]` — Enable looping; optional delay between iterations (`ms`, `s`, `m`, `h`; default `0` for tight loop)
 - `--for <time>` — Stop after total run time hits limit (works for single execution too)
 - `-u` / `--until-idle <time>` — Stop once the input window is empty for the given period (`0` exits immediately on idle)
 - `-k` / `--ignore-failures` — Keep looping even if clauses fail (suppresses program-failure exit)
 
 ```bash
-fiskta --every 200ms --input metrics.log \
+fiskta --continue 200ms --input metrics.log \
     find "latency=" take until " " print "\n"
 ```
 
@@ -495,7 +493,7 @@ fiskta --every 200ms --input metrics.log \
 To process only new data appended since the previous iteration (like tailing logs), append `THEN skip to EOF` to your program:
 
 ```bash
-fiskta --every 1s --until-idle 0 --input service.log \
+fiskta --continue 1s --until-idle 0 --input service.log \
     find "WARNING:" take to line-end THEN skip to EOF
 ```
 
@@ -504,7 +502,7 @@ fiskta --every 1s --until-idle 0 --input service.log \
 To re-scan the entire file each iteration (for files that mutate instead of only growing), prefix `clear view THEN skip to BOF` and append `THEN skip to EOF`:
 
 ```bash
-fiskta --every 5m --input status.txt \
+fiskta --continue 5m --input status.txt \
     clear view THEN skip to BOF THEN find "STATE=READY" take to line-end THEN skip to EOF
 ```
 

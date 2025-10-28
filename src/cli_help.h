@@ -121,12 +121,9 @@ static inline void print_usage(void)
     printf("  -v, --version               Show version information\n");
     printf("\n");
     printf("LOOPING (CONTINUE MODE):\n");
-    printf("      --continue, -c           Enable looping (optional, implied by --every)\n");
-    printf("      --every <time>           Interval between iterations (enables looping)\n");
+    printf("      --continue [delay]       Enable looping; optional delay between iterations (ms|s|m|h). Default: 0 (tight loop)\n");
     printf("      -u, --until-idle <time>  Stop when input window is empty for specified duration\n");
     printf("\n");
     printf("  Continue loop resumes from saved cursor position each iteration.\n");
-    printf("  Emulate follow mode: append 'THEN skip to EOF' to your program\n");
-    printf("  Emulate monitor mode: prefix 'clear view THEN skip to BOF' and append 'THEN skip to EOF'\n");
     printf("\n");
 }
