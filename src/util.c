@@ -82,6 +82,17 @@ int add_overflow(size_t a, size_t b, size_t* out)
     return 0;
 }
 
+int mul_overflow(size_t a, size_t b, size_t* out)
+{
+    if (b != 0 && a > SIZE_MAX / b) {
+        return 1;
+    }
+    if (out) {
+        *out = a * b;
+    }
+    return 0;
+}
+
 void sleep_msec(int msec)
 {
     if (msec <= 0) {

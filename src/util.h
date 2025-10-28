@@ -17,6 +17,7 @@ void arena_init(Arena* a, void* mem, size_t cap);
 void* arena_alloc(Arena* a, size_t n, size_t align);
 size_t safe_align(size_t x, size_t align);
 int add_overflow(size_t a, size_t b, size_t* out);
+int mul_overflow(size_t a, size_t b, size_t* out);
 void sleep_msec(int msec);
 
 // Clamp value to range [lo, hi]

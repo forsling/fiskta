@@ -555,11 +555,15 @@ int program_requirements(i32 token_count, const String* tokens,
         print_err(E_OOM, "regex 'seen' size overflow");
         return FISKTA_EXIT_RESOURCE;
     }
-    size_t re_thrbufs_aligned;
+    size_t re_thrbufs_aligned = 0;
     if (align_or_fail(re_threads_bytes, alignof(ReThread), &re_thrbufs_aligned) != 0) {
         return FISKTA_EXIT_RESOURCE;
     }
-    size_t re_thrbufs_size = re_thrbufs_aligned * 2;
+    size_t re_thrbufs_size = 0;
+    if (mul_overflow(re_thrbufs_aligned, 2, &re_thrbufs_size)) {
+        print_err(E_OOM, "thread buffer size overflow");
+        return FISKTA_EXIT_RESOURCE;
+    }
 
     // Staging buffers (already computed above, but need alignment)
     size_t ranges_size = 0, labels_size = 0, inline_size = 0;
@@ -645,7 +649,13 @@ int build_program(i32 token_count, const String* tokens,
      * PHASE 3: ARENA ALLOCATION
      * Allocate single memory block and compute aligned offsets
      ************************************************************/
-    size_t search_buf_size, clauses_size, ops_size, re_prog_size, re_ins_size, re_cls_size, str_pool_size;
+    size_t search_buf_size = 0;
+    size_t clauses_size = 0;
+    size_t ops_size = 0;
+    size_t re_prog_size = 0;
+    size_t re_ins_size = 0;
+    size_t re_cls_size = 0;
+    size_t str_pool_size = 0;
     if (align_or_fail(search_buf_cap, alignof(unsigned char), &search_buf_size) != 0
         || align_or_fail(clauses_bytes, alignof(Clause), &clauses_size) != 0
         || align_or_fail(ops_bytes, alignof(Op), &ops_size) != 0
@@ -661,11 +671,15 @@ int build_program(i32 token_count, const String* tokens,
         print_err(E_OOM, "regex 'seen' size overflow");
         return FISKTA_EXIT_RESOURCE;
     }
-    size_t re_thrbufs_aligned;
+    size_t re_thrbufs_aligned = 0;
     if (align_or_fail(re_threads_bytes, alignof(ReThread), &re_thrbufs_aligned) != 0) {
         return FISKTA_EXIT_RESOURCE;
     }
-    size_t re_thrbufs_size = re_thrbufs_aligned * 2;
+    size_t re_thrbufs_size = 0;
+    if (mul_overflow(re_thrbufs_aligned, 2, &re_thrbufs_size)) {
+        print_err(E_OOM, "thread buffer size overflow");
+        return FISKTA_EXIT_RESOURCE;
+    }
 
     size_t ranges_bytes = 0, labels_bytes = 0, inline_bytes = 0;
     if (plan.sum_take_ops > 0) {
