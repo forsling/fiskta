@@ -59,9 +59,8 @@
 /*************************
  * RUNTIME CONFIGURATION *
  *************************/
-// Runtime configuration from CLI
+// Runtime configuration
 typedef struct {
-    const char* input_path;
     i32 loop_ms;
     bool loop_enabled;
     bool ignore_loop_failures;
@@ -107,10 +106,9 @@ typedef struct {
     char* clause_inline;
     i32 sum_inline_lits;
 
-    // Arena for cleanup (owns all memory above)
+    // Arena metadata (caller owns and must free arena_block)
     void* arena_block;
     size_t arena_size;
-    bool arena_owned; // true if we malloc'd it, false if caller provided
 } RuntimeScratch;
 
 // Runtime memory requirements for executing a Program
@@ -183,56 +181,39 @@ int program_requirements(i32 token_count, const String* tokens,
 
 // Build program from tokens (compile-time phase)
 //
-// Parse tokens, perform resource sizing, compile regexes, and allocate
-// all memory needed to execute later.
+// Parse tokens, compile regexes, and build executable program structure.
+// Uses caller-provided arena for all memory allocation.
 //
 // This is the "compile-time" phase: no file I/O, no execution, no loops.
 //
+// Caller must:
+//   1. Call program_requirements() to get req.arena_bytes
+//   2. Allocate arena_block with at least that size (malloc, stack, pool, etc.)
+//   3. Pass it here
+//
 // On success:
-//   - prog_out points into scratch_out->arena_block (read-only view)
+//   - prog_out points into caller's arena_block (read-only view)
 //   - scratch_out is fully initialized (mutable execution state)
 //   - Returns FISKTA_EXIT_OK
 //
 // On failure:
-//   - scratch_out may be partially initialized
-//   - Caller must call runtime_scratch_free(scratch_out) regardless
 //   - Returns FISKTA_EXIT_PARSE, FISKTA_EXIT_CAPACITY, or FISKTA_EXIT_RESOURCE
+//   - arena_block untouched, caller still owns it
 //
 // Memory ownership:
-//   - Program is a read-only view into scratch_out->arena_block
-//   - Freeing RuntimeScratch invalidates Program
-//   - Do not free Program separately
+//   - Caller owns arena_block and must free it after done
+//   - Call runtime_scratch_free() to clean up scratch state (does NOT free arena)
+//   - Program is invalidated when arena is freed
+//
+// Example usage:
+//   RuntimeRequirements req;
+//   program_requirements(tokens, &req);
+//   void* arena = malloc(req.arena_bytes);
+//   build_program(tokens, &prog, arena, req.arena_bytes, &scratch);
+//   runtime_execute(&prog, file, &scratch, &config);
+//   runtime_scratch_free(&scratch);
+//   free(arena);
 int build_program(i32 token_count, const String* tokens,
-    Program* prog_out,
-    RuntimeScratch* scratch_out);
-
-// Build program using caller-provided pre-allocated arena (zero-malloc variant)
-//
-// Enables zero-malloc execution for embedded/realtime systems.
-//
-// Caller must:
-//   1. Call program_requirements() to get req.arena_bytes
-//   2. Allocate arena_block with at least that size
-//   3. Pass it here
-//
-// On success:
-//   - prog_out points into caller's arena_block
-//   - scratch_out->arena_block = arena_block (NOT owned by us)
-//   - scratch_out->arena_owned = false
-//   - Returns FISKTA_EXIT_OK
-//
-// On failure:
-//   - Returns error code, arena_block untouched
-//   - Caller still owns arena_block
-//
-// Memory layout inside arena_block is currently opaque (may change).
-// Treat it as a black box until you're done executing.
-//
-// Cleanup:
-//   - Call runtime_scratch_free() as usual
-//   - It will NOT free arena_block (because arena_owned=false)
-//   - Caller must free arena_block separately
-int build_program_with_scratch(i32 token_count, const String* tokens,
     Program* prog_out,
     void* arena_block, size_t arena_size,
     RuntimeScratch* scratch_out);
@@ -267,48 +248,3 @@ int runtime_execute(const Program* prog,
 
 // Free RuntimeScratch resources
 void runtime_scratch_free(RuntimeScratch* s);
-
-/****************************
- * ONE-SHOT CONVENIENCE API *
- ****************************/
-// Single-call wrapper: build + execute + cleanup
-//
-// Convenience one-shot for CLI: build + execute + cleanup.
-//
-// This is the legacy/simple path that most tests and CLI usage goes through.
-// Equivalent to:
-//   build_program(tokens) -> runtime_execute() -> cleanup
-//
-// For library embedding or testing, prefer calling build_program() and
-// runtime_execute() separately.
-//
-// Main runtime entry point - executes parsed program with given configuration
-//
-// Parameters:
-//   token_count: Number of operation tokens (from parse)
-//   tokens:      Array of operation strings (e.g., "find", "ERROR", "take", "5c")
-//   config:      Runtime settings (file path, loop enabled, timeouts, etc.)
-//
-// Returns: Exit code
-//   FISKTA_EXIT_OK (0)            - Program completed successfully
-//   FISKTA_EXIT_PROGRAM_FAIL (1)  - Program failed (clause failed, no match, etc.)
-//   FISKTA_EXIT_TIMEOUT (2)       - Timeout reached (--for or --until-idle)
-//   FISKTA_EXIT_USAGE (7)         - CLI misuse (unknown flags, missing values)
-//   FISKTA_EXIT_PARSE (8)         - Parse error (program grammar, regex syntax)
-//   FISKTA_EXIT_CAPACITY (9)      - Policy limit exceeded (input too complex)
-//   FISKTA_EXIT_IO (10)           - File I/O error
-//   FISKTA_EXIT_RESOURCE (11)     - System resource exhaustion (malloc failed, OOM)
-//
-// Execution phases:
-//   1. Parse preflight (estimate memory requirements)
-//   2. Allocate arena (single malloc for all data structures)
-//   3. Parse build (construct Program from tokens)
-//   4. Compile regexes (all patterns compiled upfront)
-//   5. Open file
-//   6. Execute program (possibly in continue loop)
-//
-// Memory allocation:
-//   - Single arena allocated based on preflight estimates
-//   - No allocations during execution
-//   - Memory usage independent of input file size
-int run_program(i32 token_count, const String* tokens, const RuntimeConfig* config);

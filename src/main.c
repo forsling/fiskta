@@ -34,23 +34,24 @@ static int parse_until_idle_option(const char* value, i32* out);
 
 static bool parse_cli_args(int argc, char** argv,
     RuntimeConfig* config_out,
+    const char** input_path_out,
     const char** ops_arg_out,
     const char** ops_file_out,
     int* ops_index,
     int* exit_code_out)
 {
-    if (!config_out || !ops_arg_out || !ops_file_out || !ops_index || !exit_code_out) {
+    if (!config_out || !input_path_out || !ops_arg_out || !ops_file_out || !ops_index || !exit_code_out) {
         return false;
     }
 
     RuntimeConfig cfg = {
-        .input_path = "-",
         .loop_ms = 0,
         .loop_enabled = false,
         .ignore_loop_failures = false,
         .idle_timeout_ms = -1,
         .exec_timeout_ms = -1
     };
+    const char* input_path = "-";
     const char* ops_arg = NULL;
     const char* ops_file = NULL;
 
@@ -79,7 +80,7 @@ static bool parse_cli_args(int argc, char** argv,
                 *exit_code_out = FISKTA_EXIT_USAGE;
                 return false;
             }
-            cfg.input_path = argv[argi + 1];
+            input_path = argv[argi + 1];
             argi += 2;
             continue;
         }
@@ -89,7 +90,7 @@ static bool parse_cli_args(int argc, char** argv,
                 *exit_code_out = FISKTA_EXIT_USAGE;
                 return false;
             }
-            cfg.input_path = arg + 8;
+            input_path = arg + 8;
             argi++;
             continue;
         }
@@ -285,6 +286,7 @@ static bool parse_cli_args(int argc, char** argv,
     }
 
     *config_out = cfg;
+    *input_path_out = input_path;
     *ops_arg_out = ops_arg;
     *ops_file_out = ops_file;
     *ops_index = argi;
@@ -506,11 +508,12 @@ int main(int argc, char** argv)
      * CLI ARGUMENT PARSING *
      ************************/
     RuntimeConfig config;
+    const char* input_path = NULL;
     const char* ops_arg = NULL;
     const char* ops_file = NULL;
     int ops_index = 0;
     int parse_exit = -1;
-    if (!parse_cli_args(argc, argv, &config, &ops_arg, &ops_file, &ops_index, &parse_exit)) {
+    if (!parse_cli_args(argc, argv, &config, &input_path, &ops_arg, &ops_file, &ops_index, &parse_exit)) {
         return (parse_exit >= 0) ? parse_exit : FISKTA_EXIT_OK;
     }
 
@@ -523,5 +526,45 @@ int main(int argc, char** argv)
         return ops_result;
     }
 
-    return run_program(ops.token_count, ops.tokens, &config);
+    /********************************
+     * PROGRAM MEMORY REQUIREMENTS  *
+     ********************************/
+    RuntimeRequirements req;
+    int ret = program_requirements(ops.token_count, ops.tokens, &req);
+    if (ret != FISKTA_EXIT_OK) {
+        return ret;
+    }
+
+    /*********************
+     * ARENA ALLOCATION  *
+     *********************/
+    void* arena = malloc(req.arena_bytes);
+    if (!arena) {
+        fprintf(stderr, "fiskta: failed to allocate %zu bytes\n", req.arena_bytes);
+        return FISKTA_EXIT_RESOURCE;
+    }
+
+    /***************************
+     * BUILD PROGRAM (COMPILE) *
+     ***************************/
+    Program prog;
+    RuntimeScratch scratch;
+    ret = build_program(ops.token_count, ops.tokens, &prog, arena, req.arena_bytes, &scratch);
+    if (ret != FISKTA_EXIT_OK) {
+        free(arena);
+        return ret;
+    }
+
+    /*********************
+     * EXECUTE PROGRAM   *
+     *********************/
+    ret = runtime_execute(&prog, input_path, &scratch, &config);
+
+    /***********
+     * CLEANUP *
+     ***********/
+    runtime_scratch_free(&scratch);
+    free(arena);
+
+    return ret;
 }
