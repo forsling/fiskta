@@ -313,7 +313,7 @@ static int parse_time_option(const char* value, const char* opt_name, i32* out)
     i32 base = 0;
     while (*p >= '0' && *p <= '9') {
         int digit = (int)(*p - '0');
-        if (base > INT_MAX / 10 || (base == INT_MAX / 10 && digit > (INT_MAX % 10))) {
+        if (base > INT32_MAX / 10 || (base == INT32_MAX / 10 && digit > (INT32_MAX % 10))) {
             fprintf(stderr, "fiskta: %s value too large\n", opt_name);
             return 1;
         }
@@ -357,7 +357,7 @@ static int parse_time_option(const char* value, const char* opt_name, i32* out)
         multiplier = 3600000;
     }
 
-    if (base > 0 && base > INT_MAX / multiplier) {
+    if (base > 0 && base > INT32_MAX / multiplier) {
         fprintf(stderr, "fiskta: %s value too large\n", opt_name);
         return 1;
     }
