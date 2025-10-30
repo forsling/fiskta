@@ -578,9 +578,8 @@ void convert_tokens_to_strings(char** tokens, i32 token_count, String* out)
     }
 }
 
-i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens)
+i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens, char* scratch_buf, size_t scratch_cap)
 {
-    static char buf[4096];
     size_t boff = 0;
     i32 ntok = 0;
     i32 token_start = 0;
@@ -601,7 +600,7 @@ i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens)
                 continue;
             }
             if (c == '\'' || c == '"') {
-                if (boff >= sizeof buf - 1) {
+                if (boff >= scratch_cap - 1) {
                     return -1;
                 }
                 token_start = (i32)boff;
@@ -610,7 +609,7 @@ i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens)
                 continue;
             }
             // Start token
-            if (boff >= sizeof buf - 1) {
+            if (boff >= scratch_cap - 1) {
                 return -1;
             }
             token_start = (i32)boff;
@@ -620,7 +619,7 @@ i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens)
         if (st == S_TOKEN) {
             if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
                 // End token
-                out[ntok].bytes = buf + token_start;
+                out[ntok].bytes = scratch_buf + token_start;
                 out[ntok].len = (i32)boff - token_start;
                 ntok++;
                 st = S_WS;
@@ -638,10 +637,10 @@ i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens)
                 continue;
             }
             // Regular character
-            if (boff >= sizeof buf - 1) {
+            if (boff >= scratch_cap - 1) {
                 return -1;
             }
-            buf[boff++] = (char)c;
+            scratch_buf[boff++] = (char)c;
             p++;
             continue;
         }
@@ -651,10 +650,10 @@ i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens)
                 p++;
                 continue;
             }
-            if (boff >= sizeof buf - 1) {
+            if (boff >= scratch_cap - 1) {
                 return -1;
             }
-            buf[boff++] = (char)c;
+            scratch_buf[boff++] = (char)c;
             p++;
             continue;
         }
@@ -667,18 +666,18 @@ i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens)
             if (c == '\\' && p[1]) {
                 unsigned char esc = (unsigned char)p[1];
                 if (esc == '"' || esc == '\\') {
-                    if (boff >= sizeof buf - 1) {
+                    if (boff >= scratch_cap - 1) {
                         return -1;
                     }
-                    buf[boff++] = (char)esc;
+                    scratch_buf[boff++] = (char)esc;
                     p += 2;
                     continue;
                 }
             }
-            if (boff >= sizeof buf - 1) {
+            if (boff >= scratch_cap - 1) {
                 return -1;
             }
-            buf[boff++] = (char)c;
+            scratch_buf[boff++] = (char)c;
             p++;
             continue;
         }
@@ -687,7 +686,7 @@ i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens)
     // Handle final token
     if (st == S_TOKEN || st == S_SQ || st == S_DQ) {
         if (ntok < max_tokens) {
-            out[ntok].bytes = buf + token_start;
+            out[ntok].bytes = scratch_buf + token_start;
             out[ntok].len = (i32)boff - token_start;
             ntok++;
         }

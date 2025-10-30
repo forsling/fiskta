@@ -387,6 +387,7 @@ static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, 
     // Static buffers for operations loading
     static char file_content_buf[MAX_NEEDLE_BYTES];
     static String tokens_view[MAX_TOKENS];
+    static char tokenize_scratch[4096];
 
     if (ops_file) {
         // Load operations from file
@@ -420,7 +421,7 @@ static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, 
             return FISKTA_EXIT_USAGE;
         }
 
-        i32 n = tokenize_ops_string(file_content_buf, tokens_view, MAX_TOKENS);
+        i32 n = tokenize_ops_string(file_content_buf, tokens_view, MAX_TOKENS, tokenize_scratch, sizeof(tokenize_scratch));
         if (n == -1) {
             fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
             return FISKTA_EXIT_CAPACITY;
@@ -441,7 +442,7 @@ static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, 
             return FISKTA_EXIT_USAGE;
         }
 
-        i32 n = tokenize_ops_string(ops_arg, tokens_view, MAX_TOKENS);
+        i32 n = tokenize_ops_string(ops_arg, tokens_view, MAX_TOKENS, tokenize_scratch, sizeof(tokenize_scratch));
         if (n == -1) {
             fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
             return FISKTA_EXIT_CAPACITY;
@@ -467,7 +468,7 @@ static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, 
         char** tokens = argv + ops_index;
         if (token_count == 1 && strchr(tokens[0], ' ')) {
             // Single token with spaces - use optimized tokenizer
-            i32 n = tokenize_ops_string(tokens[0], tokens_view, MAX_TOKENS);
+            i32 n = tokenize_ops_string(tokens[0], tokens_view, MAX_TOKENS, tokenize_scratch, sizeof(tokenize_scratch));
             if (n == -1) {
                 fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
                 return FISKTA_EXIT_CAPACITY;

@@ -55,8 +55,7 @@ void convert_tokens_to_strings(char** tokens, i32 token_count, String* out);
 
 // Tokenize whitespace-separated operations string into String array
 //
-// Uses static internal buffer. Returned Strings point into that buffer and are
-// invalidated by the next call (like strtok). Not thread-safe.
+// Caller provides scratch buffer. Returned Strings point into that buffer.
 //
 // Returns: Number of tokens parsed, or -1 if buffer capacity exceeded
-i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens);
+i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens, char* scratch_buf, size_t scratch_cap);
