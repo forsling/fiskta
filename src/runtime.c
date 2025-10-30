@@ -2,11 +2,11 @@
 #define _GNU_SOURCE
 #endif
 
-#include "runtime.h"
+#include "fiskta.h"
 #include "engine.h"
 #include "error.h"
 #include "fileio.h"
-#include "fiskta.h"
+#include "fiskta_types.h"
 #include "parse.h"
 #include "regex_prog.h"
 #include "util.h"
@@ -184,18 +184,6 @@ static int align_or_fail(size_t x, size_t align, size_t* out)
     }
     *out = aligned;
     return 0;
-}
-
-/*****************************
- * RUNTIMESCRATCH MANAGEMENT *
- *****************************/
-void runtime_scratch_free(RuntimeScratch* s)
-{
-    if (!s) {
-        return;
-    }
-    // Caller owns arena_block and must free it separately
-    memset(s, 0, sizeof(*s));
 }
 
 /********************
@@ -522,7 +510,7 @@ int program_requirements(i32 token_count, const String* tokens,
     const size_t re_ins_bytes = (size_t)plan.re_ins_estimate * sizeof(ReInst);
     const size_t re_cls_bytes = (size_t)plan.re_classes_estimate * sizeof(ReClass);
 
-    // Regex VM scratch: unified budget (actual split computed after compilation)
+    // Regex VM buffers: unified budget (actual split computed after compilation)
     // Report worst-case allocations since we don't know actual pattern sizes yet.
     // Actual thread_cap and seen_bytes will be derived in build_program().
     out->regex_thread_cap_max = (size_t)(FISKTA_REGEX_BUDGET_DEFAULT / (RE_THREAD_BYTES * RE_LISTS));
@@ -614,15 +602,15 @@ int program_requirements(i32 token_count, const String* tokens,
 int build_program(i32 token_count, const String* tokens,
     Program* prog_out,
     void* arena_block, size_t arena_size,
-    RuntimeScratch* scratch_out)
+    RuntimeBuffers* buffers_out)
 {
-    if (!tokens || !prog_out || !scratch_out || !arena_block) {
+    if (!tokens || !prog_out || !buffers_out || !arena_block) {
         return FISKTA_EXIT_PARSE;
     }
 
     // Initialize outputs
     memset(prog_out, 0, sizeof(*prog_out));
-    memset(scratch_out, 0, sizeof(*scratch_out));
+    memset(buffers_out, 0, sizeof(*buffers_out));
 
     // Perform same build logic as build_program(), but use provided arena
     // This is essentially a copy of build_program() with malloc() replaced
@@ -760,22 +748,22 @@ int build_program(i32 token_count, const String* tokens,
     }
     const size_t actual_seen_bytes = max_seen_bytes;
 
-    // Fill RuntimeScratch with buffers from PROVIDED arena
-    scratch_out->search_buf = search_buf;
-    scratch_out->search_buf_cap = search_buf_cap;
-    scratch_out->re_curr = re_curr_thr;
-    scratch_out->re_next = re_next_thr;
-    scratch_out->re_thread_cap = actual_thread_cap;
-    scratch_out->regex_work_budget = REGEX_WORK_BUDGET_DEFAULT;
-    scratch_out->seen_curr = seen_curr;
-    scratch_out->seen_next = seen_next;
-    scratch_out->seen_bytes = actual_seen_bytes;
-    scratch_out->clause_ranges = clause_ranges;
-    scratch_out->clause_labels = clause_labels;
-    scratch_out->clause_inline = clause_inline;
-    scratch_out->sum_inline_lits = plan.sum_inline_lits;
-    scratch_out->arena_block = arena_block;
-    scratch_out->arena_size = arena_size;
+    // Fill RuntimeBuffers with buffers from PROVIDED arena
+    buffers_out->search_buf = search_buf;
+    buffers_out->search_buf_cap = search_buf_cap;
+    buffers_out->re_curr = re_curr_thr;
+    buffers_out->re_next = re_next_thr;
+    buffers_out->re_thread_cap = actual_thread_cap;
+    buffers_out->regex_work_budget = REGEX_WORK_BUDGET_DEFAULT;
+    buffers_out->seen_curr = seen_curr;
+    buffers_out->seen_next = seen_next;
+    buffers_out->seen_bytes = actual_seen_bytes;
+    buffers_out->clause_ranges = clause_ranges;
+    buffers_out->clause_labels = clause_labels;
+    buffers_out->clause_inline = clause_inline;
+    buffers_out->sum_inline_lits = plan.sum_inline_lits;
+    buffers_out->arena_block = arena_block;
+    buffers_out->arena_size = arena_size;
 
     return FISKTA_EXIT_OK;
 }
@@ -785,10 +773,10 @@ int build_program(i32 token_count, const String* tokens,
  ***********************************/
 int runtime_execute(const Program* prog,
     const char* file_path,
-    RuntimeScratch* scratch,
+    RuntimeBuffers* buffers,
     const RuntimeConfig* config)
 {
-    if (!prog || !file_path || !scratch || !config) {
+    if (!prog || !file_path || !buffers || !config) {
         return FISKTA_EXIT_PARSE;
     }
 
@@ -797,14 +785,14 @@ int runtime_execute(const Program* prog,
      * Initialize file handle and search buffers *
      *********************************************/
     File io = { 0 };
-    enum Err e = io_open(&io, file_path, scratch->search_buf, scratch->search_buf_cap);
+    enum Err e = io_open(&io, file_path, buffers->search_buf, buffers->search_buf_cap);
     if (e != E_OK) {
         print_err(e, "I/O open");
         return err_to_exit_code(e);
     }
 
-    io_set_regex_scratch(&io, scratch->re_curr, scratch->re_next, scratch->re_thread_cap,
-        scratch->regex_work_budget, scratch->seen_curr, scratch->seen_next, scratch->seen_bytes);
+    io_set_regex_scratch(&io, buffers->re_curr, buffers->re_next, buffers->re_thread_cap,
+        buffers->regex_work_budget, buffers->seen_curr, buffers->seen_next, buffers->seen_bytes);
 
     /**********************************************
      * PHASE 7: EXECUTE PROGRAM                   *
@@ -849,8 +837,8 @@ int runtime_execute(const Program* prog,
 
         // Continue mode: pass saved VM to preserve cursor and labels
         IterResult iteration = execute_program_iteration(prog, &io, &loop_state.vm,
-            scratch->clause_ranges, scratch->clause_labels,
-            scratch->clause_inline, scratch->sum_inline_lits,
+            buffers->clause_ranges, buffers->clause_labels,
+            buffers->clause_inline, buffers->sum_inline_lits,
             lo, hi);
 
         loop_commit(&loop_state, hi, iteration, config->ignore_loop_failures);

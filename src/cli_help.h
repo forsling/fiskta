@@ -1,6 +1,6 @@
 #pragma once
 
-#include "fiskta.h"
+#include "fiskta_types.h"
 #include <stdio.h>
 
 static inline void print_usage(void)

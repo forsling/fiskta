@@ -17,7 +17,7 @@
 
 #pragma once
 #include "fileio.h"
-#include "fiskta.h"
+#include "fiskta_types.h"
 #include "regex_prog.h"
 
 // Regex search in file window [win_lo, win_hi)

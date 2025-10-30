@@ -1,5 +1,5 @@
 #pragma once
-#include "fiskta.h"
+#include "fiskta_types.h"
 
 // Forward declaration for File type (defined in fileio.h)
 typedef struct File File;

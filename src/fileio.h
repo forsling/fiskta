@@ -11,7 +11,7 @@
 //  - valid from io_open() to io_close(), not thread-safe
 
 #pragma once
-#include "fiskta.h"
+#include "fiskta_types.h"
 #include <stdio.h>
 
 // Search direction for pattern matching (forward/backward)

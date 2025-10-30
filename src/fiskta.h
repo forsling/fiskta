@@ -1,224 +1,243 @@
+// fiskta.h - Main public API
+//
+// This is the primary header for library users. It provides:
+//   - Core types and constants (via fiskta_types.h)
+//   - Program building and execution API
+//   - Memory requirement queries
+//   - Runtime configuration
+//
+// For library users, this is the single header to include.
+//
+// Internal organization:
+//   - fiskta_types.h: Core types, enums, data structures
+//   - engine.h: VM execution internals
+//   - fileio.h: I/O buffering and streaming
+//
+// Core subsystems (fileio, search_literal, regex_vm, regex_prog) are
+// pure libraries usable without this runtime layer.
+
 #pragma once
-#define _FILE_OFFSET_BITS 64
 
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
+#include "engine.h"
+#include "fileio.h"
+#include "fiskta_types.h"
 
-typedef int64_t i64;
-typedef uint64_t u64;
-typedef int32_t i32;
-typedef uint32_t u32;
+/********************************
+ * REGEX ENGINE RESOURCE LIMITS *
+ ********************************/
+//
+// Total memory budget for regex VM execution. This budget is split between:
+// - Seen tables: sized per-pattern (nins × 32 bytes), takes what it needs
+// - Thread lists: gets remaining budget, typically ~9-10K threads for normal patterns
+//
+// With 2 MiB default:
+// - Small pattern (60 ins): ~4 KiB seen, ~10K threads
+// - Large pattern (500 ins): ~32 KiB seen, ~10K threads
+// - Max pattern (16K ins): ~1 MiB seen, ~5K threads
+//
+// Memory usage is predictable and independent of runtime complexity. Patterns
+// that exceed the budget fail gracefully with E_CAPACITY.
+//
+// Future: Can expose via CLI (--regex-budget) or build-time flags.
+//
+#ifndef FISKTA_REGEX_BUDGET_DEFAULT
+#define FISKTA_REGEX_BUDGET_DEFAULT (2 * 1024 * 1024) // 2 MiB total
+#endif
 
-// Constants
-enum {
-    MAX_LABELS = 128,
-    MAX_LABEL_LEN = 15,
-    MAX_ALTS = 256, // Maximum alternations in regex (a|b|c|...)
-    INLINE_LIT_CAP = 24 // Per-\c expansion buffer budget (bytes) reserved
-                        // for inline cursor injection during print staging
-};
+// Minimum viable thread capacity (NFA needs at least this many concurrent states)
+#ifndef MIN_THREAD_CAP
+#define MIN_THREAD_CAP 32
+#endif
 
+// Thread sizing constants for budget calculations
+// Each ReThread is ~84 bytes + padding ≈ 100 bytes; we keep 2 lists (curr+next)
+#define RE_THREAD_BYTES 100
+#define RE_LISTS 2
+
+/*************************
+ * RUNTIME CONFIGURATION *
+ *************************/
+// Runtime configuration
 typedef struct {
-    const char* bytes;
-    i32 len;
-} String;
+    i32 loop_ms;
+    bool loop_enabled;
+    bool ignore_loop_failures;
+    i32 idle_timeout_ms;
+    i32 exec_timeout_ms;
+} RuntimeConfig;
 
-// Unit type: bytes, lines, chars
-typedef uint8_t Unit;
-enum {
-    UNIT_BYTES,
-    UNIT_LINES,
-    UNIT_CHARS // UTF-8 code points
-};
-
-typedef uint8_t OpKind;
-enum {
-    OP_FIND,
-    OP_FIND_RE,
-    OP_FIND_BIN,
-    OP_SKIP,
-    OP_TAKE_LEN,
-    OP_TAKE_TO,
-    OP_TAKE_UNTIL,
-    OP_TAKE_UNTIL_RE,
-    OP_TAKE_UNTIL_BIN,
-    OP_LABEL,
-    OP_VIEWSET,
-    OP_VIEWCLEAR,
-    OP_PRINT,
-    OP_FAIL
-};
-
-typedef uint8_t LocBase;
-enum {
-    LOC_CURSOR,
-    LOC_BOF,
-    LOC_EOF,
-    LOC_NAME,
-    LOC_MATCH_START,
-    LOC_MATCH_END,
-    LOC_LINE_START,
-    LOC_LINE_END
-};
-
-enum Err {
-    E_OK = 0,
-    E_PARSE,
-    E_BAD_NEEDLE,
-    E_BAD_HEX,
-    E_LOC_RESOLVE,
-    E_NO_MATCH,
-    E_FAIL_OP,
-    E_LABEL_FMT,
-    E_IO,
-    E_CAPACITY,
-    E_OOM
-};
-
-// Exit codes
-enum FisktaExitCode {
-    FISKTA_EXIT_OK = 0,
-    FISKTA_EXIT_PROGRAM_FAIL = 1,
-    FISKTA_EXIT_TIMEOUT = 2,
-    // 3-6 reserved for future outcomes
-    FISKTA_EXIT_USAGE = 7, // CLI misuse (unknown flags, missing values)
-    FISKTA_EXIT_PARSE = 8, // Parse error (program grammar, regex syntax)
-    FISKTA_EXIT_CAPACITY = 9, // Policy limit exceeded (input too complex)
-    FISKTA_EXIT_IO = 10,
-    FISKTA_EXIT_RESOURCE = 11 // System resource exhaustion (malloc failed, OOM)
-};
-
+/***************************
+ * TWO-PHASE EXECUTION API *
+ ***************************/
+// RuntimeBuffers: All execution-time working memory for one Program.
+//
+// Lifetime:
+//   - Initialized by build_program() with pointers into caller's arena
+//   - Used (and mutated) by runtime_execute()
+//   - Valid as long as arena is not freed
+//
+// Reusability:
+//   - The same RuntimeBuffers may be reused across multiple calls to
+//     runtime_execute() as long as those calls are NOT concurrent.
+//   - Thread-safety: NOT thread-safe. One RuntimeBuffers per thread.
+//
+// Ownership:
+//   - All pointers point into arena_block
+//   - Caller owns arena_block and must free() it when done
 typedef struct {
-    i64 offset;
-    i32 name_idx; // index into label table assigned at parse time (-1 otherwise)
-    LocBase base;
-    Unit unit;
-} LocExpr;
+    // Search buffers (mutated during file reading)
+    unsigned char* search_buf;
+    size_t search_buf_cap;
 
-typedef struct ReProg ReProg;
+    // Regex VM scratch (mutated during pattern matching)
+    ReThread* re_curr;
+    ReThread* re_next;
+    int re_thread_cap;
+    u64 regex_work_budget; // Max thread enqueues per search (prevents step-count explosion)
+    unsigned char* seen_curr;
+    unsigned char* seen_next;
+    size_t seen_bytes;
 
+    // Staging buffers for clause execution (mutated per clause)
+    Range* clause_ranges;
+    LabelWrite* clause_labels;
+    char* clause_inline;
+    i32 sum_inline_lits;
+
+    // Arena metadata (caller owns and must free arena_block)
+    void* arena_block;
+    size_t arena_size;
+} RuntimeBuffers;
+
+// Runtime memory requirements for executing a Program
+//
+// Returned by program_requirements() to expose all memory needs BEFORE allocation.
+// Enables:
+//   - Pre-flight inspection (validate resource needs before committing)
+//   - DoS detection (large allocations surface early)
+//   - Custom allocators (zero-malloc embedding)
+//   - Resource monitoring (log/enforce limits)
 typedef struct {
-    i64 lo, hi; // half-open [lo, hi)
-    bool active;
-} View;
+    // Per-run working memory (mutable scratch)
+    size_t search_buf_cap; // File I/O buffer size
 
-typedef struct {
-    OpKind kind;
-    union {
-        struct {
-            LocExpr to;
-            String needle;
-        } find;
-        struct {
-            LocExpr to;
-            String pattern;
-            struct ReProg* prog;
-        } findr;
-        struct {
-            LocExpr to;
-            String needle; // parsed hex bytes
-        } findbin;
-        struct {
-            bool is_location; // true for "skip to <loc>", false for "skip <offset><unit>"
-            union {
-                struct {
-                    i64 offset;
-                    Unit unit;
-                } by_offset;
-                struct {
-                    LocExpr to;
-                } to_location;
-            };
-        } skip;
-        struct {
-            i64 offset;
-            Unit unit;
-        } take_len;
-        struct {
-            LocExpr to;
-        } take_to;
-        struct {
-            String needle;
-            bool has_at;
-            LocExpr at;
-        } take_until;
-        struct {
-            String pattern;
-            bool has_at;
-            LocExpr at;
-            struct ReProg* prog;
-        } take_until_re;
-        struct {
-            String needle; // parsed hex bytes
-            bool has_at;
-            LocExpr at;
-        } take_until_bin;
-        struct {
-            i32 name_idx;
-        } label;
-        struct {
-            LocExpr a, b;
-        } viewset;
-        struct {
-            int _; // Required for -pedantic (empty structs non-standard)
-        } viewclear;
-        struct {
-            String string;
-            i32 cursor_marks;
-            i32 literal_segments;
-        } print;
-        struct {
-            String message;
-        } fail;
-    } u;
-} Op;
+    // Regex VM scratch (fixed policy budget)
+    // These are NOT computed per-pattern - they're fixed policy limits that
+    // all regexes must work within. See FISKTA_REGEX_*_DEFAULT constants.
+    size_t regex_seen_bytes_max; // Fixed seen table budget (512 KiB default)
+    size_t regex_thread_cap_max; // Fixed thread capacity (10K default)
 
-// How clauses are linked together
-typedef enum {
-    LINK_NONE, // No link (last clause)
-    LINK_THEN, // Sequential
-    LINK_OR // First success wins
-} ClauseLink;
+    // Per-clause temporary working memory at runtime
+    // (ranges, label writes, inline expansion buffer)
+    //
+    // Staging semantics:
+    //   - Each clause execution accumulates operations (output ranges, label writes)
+    //     in temporary buffers WITHOUT committing them to VM or stdout.
+    //   - On clause success: staged changes commit atomically (emit output, update labels)
+    //   - On clause failure: staged changes discard, VM rolls back to pre-clause state
+    //   - This enables atomic clause semantics (all-or-nothing execution)
+    size_t staging_bytes;
 
-typedef struct {
-    Op* ops;
-    i32 op_count;
-    ClauseLink link;
-} Clause;
+    // Static program data (compiled clauses, regexes, string pool)
+    // This is the total arena size needed
+    size_t arena_bytes;
 
-typedef struct {
-    Clause* clauses;
-    i32 clause_count;
-    i32 name_count;
-} Program;
+    // Arena breakdown (informational, for debugging/monitoring)
+    size_t ops_bytes; // Op array
+    size_t clauses_bytes; // Clause array
+    size_t regex_prog_bytes; // ReProg structs
+    size_t regex_ins_bytes; // ReInst instruction pool
+    size_t regex_cls_bytes; // ReClass character class pool
+    size_t str_pool_bytes; // String literal pool
 
-typedef struct {
-    i64 start, end;
-    bool valid;
-} Match;
+    // Program-level regex characteristics (fast-path selection hints)
+    bool any_lazy_quantifiers; // True if any regex has lazy quantifiers
+    bool any_counters; // True if any regex has {n,m} quantifiers
+} RuntimeRequirements;
 
-// VM state is snapshotted per clause execution.
-// - cursor, last_match, view, and label_pos[] are staged in StagedResult
-//   and only committed on clause success.
-// - On clause failure, VM must be restored exactly to its prior state.
-typedef struct {
-    i64 cursor;
-    Match last_match;
-    View view;
+// Analyze program and compute memory requirements WITHOUT allocating
+//
+// This is the preflight query: returns what memory you'd need to run tokens.
+// Useful for:
+//   - Validating input before committing to execution
+//   - Enforcing resource limits (fail early on DoS inputs)
+//   - Custom allocator sizing for zero-malloc embedding
+//
+// Side effects: NONE
+//   - Does not malloc
+//   - Does not touch disk
+//   - Does not mutate global state
+//   - May run regex compiler in "dry-run" mode to count instructions
+//
+// Error handling:
+//   - Returns FISKTA_EXIT_OK on success, fills *out
+//   - Returns FISKTA_EXIT_PARSE if tokens or pattern invalid
+//   - Returns FISKTA_EXIT_CAPACITY if capacity exceeded
+//   - Sets error_detail_* for human-readable diagnostics
+int program_requirements(i32 token_count, const String* tokens,
+    RuntimeRequirements* out);
 
-    i64 label_pos[MAX_LABELS]; // name_idx -> position mapping (-1 = not set)
-} VM;
+// Build program from tokens (compile-time phase)
+//
+// Parse tokens, compile regexes, and build executable program structure.
+// Uses caller-provided arena for all memory allocation.
+//
+// This is the "compile-time" phase: no file I/O, no execution, no loops.
+//
+// Caller must:
+//   1. Call program_requirements() to get req.arena_bytes
+//   2. Allocate arena_block with at least that size (malloc, stack, pool, etc.)
+//   3. Pass it here
+//
+// On success:
+//   - prog_out points into caller's arena_block (read-only view)
+//   - buffers_out is fully initialized (mutable execution state)
+//   - Returns FISKTA_EXIT_OK
+//
+// On failure:
+//   - Returns FISKTA_EXIT_PARSE, FISKTA_EXIT_CAPACITY, or FISKTA_EXIT_RESOURCE
+//   - arena_block untouched, caller still owns it
+//
+// Memory ownership:
+//   - Caller owns arena_block and must free it when done
+//   - Program and buffers are invalidated when arena is freed
+//
+// Example usage:
+//   RuntimeRequirements req;
+//   program_requirements(tokens, &req);
+//   void* arena = malloc(req.arena_bytes);
+//   build_program(tokens, &prog, arena, req.arena_bytes, &buffers);
+//   runtime_execute(&prog, file, &buffers, &config);
+//   free(arena);
+int build_program(i32 token_count, const String* tokens,
+    Program* prog_out,
+    void* arena_block, size_t arena_size,
+    RuntimeBuffers* buffers_out);
 
-// Staged capture range or literal string
-typedef enum { RANGE_FILE,
-    RANGE_LIT } RangeKind;
-typedef struct {
-    RangeKind kind;
-    union {
-        struct {
-            i64 start, end; // used when kind == RANGE_FILE
-        } file;
-        String lit; // used when kind == RANGE_LIT
-    };
-} Range;
+// Execute program against file (runtime phase)
+//
+// Execute a previously-built Program against the given file.
+//
+// This is the "runtime" phase: file I/O, VM execution, continue loop.
+//
+// Uses and mutates buffers:
+//   - Regex thread lists
+//   - Staging buffers (ranges, labels, inline literals)
+//   - VM state (cursor, view, label positions)
+//
+// Blocking behavior (per config):
+//   - Continue loop: resumes from saved cursor position each iteration
+//   - Honors --continue interval and --for/--until-idle timeouts
+//   - Use program clauses for follow/monitor emulation (see README recipes)
+//
+// Returns FISKTA_EXIT_* code:
+//   - FISKTA_EXIT_OK (0)            - Success
+//   - FISKTA_EXIT_PROGRAM_FAIL (1)  - Program failed
+//   - FISKTA_EXIT_TIMEOUT (2)       - Timeout reached
+//   - FISKTA_EXIT_IO (10)           - File I/O error
+//   - FISKTA_EXIT_RESOURCE (11)     - Resource exhaustion (OOM)
+//   - FISKTA_EXIT_CAPACITY (9)      - Capacity exceeded
+int runtime_execute(const Program* prog,
+    const char* file_path,
+    RuntimeBuffers* buffers,
+    const RuntimeConfig* config);

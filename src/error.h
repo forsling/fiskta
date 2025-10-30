@@ -1,6 +1,6 @@
 #pragma once
 
-#include "fiskta.h"
+#include "fiskta_types.h"
 #include <stdbool.h>
 
 enum { ERROR_DETAIL_MESSAGE_MAX = 160 };

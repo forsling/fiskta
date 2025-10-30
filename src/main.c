@@ -4,8 +4,8 @@
 
 #include "cli_help.h"
 #include "error.h"
+#include "fiskta_types.h"
 #include "fiskta.h"
-#include "runtime.h"
 #include "util.h"
 #include <ctype.h>
 #include <limits.h>
@@ -548,8 +548,8 @@ int main(int argc, char** argv)
      * BUILD PROGRAM (COMPILE) *
      ***************************/
     Program prog;
-    RuntimeScratch scratch;
-    ret = build_program(ops.token_count, ops.tokens, &prog, arena, req.arena_bytes, &scratch);
+    RuntimeBuffers buffers;
+    ret = build_program(ops.token_count, ops.tokens, &prog, arena, req.arena_bytes, &buffers);
     if (ret != FISKTA_EXIT_OK) {
         free(arena);
         return ret;
@@ -558,12 +558,11 @@ int main(int argc, char** argv)
     /*********************
      * EXECUTE PROGRAM   *
      *********************/
-    ret = runtime_execute(&prog, input_path, &scratch, &config);
+    ret = runtime_execute(&prog, input_path, &buffers, &config);
 
     /***********
      * CLEANUP *
      ***********/
-    runtime_scratch_free(&scratch);
     free(arena);
 
     return ret;

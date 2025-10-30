@@ -1,6 +1,6 @@
 #pragma once
 
-#include "fiskta.h"
+#include "fiskta_types.h"
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>

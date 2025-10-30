@@ -1,5 +1,5 @@
 #pragma once
-#include "fiskta.h"
+#include "fiskta_types.h"
 
 // Parse planning: determine memory requirements before allocation
 typedef struct ParsePlan {
