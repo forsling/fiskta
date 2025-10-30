@@ -55,7 +55,8 @@ void convert_tokens_to_strings(char** tokens, i32 token_count, String* out);
 
 // Tokenize whitespace-separated operations string into String array
 //
-// IMPORTANT: The returned String structs point directly into 's' (zero-copy).
-// The caller MUST ensure 's' remains valid for the lifetime of 'out'.
-// If 's' is freed or goes out of scope, accessing 'out' will be undefined behavior.
+// Uses static internal buffer. Returned Strings point into that buffer and are
+// invalidated by the next call (like strtok). Not thread-safe.
+//
+// Returns: Number of tokens parsed, or -1 if buffer capacity exceeded
 i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens);

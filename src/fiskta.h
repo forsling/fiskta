@@ -161,7 +161,7 @@ typedef struct {
             LocExpr a, b;
         } viewset;
         struct {
-            int _;
+            int _; // Required for -pedantic (empty structs non-standard)
         } viewclear;
         struct {
             String string;

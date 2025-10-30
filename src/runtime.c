@@ -96,8 +96,34 @@ typedef struct {
 } LoopState;
 
 // =============================================================================
-// Error handling
+// Error handling and exit code mapping
 // =============================================================================
+
+// Map internal errors to CLI exit codes
+static int err_to_exit_code(enum Err e)
+{
+    switch (e) {
+    case E_OK:
+        return FISKTA_EXIT_OK;
+    case E_PARSE:
+    case E_BAD_NEEDLE:
+    case E_BAD_HEX:
+    case E_LABEL_FMT:
+        return FISKTA_EXIT_PARSE;
+    case E_IO:
+        return FISKTA_EXIT_IO;
+    case E_CAPACITY:
+        return FISKTA_EXIT_CAPACITY;
+    case E_OOM:
+        return FISKTA_EXIT_RESOURCE;
+    case E_LOC_RESOLVE:
+    case E_NO_MATCH:
+    case E_FAIL_OP:
+        return FISKTA_EXIT_PROGRAM_FAIL;
+    default:
+        return FISKTA_EXIT_PROGRAM_FAIL;
+    }
+}
 
 static const char* err_str(enum Err e)
 {
@@ -484,10 +510,7 @@ int program_requirements(i32 token_count, const String* tokens,
     enum Err e = parse_preflight(token_count, tokens, NULL, &plan, &path);
     if (e != E_OK) {
         print_err(e, "parse preflight");
-        if (e == E_CAPACITY) {
-            return FISKTA_EXIT_CAPACITY;
-        }
-        return FISKTA_EXIT_PARSE;
+        return err_to_exit_code(e);
     }
 
     /************************************************************
@@ -619,10 +642,7 @@ int build_program(i32 token_count, const String* tokens,
     enum Err e = parse_preflight(token_count, tokens, NULL, &plan, &path);
     if (e != E_OK) {
         print_err(e, "parse preflight");
-        if (e == E_CAPACITY) {
-            return FISKTA_EXIT_CAPACITY;
-        }
-        return FISKTA_EXIT_PARSE;
+        return err_to_exit_code(e);
     }
 
     /************************************************************
@@ -751,10 +771,7 @@ int build_program(i32 token_count, const String* tokens,
     if (e != E_OK) {
         print_err(e, "parse build");
         free(block);
-        if (e == E_CAPACITY) {
-            return FISKTA_EXIT_CAPACITY;
-        }
-        return FISKTA_EXIT_PARSE;
+        return err_to_exit_code(e);
     }
     if (prog_out->clause_count == 0) {
         print_err(E_PARSE, "no operations parsed");
@@ -778,13 +795,7 @@ int build_program(i32 token_count, const String* tokens,
                 if (err != E_OK) {
                     print_err(err, "regex compile");
                     free(block);
-                    if (err == E_PARSE || err == E_BAD_NEEDLE) {
-                        return FISKTA_EXIT_PARSE;
-                    } else if (err == E_CAPACITY) {
-                        return FISKTA_EXIT_CAPACITY;
-                    } else {
-                        return FISKTA_EXIT_RESOURCE;
-                    }
+                    return err_to_exit_code(err);
                 }
                 op->u.findr.prog = prog;
             } else if (op->kind == OP_TAKE_UNTIL_RE) {
@@ -795,13 +806,7 @@ int build_program(i32 token_count, const String* tokens,
                 if (err != E_OK) {
                     print_err(err, "regex compile");
                     free(block);
-                    if (err == E_PARSE || err == E_BAD_NEEDLE) {
-                        return FISKTA_EXIT_PARSE;
-                    } else if (err == E_CAPACITY) {
-                        return FISKTA_EXIT_CAPACITY;
-                    } else {
-                        return FISKTA_EXIT_RESOURCE;
-                    }
+                    return err_to_exit_code(err);
                 }
                 op->u.take_until_re.prog = prog;
             }
@@ -882,10 +887,7 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
     enum Err e = parse_preflight(token_count, tokens, NULL, &plan, &path);
     if (e != E_OK) {
         print_err(e, "parse preflight");
-        if (e == E_CAPACITY) {
-            return FISKTA_EXIT_CAPACITY;
-        }
-        return FISKTA_EXIT_PARSE;
+        return err_to_exit_code(e);
     }
 
     /************************************************************
@@ -947,10 +949,7 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
         clauses_buf, ops_buf, str_pool, str_pool_bytes);
     if (e != E_OK) {
         print_err(e, "parse build");
-        if (e == E_CAPACITY) {
-            return FISKTA_EXIT_CAPACITY;
-        }
-        return FISKTA_EXIT_PARSE;
+        return err_to_exit_code(e);
     }
     if (prog_out->clause_count == 0) {
         print_err(E_PARSE, "no operations parsed");
@@ -972,13 +971,7 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
                     re_cls, (i32)(re_cls_bytes / sizeof(ReClass)), &re_cls_idx);
                 if (err != E_OK) {
                     print_err(err, "regex compile");
-                    if (err == E_PARSE || err == E_BAD_NEEDLE) {
-                        return FISKTA_EXIT_PARSE;
-                    } else if (err == E_CAPACITY) {
-                        return FISKTA_EXIT_CAPACITY;
-                    } else {
-                        return FISKTA_EXIT_RESOURCE;
-                    }
+                    return err_to_exit_code(err);
                 }
                 op->u.findr.prog = prog;
             } else if (op->kind == OP_TAKE_UNTIL_RE) {
@@ -988,13 +981,7 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
                     re_cls, (i32)(re_cls_bytes / sizeof(ReClass)), &re_cls_idx);
                 if (err != E_OK) {
                     print_err(err, "regex compile");
-                    if (err == E_PARSE || err == E_BAD_NEEDLE) {
-                        return FISKTA_EXIT_PARSE;
-                    } else if (err == E_CAPACITY) {
-                        return FISKTA_EXIT_CAPACITY;
-                    } else {
-                        return FISKTA_EXIT_RESOURCE;
-                    }
+                    return err_to_exit_code(err);
                 }
                 op->u.take_until_re.prog = prog;
             }
@@ -1067,7 +1054,7 @@ int runtime_execute(const Program* prog,
     enum Err e = io_open(&io, file_path, scratch->search_buf, scratch->search_buf_cap);
     if (e != E_OK) {
         print_err(e, "I/O open");
-        return FISKTA_EXIT_IO;
+        return err_to_exit_code(e);
     }
 
     io_set_regex_scratch(&io, scratch->re_curr, scratch->re_next, scratch->re_thread_cap,
