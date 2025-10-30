@@ -30,10 +30,9 @@
 // Sentinel: means "no saved VM yet"
 #define VM_CURSOR_UNSET ((i64) - 1)
 
-// =============================================================================
-// Regex budget calculation
-// =============================================================================
-
+/****************************
+ * REGEX BUDGET CALCULATION *
+ ****************************/
 // Default work budget: max thread enqueues per regex search
 //
 // This limits "step count explosion" - patterns like ((X?){50}){50} that don't
@@ -95,10 +94,9 @@ typedef struct {
     int exit_reason; // 0 normal, 2 exec timeout
 } LoopState;
 
-// =============================================================================
-// Error handling and exit code mapping
-// =============================================================================
-
+/****************************************
+ * ERROR HANDLING AND EXIT CODE MAPPING *
+ ****************************************/
 // Map internal errors to CLI exit codes
 static int err_to_exit_code(enum Err e)
 {
@@ -188,10 +186,9 @@ static int align_or_fail(size_t x, size_t align, size_t* out)
     return 0;
 }
 
-// =============================================================================
-// RuntimeScratch management
-// =============================================================================
-
+/*****************************
+ * RUNTIMESCRATCH MANAGEMENT *
+ *****************************/
 void runtime_scratch_free(RuntimeScratch* s)
 {
     if (!s) {
@@ -204,10 +201,9 @@ void runtime_scratch_free(RuntimeScratch* s)
     memset(s, 0, sizeof(*s));
 }
 
-// =============================================================================
-// Platform helpers
-// =============================================================================
-
+/********************
+ * PLATFORM HELPERS *
+ ********************/
 static u64 now_millis(void)
 {
 #ifdef _WIN32
@@ -233,10 +229,9 @@ static void refresh_file_size(File* io)
     }
 }
 
-// =============================================================================
-// Loop orchestration helpers
-// =============================================================================
-
+/******************************
+ * LOOP ORCHESTRATION HELPERS *
+ ******************************/
 static void loop_init(LoopState* state, const RuntimeConfig* config)
 {
     if (!state || !config) {
@@ -351,10 +346,9 @@ static void loop_commit(LoopState* state, i64 data_hi, IterResult result, bool i
     }
 }
 
-// =============================================================================
-// Program iteration
-// =============================================================================
-
+/*********************
+ * PROGRAM ITERATION *
+ *********************/
 static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm,
     Range* clause_ranges, LabelWrite* clause_labels,
     char* clause_inline, i32 inline_slots_total,
@@ -487,10 +481,9 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
     return iter_result;
 }
 
-// =============================================================================
-// Resource requirements query (pre-flight sizing)
-// =============================================================================
-
+/***************************************************
+ * RESOURCE REQUIREMENTS QUERY (PRE-FLIGHT SIZING) *
+ ***************************************************/
 int program_requirements(i32 token_count, const String* tokens,
     RuntimeRequirements* out)
 {
@@ -501,10 +494,10 @@ int program_requirements(i32 token_count, const String* tokens,
     // Initialize output
     memset(out, 0, sizeof(*out));
 
-    /************************************************************
-     * PHASE 1: PREFLIGHT PARSE
-     * Analyze operations to determine memory requirements
-     *************************************************************/
+    /*******************************************************
+     * PHASE 1: PREFLIGHT PARSE                            *
+     * Analyze operations to determine memory requirements *
+     *******************************************************/
     ParsePlan plan = (ParsePlan) { 0 };
     const char* path = NULL;
     enum Err e = parse_preflight(token_count, tokens, NULL, &plan, &path);
@@ -513,10 +506,10 @@ int program_requirements(i32 token_count, const String* tokens,
         return err_to_exit_code(e);
     }
 
-    /************************************************************
-     * PHASE 2: COMPUTE SIZES
-     * Calculate total memory needed for all data structures
-     *************************************************************/
+    /*********************************************************
+     * PHASE 2: COMPUTE SIZES                                *
+     * Calculate total memory needed for all data structures *
+     *********************************************************/
 
     // File I/O buffer
     const size_t search_buf_cap = (FW_WIN > (BK_BLK + OVERLAP_MAX)) ? (size_t)FW_WIN : (size_t)(BK_BLK + OVERLAP_MAX);
@@ -557,9 +550,9 @@ int program_requirements(i32 token_count, const String* tokens,
     out->any_lazy_quantifiers = (plan.sum_findr_ops > 0);
     out->any_counters = (plan.sum_findr_ops > 0);
 
-    /************************************************************
-     * PHASE 3: COMPUTE TOTAL ARENA SIZE WITH ALIGNMENT
-     *************************************************************/
+    /****************************************************
+     * PHASE 3: COMPUTE TOTAL ARENA SIZE WITH ALIGNMENT *
+     ****************************************************/
     size_t search_buf_size, clauses_size, ops_size, re_prog_size, re_ins_size, re_cls_size, str_pool_size;
     if (align_or_fail(search_buf_cap, alignof(unsigned char), &search_buf_size) != 0
         || align_or_fail(clauses_bytes, alignof(Clause), &clauses_size) != 0
@@ -617,10 +610,9 @@ int program_requirements(i32 token_count, const String* tokens,
     return FISKTA_EXIT_OK;
 }
 
-// =============================================================================
-// Build program (compile-time phase)
-// =============================================================================
-
+/**************************************
+ * BUILD PROGRAM (COMPILE-TIME PHASE) *
+ **************************************/
 int build_program(i32 token_count, const String* tokens,
     Program* prog_out,
     RuntimeScratch* scratch_out)
@@ -633,10 +625,10 @@ int build_program(i32 token_count, const String* tokens,
     memset(prog_out, 0, sizeof(*prog_out));
     memset(scratch_out, 0, sizeof(*scratch_out));
 
-    /************************************************************
-     * PHASE 1: PREFLIGHT PARSE
-     * Analyze operations to determine memory requirements
-     *************************************************************/
+    /*******************************************************
+     * PHASE 1: PREFLIGHT PARSE                            *
+     * Analyze operations to determine memory requirements *
+     *******************************************************/
     ParsePlan plan = (ParsePlan) { 0 };
     const char* path = NULL;
     enum Err e = parse_preflight(token_count, tokens, NULL, &plan, &path);
@@ -645,10 +637,10 @@ int build_program(i32 token_count, const String* tokens,
         return err_to_exit_code(e);
     }
 
-    /************************************************************
-     * PHASE 2: COMPUTE ARENA SIZES
-     * Calculate total memory needed for all data structures
-     ************************************************************/
+    /*********************************************************
+     * PHASE 2: COMPUTE ARENA SIZES                          *
+     * Calculate total memory needed for all data structures *
+     *********************************************************/
     const size_t search_buf_cap = (FW_WIN > (BK_BLK + OVERLAP_MAX)) ? (size_t)FW_WIN : (size_t)(BK_BLK + OVERLAP_MAX);
     const size_t ops_bytes = (size_t)plan.total_ops * sizeof(Op);
     const size_t clauses_bytes = (size_t)plan.clause_count * sizeof(Clause);
@@ -666,8 +658,8 @@ int build_program(i32 token_count, const String* tokens,
     const size_t re_seen_bytes_each = FISKTA_REGEX_BUDGET_DEFAULT / 2;
 
     /************************************************************
-     * PHASE 3: ARENA ALLOCATION
-     * Allocate single memory block and compute aligned offsets
+     * PHASE 3: ARENA ALLOCATION                                *
+     * Allocate single memory block and compute aligned offsets *
      ************************************************************/
     size_t search_buf_size = 0;
     size_t clauses_size = 0;
@@ -732,10 +724,10 @@ int build_program(i32 token_count, const String* tokens,
     Arena arena;
     arena_init(&arena, block, total);
 
-    /************************************************************
-     * PHASE 4: CARVE ARENA SLICES
-     * Partition the memory block into specific buffers
-     ************************************************************/
+    /****************************************************
+     * PHASE 4: CARVE ARENA SLICES                      *
+     * Partition the memory block into specific buffers *
+     ****************************************************/
     unsigned char* search_buf = arena_alloc(&arena, search_buf_cap, alignof(unsigned char));
     Clause* clauses_buf = arena_alloc(&arena, clauses_bytes, alignof(Clause));
     Op* ops_buf = arena_alloc(&arena, ops_bytes, alignof(Op));
@@ -762,10 +754,10 @@ int build_program(i32 token_count, const String* tokens,
         return FISKTA_EXIT_RESOURCE;
     }
 
-    /************************************************************
-     * PHASE 5: BUILD PROGRAM
-     * Parse operations into executable program structure
-     ************************************************************/
+    /******************************************************
+     * PHASE 5: BUILD PROGRAM                             *
+     * Parse operations into executable program structure *
+     ******************************************************/
     e = parse_build(token_count, tokens, NULL, prog_out, &path,
         clauses_buf, ops_buf, str_pool, str_pool_bytes);
     if (e != E_OK) {
@@ -879,9 +871,9 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
     // Perform same build logic as build_program(), but use provided arena
     // This is essentially a copy of build_program() with malloc() replaced
 
-    /************************************************************
-     * PHASE 1: PREFLIGHT PARSE
-     *************************************************************/
+    /****************************
+     * PHASE 1: PREFLIGHT PARSE *
+     ****************************/
     ParsePlan plan = (ParsePlan) { 0 };
     const char* path = NULL;
     enum Err e = parse_preflight(token_count, tokens, NULL, &plan, &path);
@@ -891,8 +883,8 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
     }
 
     /************************************************************
-     * PHASE 2: COMPUTE SIZES (to verify arena is large enough)
-     *************************************************************/
+     * PHASE 2: COMPUTE SIZES (TO VERIFY ARENA IS LARGE ENOUGH) *
+     ************************************************************/
     const size_t search_buf_cap = (FW_WIN > (BK_BLK + OVERLAP_MAX)) ? (size_t)FW_WIN : (size_t)(BK_BLK + OVERLAP_MAX);
     const size_t ops_bytes = (size_t)plan.total_ops * sizeof(Op);
     const size_t clauses_bytes = (size_t)plan.clause_count * sizeof(Clause);
@@ -908,15 +900,15 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
     // Worst case: entire budget goes to seen tables (if patterns are huge)
     const size_t re_seen_bytes_each = FISKTA_REGEX_BUDGET_DEFAULT / 2;
 
-    /************************************************************
-     * PHASE 3: USE PROVIDED ARENA
-     *************************************************************/
+    /*******************************
+     * PHASE 3: USE PROVIDED ARENA *
+     *******************************/
     Arena arena;
     arena_init(&arena, arena_block, arena_size);
 
-    /************************************************************
-     * PHASE 4: CARVE ARENA SLICES (same as build_program)
-     *************************************************************/
+    /*******************************************************
+     * PHASE 4: CARVE ARENA SLICES (SAME AS BUILD_PROGRAM) *
+     *******************************************************/
     unsigned char* search_buf = arena_alloc(&arena, search_buf_cap, alignof(unsigned char));
     Clause* clauses_buf = arena_alloc(&arena, clauses_bytes, alignof(Clause));
     Op* ops_buf = arena_alloc(&arena, ops_bytes, alignof(Op));
@@ -942,9 +934,9 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
         return FISKTA_EXIT_RESOURCE;
     }
 
-    /************************************************************
-     * PHASE 5: BUILD PROGRAM (same as build_program)
-     *************************************************************/
+    /**************************************************
+     * PHASE 5: BUILD PROGRAM (SAME AS BUILD_PROGRAM) *
+     **************************************************/
     e = parse_build(token_count, tokens, NULL, prog_out, &path,
         clauses_buf, ops_buf, str_pool, str_pool_bytes);
     if (e != E_OK) {
@@ -1033,10 +1025,9 @@ int build_program_with_scratch(i32 token_count, const String* tokens,
     return FISKTA_EXIT_OK;
 }
 
-// =============================================================================
-// Execute program (runtime phase)
-// =============================================================================
-
+/***********************************
+ * EXECUTE PROGRAM (RUNTIME PHASE) *
+ ***********************************/
 int runtime_execute(const Program* prog,
     const char* file_path,
     RuntimeScratch* scratch,
@@ -1046,10 +1037,10 @@ int runtime_execute(const Program* prog,
         return FISKTA_EXIT_PARSE;
     }
 
-    /********************************************
-     * PHASE 6: OPEN FILE I/O
-     * Initialize file handle and search buffers
-     ********************************************/
+    /*********************************************
+     * PHASE 6: OPEN FILE I/O                    *
+     * Initialize file handle and search buffers *
+     *********************************************/
     File io = { 0 };
     enum Err e = io_open(&io, file_path, scratch->search_buf, scratch->search_buf_cap);
     if (e != E_OK) {
@@ -1060,10 +1051,10 @@ int runtime_execute(const Program* prog,
     io_set_regex_scratch(&io, scratch->re_curr, scratch->re_next, scratch->re_thread_cap,
         scratch->regex_work_budget, scratch->seen_curr, scratch->seen_next, scratch->seen_bytes);
 
-    /*****************************************************
-     * PHASE 7: EXECUTE PROGRAM
-     * Run operations with optional continue loop
-     *****************************************************/
+    /**********************************************
+     * PHASE 7: EXECUTE PROGRAM                   *
+     * Run operations with optional continue loop *
+     **********************************************/
     LoopState loop_state;
     loop_init(&loop_state, config);
 
@@ -1160,10 +1151,9 @@ int runtime_execute(const Program* prog,
     }
 }
 
-// =============================================================================
-// Main runtime orchestrator
-// =============================================================================
-
+/*****************************
+ * MAIN RUNTIME ORCHESTRATOR *
+ *****************************/
 int run_program(i32 token_count, const String* tokens, const RuntimeConfig* config)
 {
     if (!tokens || !config) {

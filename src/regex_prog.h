@@ -72,10 +72,9 @@ enum Err re_compile_into(String pattern,
     ReInst* ins_base, int ins_cap, int* ins_used,
     ReClass* cls_base, int cls_cap, int* cls_used);
 
-// =============================================================================
-// Resource requirements API
-// =============================================================================
-
+/*****************************
+ * RESOURCE REQUIREMENTS API *
+ *****************************/
 // Runtime memory requirements for a compiled regex program
 typedef struct {
     size_t nins; // Number of compiled instructions (diagnostic/logging)

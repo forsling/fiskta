@@ -22,9 +22,9 @@
 #define FISKTA_STDIN_SPOOL (256 * 1024)
 #endif
 
-/**********************
- * FILE I/O OPERATIONS
- **********************/
+/***********************
+ * FILE I/O OPERATIONS *
+ ***********************/
 
 enum Err io_open(File* io, const char* path,
     unsigned char* search_buf, size_t search_buf_cap)
@@ -190,9 +190,9 @@ enum Err io_emit(File* io, i64 start, i64 end, FILE* out)
     return E_OK;
 }
 
-/******************
- * LINE NAVIGATION
- ******************/
+/*******************
+ * LINE NAVIGATION *
+ *******************/
 
 // UTF-8 helper functions
 static inline i32 utf8_is_cont_byte(unsigned char b) { return (b & 0xC0) == 0x80; }
@@ -408,9 +408,9 @@ enum Err io_step_lines(File* io, i64 start_line_start, i32 delta, i64* out_line_
     return E_OK;
 }
 
-/*****************************
- * UTF-8 CHARACTER NAVIGATION
- *****************************/
+/******************************
+ * UTF-8 CHARACTER NAVIGATION *
+ ******************************/
 
 enum Err io_prev_char_start(File* io, i64 pos, i64* out)
 {
@@ -546,9 +546,9 @@ enum Err io_step_chars(File* io, i64 start, i32 delta, i64* out)
     return E_OK;
 }
 
-/****************
- * LINE INDEXING
- ****************/
+/*****************
+ * LINE INDEXING *
+ *****************/
 
 static enum Err get_line_block(File* io, i64 pos, LineBlockIdx** out)
 {

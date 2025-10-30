@@ -501,9 +501,9 @@ int main(int argc, char** argv)
     _setmode(_fileno(stdout), _O_BINARY);
 #endif
 
-    /***********************
-     * CLI ARGUMENT PARSING
-     ***********************/
+    /************************
+     * CLI ARGUMENT PARSING *
+     ************************/
     RuntimeConfig config;
     const char* ops_arg = NULL;
     const char* ops_file = NULL;
@@ -513,9 +513,9 @@ int main(int argc, char** argv)
         return (parse_exit >= 0) ? parse_exit : FISKTA_EXIT_OK;
     }
 
-    /**************************
-     * OPERATION TOKEN PARSING
-     **************************/
+    /***************************
+     * OPERATION TOKEN PARSING *
+     ***************************/
     Operations ops;
     int ops_result = load_ops_from_cli_options(ops_arg, ops_file, ops_index, argc, argv, &ops);
     if (ops_result != FISKTA_EXIT_OK) {

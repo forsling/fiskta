@@ -15,9 +15,9 @@
 
 // BK_BLK constant is defined in fileio.h
 
-/******************************
- * BOYER-MOORE-HORSPOOL SEARCH
- ******************************/
+/*******************************
+ * BOYER-MOORE-HORSPOOL SEARCH *
+ *******************************/
 
 // Internal helper: BMH search in memory buffer
 static enum Err bmh_search_forward(const unsigned char* text, size_t text_len,
@@ -48,9 +48,9 @@ static enum Err bmh_search_forward(const unsigned char* text, size_t text_len,
     return E_NO_MATCH;
 }
 
-/****************
- * STRING SEARCH
- ****************/
+/*****************
+ * STRING SEARCH *
+ *****************/
 
 enum Err literal_search_window(File* io, i64 win_lo, i64 win_hi,
     const unsigned char* needle, size_t nlen,

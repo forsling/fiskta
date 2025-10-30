@@ -7,9 +7,9 @@
 #include <stdlib.h>
 #include <string.h>
 
-/****************************
- * CHARACTER CLASS UTILITIES
- ****************************/
+/*****************************
+ * CHARACTER CLASS UTILITIES *
+ *****************************/
 
 static inline void cls_clear(ReClass* c) { memset(c->bits, 0, sizeof c->bits); }
 static inline void cls_set(ReClass* c, unsigned char ch) { c->bits[ch >> 3] |= (unsigned char)(1U << (ch & 7)); }
@@ -45,9 +45,9 @@ static inline void cls_set_word(ReClass* c)
     cls_set(c, '_');
 }
 
-/**********************
- * INSTRUCTION BUILDER
- **********************/
+/***********************
+ * INSTRUCTION BUILDER *
+ ***********************/
 
 typedef struct {
     ReProg* out;
@@ -93,9 +93,9 @@ static enum Err emit_class(ReB* b, const ReClass* src, int* idx_out)
     return E_OK;
 }
 
-/*************************
- * CHARACTER CLASS PARSER
- *************************/
+/**************************
+ * CHARACTER CLASS PARSER *
+ **************************/
 
 // Parse a character class: pattern points at first char AFTER '['; returns index AFTER ']'
 static enum Err parse_char_class(ReB* b, String pat, int* i_inout, int* out_cls_idx)
@@ -218,9 +218,9 @@ static enum Err parse_char_class(ReB* b, String pat, int* i_inout, int* out_cls_
     return E_OK;
 }
 
-/**********************
- * PATTERN COMPILATION
- **********************/
+/***********************
+ * PATTERN COMPILATION *
+ ***********************/
 
 static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullable);
 
@@ -1676,9 +1676,9 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
     return E_OK;
 }
 
-/*************
- * PUBLIC API
- *************/
+/****************
+ * PUBLIC API   *
+ ****************/
 
 enum Err re_compile_into(String pattern,
     ReProg* out,
@@ -1769,10 +1769,9 @@ enum Err re_compile_into(String pattern,
     return E_OK;
 }
 
-// =============================================================================
-// Resource requirements API
-// =============================================================================
-
+/*****************************
+ * RESOURCE REQUIREMENTS API *
+ *****************************/
 void regex_prog_requirements(const ReProg* prog, ReProgRequirements* out)
 {
     if (!prog || !out) {

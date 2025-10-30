@@ -14,9 +14,9 @@
 #define ftello _ftelli64
 #endif
 
-/*******************
- * REGEX NFA ENGINE
- *******************/
+/********************
+ * REGEX NFA ENGINE *
+ ********************/
 
 typedef struct {
     ReThread* v;

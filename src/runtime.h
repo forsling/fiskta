@@ -24,9 +24,9 @@
 #include "fileio.h"
 #include "fiskta.h"
 
-// =============================================================================
-// Regex engine resource limits
-// =============================================================================
+/********************************
+ * REGEX ENGINE RESOURCE LIMITS *
+ ********************************/
 //
 // Total memory budget for regex VM execution. This budget is split between:
 // - Seen tables: sized per-pattern (nins × 32 bytes), takes what it needs
@@ -56,10 +56,9 @@
 #define RE_THREAD_BYTES 100
 #define RE_LISTS 2
 
-// =============================================================================
-// Runtime configuration
-// =============================================================================
-
+/*************************
+ * RUNTIME CONFIGURATION *
+ *************************/
 // Runtime configuration from CLI
 typedef struct {
     const char* input_path;
@@ -70,10 +69,9 @@ typedef struct {
     i32 exec_timeout_ms;
 } RuntimeConfig;
 
-// =============================================================================
-// Two-phase execution API
-// =============================================================================
-
+/***************************
+ * TWO-PHASE EXECUTION API *
+ ***************************/
 // RuntimeScratch: All execution-time working memory for one Program.
 //
 // Lifetime:
@@ -270,10 +268,9 @@ int runtime_execute(const Program* prog,
 // Free RuntimeScratch resources
 void runtime_scratch_free(RuntimeScratch* s);
 
-// =============================================================================
-// One-shot convenience API
-// =============================================================================
-
+/****************************
+ * ONE-SHOT CONVENIENCE API *
+ ****************************/
 // Single-call wrapper: build + execute + cleanup
 //
 // Convenience one-shot for CLI: build + execute + cleanup.

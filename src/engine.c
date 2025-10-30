@@ -773,9 +773,9 @@ static enum Err resolve_location(
 {
     i64 base = 0;
 
-    /************************
-     * RESOLVE BASE LOCATION
-     ************************/
+    /*************************
+     * RESOLVE BASE LOCATION *
+     *************************/
     switch (loc->base) {
     case LOC_CURSOR:
         base = staged_cursor;
@@ -851,9 +851,9 @@ static enum Err resolve_location(
         return E_PARSE;
     }
 
-    /************************
-     * APPLY OFFSET (if any)
-     ************************/
+    /*************************
+     * APPLY OFFSET (IF ANY) *
+     *************************/
     if (loc->offset != 0) {
         if (loc->unit == UNIT_BYTES) {
             apply_delta_with_clamp(&base, loc->offset, c_view, io, clamp == CLAMP_FILE ? CLAMP_FILE : clamp);
@@ -884,9 +884,9 @@ static enum Err resolve_location(
         }
     }
 
-    /******************
-     * CLAMP TO BOUNDS
-     ******************/
+    /*******************
+     * CLAMP TO BOUNDS *
+     *******************/
     if (clamp == CLAMP_VIEW) {
         *out = view_clamp(c_view, io, base);
     } else if (clamp == CLAMP_FILE) {

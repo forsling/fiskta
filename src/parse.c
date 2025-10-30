@@ -1042,9 +1042,9 @@ static i32 find_or_add_label(Program* prg, LabelTable* labels, String name)
     return idx;
 }
 
-/************************************************************
- * TEMPORARY STRUCTS FOR PARSE-THEN-MATERIALIZE PATTERN
- ************************************************************/
+/********************************************************
+ * TEMPORARY STRUCTS FOR PARSE-THEN-MATERIALIZE PATTERN *
+ ********************************************************/
 
 // Temporary data for find/find:re/find:bin operations
 typedef struct {
@@ -1109,15 +1109,14 @@ typedef struct {
     i32 name_idx_token; // Token index for error reporting
 } TmpLabelArgs;
 
-/************************************************************
- * PER-OPERATION PARSING HELPERS
- *
- * These functions consume tokens from *idx, validate syntax,
- * and return parsed data WITHOUT side effects (no writes to
- * Program/str_pool/LabelTable). This enables:
- * 1. parse_op() to use them + materialize into IR
- * 2. parse_op_dry_run() to use them + discard temps
- ************************************************************/
+/**************************************************************
+ * PER-OPERATION PARSING HELPERS                              *
+ * These functions consume tokens from *idx, validate syntax, *
+ * and return parsed data WITHOUT side effects (no writes to  *
+ * Program/str_pool/LabelTable). This enables:                *
+ * 1. parse_op() to use them + materialize into IR            *
+ * 2. parse_op_dry_run() to use them + discard temps          *
+ **************************************************************/
 
 // Kind of find operation for parse_find_like_args
 enum FindKind { FIND_LIT,
@@ -1388,16 +1387,14 @@ static enum Err parse_clear_args(const String* tokens, i32* idx, i32 token_count
     return E_OK;
 }
 
-/************************************************************
- * DRY-RUN PARSER
- *
- * CRITICAL: This function MUST advance *idx EXACTLY like parse_op()
- * would for the same input. Any drift causes memory corruption via
- * wrong op_cursor calculation in parse_build().
- *
- * This function validates syntax and consumes tokens WITHOUT side
- * effects (no writes to Program/str_pool/LabelTable).
- ************************************************************/
+/*********************************************************************
+ * DRY-RUN PARSER                                                    *
+ * CRITICAL: This function MUST advance *idx EXACTLY like parse_op() *
+ * would for the same input. Any drift causes memory corruption via  *
+ * wrong op_cursor calculation in parse_build().                     *
+ * This function validates syntax and consumes tokens WITHOUT side   *
+ * effects (no writes to Program/str_pool/LabelTable).               *
+ *********************************************************************/
 static enum Err parse_op_dry_run(const String* tokens, i32* idx, i32 token_count,
     Program* prg, LabelTable* labels)
 {
@@ -1469,9 +1466,9 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
     const String cmd_tok = tokens[*idx];
     (*idx)++;
 
-    /************************************************************
-     * SEARCH OPERATIONS
-     ************************************************************/
+    /*********************
+     * SEARCH OPERATIONS *
+     *********************/
     if (is_keyword(cmd_tok, &kw_find)) {
         op->kind = OP_FIND;
 
@@ -1586,9 +1583,9 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
             return err;
         }
 
-        /************************************************************
-         * MOVEMENT OPERATIONS
-         ************************************************************/
+        /***********************
+         * MOVEMENT OPERATIONS *
+         ***********************/
     } else if (is_keyword(cmd_tok, &kw_skip)) {
         op->kind = OP_SKIP;
 
@@ -1609,9 +1606,9 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
             op->u.skip.by_offset.unit = args.u.by_offset.unit;
         }
 
-        /************************************************************
-         * EXTRACTION OPERATIONS
-         ************************************************************/
+        /*************************
+         * EXTRACTION OPERATIONS *
+         *************************/
     } else if (is_keyword(cmd_tok, &kw_take)) {
         // Parse arguments
         TmpTakeArgs args;
@@ -1706,9 +1703,9 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
             op->u.take_len.unit = args.u.len.unit;
         }
 
-        /************************************************************
-         * CONTROL OPERATIONS
-         ************************************************************/
+        /**********************
+         * CONTROL OPERATIONS *
+         **********************/
     } else if (is_keyword(cmd_tok, &kw_label)) {
         op->kind = OP_LABEL;
 
@@ -1730,9 +1727,9 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         }
         op->u.label.name_idx = name_idx;
 
-        /************************************************************
-         * VIEW OPERATIONS
-         ************************************************************/
+        /*******************
+         * VIEW OPERATIONS *
+         *******************/
     } else if (is_keyword(cmd_tok, &kw_view)) {
         op->kind = OP_VIEWSET;
 
@@ -1757,9 +1754,9 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         // Materialize (currently only "clear view" is supported)
         op->kind = OP_VIEWCLEAR;
 
-        /************************************************************
-         * OUTPUT/UTILITY OPERATIONS
-         ************************************************************/
+        /*****************************
+         * OUTPUT/UTILITY OPERATIONS *
+         *****************************/
     } else if (is_keyword(cmd_tok, &kw_print) || is_keyword(cmd_tok, &kw_echo)) {
         op->kind = OP_PRINT;
 
