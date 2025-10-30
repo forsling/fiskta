@@ -108,7 +108,7 @@ static inline void print_usage(void)
     printf("  8               Parse error (program grammar or regex syntax)\n");
     printf("  9               Capacity exceeded (policy limits: pattern too complex, too many labels/ops)\n");
     printf("  10              I/O error (open/read/write failure)\n");
-    printf("  11              Resource exhaustion (malloc failed, out of memory)\n");
+    printf("  11              Resource exhaustion (OOM etc.)\n");
     printf("\n");
     printf("OPTIONS:\n");
     printf("  -i, --input <path>          Read input from path (default: stdin)\n");

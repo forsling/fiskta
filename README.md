@@ -533,9 +533,10 @@ fiskta uses exit codes to indicate success, failure, and the type of error encou
   - Operations string or file too long
 - **10**: I/O error (open/read/write failure)
   - File not found, permission denied, read/write errors
-- **11**: Resource exhaustion (system/environment)
-  - malloc() failed, out of memory
-  - Arena allocation failure
+- **11**: Resource exhaustion (system cannot fulfill request)
+  - Memory allocation request exceeds addressable limits (SIZE_MAX overflow)
+  - malloc() failed (insufficient available memory)
+  - Arena allocation exhausted
 
 ## Views and Scoping
 
