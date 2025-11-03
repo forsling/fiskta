@@ -3,7 +3,7 @@
 import subprocess, sys, os, hashlib, argparse, json
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 FIX = ROOT / "fixtures"
 
 

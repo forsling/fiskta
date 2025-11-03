@@ -4,8 +4,8 @@
 // This allows the test suite to validate the library interface
 // by running all 630 tests through runtime_execute_buffer() and callbacks.
 
-#include "src/fiskta.h"
-#include "src/util.h"
+#include "fiskta.h"
+#include "util.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>

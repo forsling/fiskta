@@ -81,7 +81,7 @@ pub fn build(b: *std.Build) !void {
         "-Wextra",
         "-I",
         "src",
-        "fiskta_library_wrapper.c",
+        "tools/fiskta_library_wrapper.c",
         "src/parse.c",
         "src/fiskta.c",
         "src/engine.c",
@@ -113,14 +113,14 @@ pub fn build(b: *std.Build) !void {
 
     const test_step = b.step("test", "Run test suite (CLI)");
 
-    const test_cli_cmd = b.addSystemCommand(&.{ "sh", "-c", "python3 test.py --exe zig-out/bin/fiskta | grep -v '\\[PASS\\]'" });
+    const test_cli_cmd = b.addSystemCommand(&.{ "sh", "-c", "python3 tools/test.py --exe zig-out/bin/fiskta | grep -v '\\[PASS\\]'" });
     test_cli_cmd.setCwd(b.path("."));
     test_cli_cmd.setEnvironmentVariable("PATH", b.pathJoin(&.{ b.pathFromRoot(out_dir), ":", std.posix.getenv("PATH") orelse "" }));
     test_cli_cmd.step.dependOn(host_step);
     test_step.dependOn(&test_cli_cmd.step);
 
     const test_lib_step = b.step("test-lib", "Run test suite through library wrapper");
-    const test_lib_cmd = b.addSystemCommand(&.{ "sh", "-c", "python3 test.py --exe zig-out/bin/fiskta_library_wrapper | grep -v '\\[PASS\\]'" });
+    const test_lib_cmd = b.addSystemCommand(&.{ "sh", "-c", "python3 tools/test.py --exe zig-out/bin/fiskta_library_wrapper | grep -v '\\[PASS\\]'" });
     test_lib_cmd.setCwd(b.path("."));
     test_lib_cmd.setEnvironmentVariable("PATH", b.pathJoin(&.{ b.pathFromRoot(out_dir), ":", std.posix.getenv("PATH") orelse "" }));
     test_lib_cmd.step.dependOn(wrapper_step);
