@@ -3,7 +3,7 @@
 #endif
 
 #include "regex_vm.h"
-#include "error.h"
+#include "fiskta.h"
 #include "util.h"
 #include <stdlib.h>
 #include <string.h>
@@ -114,14 +114,14 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
 {
     // Guard against work budget exhaustion (step-count explosion from nested quantifiers)
     if (++(*work_count) > work_budget) {
-        error_detail_set(E_CAPACITY, -1,
+        error_set(E_CAPACITY, -1,
             "regex: work budget exceeded (pattern too complex or adversarial)");
         return E_CAPACITY;
     }
 
     // Guard against stack overflow from pathological patterns like ((x*){0}){999,}
     if (depth > MAX_EPSILON_RECURSION_DEPTH) {
-        error_detail_set(E_CAPACITY, -1,
+        error_set(E_CAPACITY, -1,
             "regex: recursion depth exceeded (pattern too deeply nested)");
         return E_CAPACITY;
     }
@@ -245,7 +245,7 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
 #endif
             // Add the thread to the list so consumption step can detect it
             if (l->n >= l->cap) {
-                error_detail_set(E_CAPACITY, -1,
+                error_set(E_CAPACITY, -1,
                     "regex: exceeded internal NFA thread limit (%d threads)", l->cap);
                 return E_CAPACITY; // Thread list is full
             }
@@ -262,7 +262,7 @@ static enum Err add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start
         case RI_CLASS:
             // consuming; add once
             if (l->n >= l->cap) {
-                error_detail_set(E_CAPACITY, -1,
+                error_set(E_CAPACITY, -1,
                     "regex: exceeded internal NFA thread limit (%d threads)", l->cap);
                 return E_CAPACITY; // Thread list is full
             }
@@ -309,7 +309,7 @@ enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
     }
     const size_t need_seen = (size_t)nins * RE_SEEN_SLOTS * sizeof(u32);
     if (need_seen > io->re.seen_bytes) {
-        error_detail_set(E_CAPACITY, -1,
+        error_set(E_CAPACITY, -1,
             "regex: seen buffer too small (need %zu bytes, have %zu); increase re_ins_estimate",
             need_seen, io->re.seen_bytes);
         return E_CAPACITY; // Seen buffer not large enough for regex

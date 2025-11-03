@@ -1,6 +1,6 @@
 #include "regex_prog.h"
-#include "error.h"
 #include "fileio.h"
+#include "fiskta.h"
 #include <ctype.h>
 #include <limits.h>
 #include <stdio.h>
@@ -63,7 +63,7 @@ typedef struct {
 static enum Err emit_inst(ReB* b, ReOp op, int x, int y, unsigned char ch, int cls_idx, int* out_idx)
 {
     if (b->nins >= b->ins_cap) {
-        error_detail_set(E_CAPACITY, -1,
+        error_set(E_CAPACITY, -1,
             "regex: pattern too complex (needs %d+ instructions, max %d); reduce alternations/quantifiers",
             b->nins + 1, b->ins_cap);
         return E_CAPACITY;
@@ -83,7 +83,7 @@ static enum Err emit_inst(ReB* b, ReOp op, int x, int y, unsigned char ch, int c
 static enum Err emit_class(ReB* b, const ReClass* src, int* idx_out)
 {
     if (b->ncls >= b->cls_cap) {
-        error_detail_set(E_CAPACITY, -1,
+        error_set(E_CAPACITY, -1,
             "regex: too many character classes (needs %d+, max %d); simplify pattern",
             b->ncls + 1, b->cls_cap);
         return E_CAPACITY;
@@ -881,7 +881,7 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
         // Very large means max_count > 1000 (effectively unbounded for nullable patterns)
         // Examples: (a*)*, (a*)+, (a*){5,}, (\W?){10,}, ((x{0})){0,999999}
         if (inner_nullable && (max_count == -1 || max_count > 1000)) {
-            error_detail_set(E_PARSE, -1,
+            error_set(E_PARSE, -1,
                 "regex: unbounded or very large quantifier on nullable pattern (can match empty string repeatedly)");
             return E_PARSE;
         }
@@ -1002,7 +1002,7 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
                 // {n,} where n >= 2 - use counter-based loop
                 int counter_id = b->next_counter_id++;
                 if (counter_id >= MAX_RE_COUNTERS) {
-                    error_detail_set(E_CAPACITY, -1,
+                    error_set(E_CAPACITY, -1,
                         "regex: too many quantified groups in pattern (max %d); reduce nesting or use simpler quantifiers",
                         MAX_RE_COUNTERS);
                     return E_CAPACITY;
@@ -1068,7 +1068,7 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
             // These are safe even with nullable patterns (bounded)
             int counter_id = b->next_counter_id++;
             if (counter_id >= MAX_RE_COUNTERS) {
-                error_detail_set(E_CAPACITY, -1,
+                error_set(E_CAPACITY, -1,
                     "regex: too many quantified groups in pattern (max %d); reduce nesting or use simpler quantifiers",
                     MAX_RE_COUNTERS);
                 return E_CAPACITY;
@@ -1521,7 +1521,7 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
             // All other cases use counter-based loops
             int counter_id = b->next_counter_id++;
             if (counter_id >= MAX_RE_COUNTERS) {
-                error_detail_set(E_CAPACITY, -1,
+                error_set(E_CAPACITY, -1,
                     "regex: too many quantified groups in pattern (max %d); reduce nesting or use simpler quantifiers",
                     MAX_RE_COUNTERS);
                 return E_CAPACITY;

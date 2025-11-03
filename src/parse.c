@@ -1,6 +1,6 @@
 #include "parse.h"
-#include "error.h"
 #include "fileio.h"
+#include "fiskta.h"
 #include "fiskta_types.h"
 #include "util.h"
 #include <ctype.h>
@@ -35,7 +35,7 @@ static enum Err parse_op_dry_run(const String* tokens, i32* idx, i32 token_count
 static inline enum Err check_pattern_len(String tok, i32 err_pos)
 {
     if (tok.len > MAX_PATTERN_LENGTH) {
-        error_detail_set(E_CAPACITY, err_pos, "pattern too long (max %d bytes)", MAX_PATTERN_LENGTH);
+        error_set(E_CAPACITY, err_pos, "pattern too long (max %d bytes)", MAX_PATTERN_LENGTH);
         return E_CAPACITY;
     }
     return E_OK;
@@ -468,11 +468,10 @@ static i32 estimate_regex_instructions(String pattern)
 
 enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_path, ParsePlan* plan, const char** in_path_out)
 {
-    error_detail_reset();
     memset(plan, 0, sizeof(*plan));
 
     if (token_count < 1) {
-        error_detail_set(E_PARSE, -1, "expected at least one operation");
+        error_set(E_PARSE, -1, "expected at least one operation");
         return E_PARSE;
     }
 
@@ -661,7 +660,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                             // Validate counter quantifier usage before compilation
                             i32 counter_count = count_counter_quantifiers_in_pattern(pat_tok);
                             if (counter_count > MAX_RE_COUNTERS) {
-                                error_detail_set(E_CAPACITY, idx,
+                                error_set(E_CAPACITY, idx,
                                     "regex: too many quantified groups in pattern (found %d, max %d); reduce nesting or use simpler quantifiers",
                                     counter_count, MAX_RE_COUNTERS);
                                 return E_CAPACITY;
@@ -844,7 +843,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                     i32 segments = 0;
                     i32 marks = 0;
                     if (!compute_print_stats(tokens[idx], &stored_len, &segments, &marks)) {
-                        error_detail_set(E_PARSE, idx, "invalid escape in print literal");
+                        error_set(E_PARSE, idx, "invalid escape in print literal");
                         return E_PARSE;
                     }
                     plan->needle_count++;
@@ -861,7 +860,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                     idx++;
                 }
             } else {
-                error_detail_set(E_PARSE, idx, "unknown operation '%.*s'", cmd_tok.len, cmd_tok.bytes);
+                error_set(E_PARSE, idx, "unknown operation '%.*s'", cmd_tok.len, cmd_tok.bytes);
                 return E_PARSE;
             }
         }
@@ -930,11 +929,10 @@ static bool has_empty_quantified_group(const char* pattern, i32 len)
 enum Err parse_build(i32 token_count, const String* tokens, const char* in_path, Program* prg, const char** in_path_out,
     Clause* clauses_buf, Op* ops_buf, char* str_pool, size_t str_pool_cap)
 {
-    error_detail_reset();
     memset(prg, 0, sizeof(*prg));
 
     if (token_count < 1) {
-        error_detail_set(E_PARSE, -1, "expected at least one operation");
+        error_set(E_PARSE, -1, "expected at least one operation");
         return E_PARSE;
     }
 
@@ -1004,9 +1002,9 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
         if (last_clause->link != LINK_NONE) {
             if (token_count > 0) {
                 const String tail_tok = tokens[token_count - 1];
-                error_detail_set(E_PARSE, token_count - 1, "dangling '%.*s' without following clause", tail_tok.len, tail_tok.bytes);
+                error_set(E_PARSE, token_count - 1, "dangling '%.*s' without following clause", tail_tok.len, tail_tok.bytes);
             } else {
-                error_detail_set(E_PARSE, -1, "dangling clause link without target");
+                error_set(E_PARSE, -1, "dangling clause link without target");
             }
             return E_PARSE; // Trailing OR/THEN is a parse error
         }
@@ -1149,7 +1147,7 @@ static enum Err parse_find_like_args(const String* tokens, i32* idx, i32 token_c
                                                                               : "find:bin";
         const char* what = (kind == FIND_BIN) ? "hex bytes" : (kind == FIND_LIT) ? "needle"
                                                                                  : "pattern";
-        error_detail_set(E_PARSE, cmd_idx, "missing %s for '%s'", what, op_name);
+        error_set(E_PARSE, cmd_idx, "missing %s for '%s'", what, op_name);
         return E_PARSE;
     }
 
@@ -1166,7 +1164,7 @@ static enum Err parse_skip_args(const String* tokens, i32* idx, i32 token_count,
     i32 cmd_idx, TmpSkipArgs* out, Program* prg, LabelTable* labels)
 {
     if (*idx >= token_count) {
-        error_detail_set(E_PARSE, cmd_idx, "missing target for 'skip'");
+        error_set(E_PARSE, cmd_idx, "missing target for 'skip'");
         return E_PARSE;
     }
 
@@ -1183,7 +1181,7 @@ static enum Err parse_skip_args(const String* tokens, i32* idx, i32 token_count,
         i32 offset_idx = *idx;
         enum Err err = parse_offset(tokens[*idx], &out->u.by_offset.offset, &out->u.by_offset.unit);
         if (err != E_OK) {
-            error_detail_set(E_PARSE, offset_idx, "invalid offset '%.*s' for 'skip'", tokens[offset_idx].len, tokens[offset_idx].bytes);
+            error_set(E_PARSE, offset_idx, "invalid offset '%.*s' for 'skip'", tokens[offset_idx].len, tokens[offset_idx].bytes);
             return err;
         }
         (*idx)++;
@@ -1198,7 +1196,7 @@ static enum Err parse_take_args(const String* tokens, i32* idx, i32 token_count,
     i32 cmd_idx, TmpTakeArgs* out, Program* prg, LabelTable* labels)
 {
     if (*idx >= token_count) {
-        error_detail_set(E_PARSE, cmd_idx, "missing argument for 'take'");
+        error_set(E_PARSE, cmd_idx, "missing argument for 'take'");
         return E_PARSE;
     }
 
@@ -1217,7 +1215,7 @@ static enum Err parse_take_args(const String* tokens, i32* idx, i32 token_count,
 
         // Parse pattern
         if (*idx >= token_count) {
-            error_detail_set(E_PARSE, cmd_idx, "missing pattern for 'take until:re'");
+            error_set(E_PARSE, cmd_idx, "missing pattern for 'take until:re'");
             return E_PARSE;
         }
         out->u.until.pattern_tok = tokens[*idx];
@@ -1241,7 +1239,7 @@ static enum Err parse_take_args(const String* tokens, i32* idx, i32 token_count,
 
         // Parse hex string
         if (*idx >= token_count) {
-            error_detail_set(E_PARSE, cmd_idx, "missing hex bytes for 'take until:bin'");
+            error_set(E_PARSE, cmd_idx, "missing hex bytes for 'take until:bin'");
             return E_PARSE;
         }
         out->u.until.pattern_tok = tokens[*idx];
@@ -1265,7 +1263,7 @@ static enum Err parse_take_args(const String* tokens, i32* idx, i32 token_count,
 
         // Parse needle
         if (*idx >= token_count) {
-            error_detail_set(E_PARSE, cmd_idx, "missing needle for 'take until'");
+            error_set(E_PARSE, cmd_idx, "missing needle for 'take until'");
             return E_PARSE;
         }
         out->u.until.pattern_tok = tokens[*idx];
@@ -1289,14 +1287,14 @@ static enum Err parse_take_args(const String* tokens, i32* idx, i32 token_count,
         if (is_keyword(next_tok, &kw_len)) {
             (*idx)++;
             if (*idx >= token_count) {
-                error_detail_set(E_PARSE, cmd_idx, "missing length value for 'take len'");
+                error_set(E_PARSE, cmd_idx, "missing length value for 'take len'");
                 return E_PARSE;
             }
         }
         enum Err err = parse_offset(tokens[*idx], &out->u.len.offset, &out->u.len.unit);
         if (err != E_OK) {
             const char* ctx = is_keyword(next_tok, &kw_len) ? "take len" : "take";
-            error_detail_set(E_PARSE, *idx, "invalid offset '%.*s' for '%s'", tokens[*idx].len, tokens[*idx].bytes, ctx);
+            error_set(E_PARSE, *idx, "invalid offset '%.*s' for '%s'", tokens[*idx].len, tokens[*idx].bytes, ctx);
             return err;
         }
         (*idx)++;
@@ -1311,7 +1309,7 @@ static enum Err parse_view_args(const String* tokens, i32* idx, i32 token_count,
     i32 cmd_idx, TmpViewArgs* out, Program* prg, LabelTable* labels)
 {
     if (*idx >= token_count) {
-        error_detail_set(E_PARSE, cmd_idx, "missing start location for 'view'");
+        error_set(E_PARSE, cmd_idx, "missing start location for 'view'");
         return E_PARSE;
     }
     enum Err err = parse_loc_expr(tokens, idx, token_count, &out->a, prg, labels);
@@ -1320,7 +1318,7 @@ static enum Err parse_view_args(const String* tokens, i32* idx, i32 token_count,
     }
 
     if (*idx >= token_count) {
-        error_detail_set(E_PARSE, cmd_idx, "missing end location for 'view'");
+        error_set(E_PARSE, cmd_idx, "missing end location for 'view'");
         return E_PARSE;
     }
     err = parse_loc_expr(tokens, idx, token_count, &out->b, prg, labels);
@@ -1337,7 +1335,7 @@ static enum Err parse_print_args(const String* tokens, i32* idx, i32 token_count
     i32 cmd_idx, const String cmd_tok, TmpPrintArgs* out)
 {
     if (*idx >= token_count) {
-        error_detail_set(E_PARSE, cmd_idx, "missing string for '%.*s'", cmd_tok.len, cmd_tok.bytes);
+        error_set(E_PARSE, cmd_idx, "missing string for '%.*s'", cmd_tok.len, cmd_tok.bytes);
         return E_PARSE;
     }
 
@@ -1354,7 +1352,7 @@ static enum Err parse_label_args(const String* tokens, i32* idx, i32 token_count
     i32 cmd_idx, TmpLabelArgs* out)
 {
     if (*idx >= token_count) {
-        error_detail_set(E_PARSE, cmd_idx, "missing label name for 'label'");
+        error_set(E_PARSE, cmd_idx, "missing label name for 'label'");
         return E_PARSE;
     }
 
@@ -1370,7 +1368,7 @@ static enum Err parse_label_args(const String* tokens, i32* idx, i32 token_count
 static enum Err parse_clear_args(const String* tokens, i32* idx, i32 token_count, i32 cmd_idx)
 {
     if (*idx >= token_count) {
-        error_detail_set(E_PARSE, cmd_idx, "missing target for 'clear'");
+        error_set(E_PARSE, cmd_idx, "missing target for 'clear'");
         return E_PARSE;
     }
 
@@ -1380,7 +1378,7 @@ static enum Err parse_clear_args(const String* tokens, i32* idx, i32 token_count
 
     if (!is_keyword(target_tok, &kw_view)) {
         // Future: clear <LABEL> - for now, error
-        error_detail_set(E_PARSE, target_idx, "unsupported clear target '%.*s'", target_tok.len, target_tok.bytes);
+        error_set(E_PARSE, target_idx, "unsupported clear target '%.*s'", target_tok.len, target_tok.bytes);
         return E_PARSE;
     }
 
@@ -1399,7 +1397,7 @@ static enum Err parse_op_dry_run(const String* tokens, i32* idx, i32 token_count
     Program* prg, LabelTable* labels)
 {
     if (*idx >= token_count) {
-        error_detail_set(E_PARSE, token_count, "unexpected end of input while reading operation");
+        error_set(E_PARSE, token_count, "unexpected end of input while reading operation");
         return E_PARSE;
     }
 
@@ -1449,7 +1447,7 @@ static enum Err parse_op_dry_run(const String* tokens, i32* idx, i32 token_count
         return parse_print_args(tokens, idx, token_count, cmd_idx, cmd_tok, &args.print);
 
     } else {
-        error_detail_set(E_PARSE, cmd_idx, "unknown operation '%.*s'", cmd_tok.len, cmd_tok.bytes);
+        error_set(E_PARSE, cmd_idx, "unknown operation '%.*s'", cmd_tok.len, cmd_tok.bytes);
         return E_PARSE;
     }
 }
@@ -1458,7 +1456,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
     char* str_pool, size_t* str_pool_off, size_t str_pool_cap)
 {
     if (*idx >= token_count) {
-        error_detail_set(E_PARSE, token_count, "unexpected end of input while reading operation");
+        error_set(E_PARSE, token_count, "unexpected end of input while reading operation");
         return E_PARSE;
     }
 
@@ -1540,7 +1538,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         // Check for patterns that cause exponential expansion
         if (has_empty_quantified_group(op->u.findr.pattern.bytes, op->u.findr.pattern.len)) {
-            error_detail_set(E_PARSE, args.pattern_idx, "regex pattern contains empty alternative in quantified group (e.g. '(|a)*')");
+            error_set(E_PARSE, args.pattern_idx, "regex pattern contains empty alternative in quantified group (e.g. '(|a)*')");
             return E_PARSE;
         }
 
@@ -1639,7 +1637,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
             // Check for patterns that cause exponential expansion
             if (has_empty_quantified_group(op->u.take_until_re.pattern.bytes, op->u.take_until_re.pattern.len)) {
-                error_detail_set(E_PARSE, args.u.until.pattern_idx, "regex pattern contains empty alternative in quantified group (e.g. '(|a)*')");
+                error_set(E_PARSE, args.u.until.pattern_idx, "regex pattern contains empty alternative in quantified group (e.g. '(|a)*')");
                 return E_PARSE;
             }
 
@@ -1770,7 +1768,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         // Validate and materialize
         i32 segments = 0;
         if (!compute_print_stats(args.str_tok, NULL, &segments, NULL)) {
-            error_detail_set(E_PARSE, cmd_idx, "invalid escape in print literal");
+            error_set(E_PARSE, cmd_idx, "invalid escape in print literal");
             return E_PARSE;
         }
 
@@ -1801,7 +1799,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         }
 
     } else {
-        error_detail_set(E_PARSE, cmd_idx, "unknown operation '%.*s'", cmd_tok.len, cmd_tok.bytes);
+        error_set(E_PARSE, cmd_idx, "unknown operation '%.*s'", cmd_tok.len, cmd_tok.bytes);
         return E_PARSE;
     }
 
@@ -1811,7 +1809,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 static enum Err parse_loc_expr(const String* tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg, LabelTable* labels)
 {
     if (*idx >= token_count) {
-        error_detail_set(E_PARSE, token_count, "expected location expression");
+        error_set(E_PARSE, token_count, "expected location expression");
         return E_PARSE;
     }
 
@@ -1829,11 +1827,11 @@ static enum Err parse_loc_expr(const String* tokens, i32* idx, i32 token_count, 
         // Parse base part
         size_t base_len = (size_t)(offset_start - token);
         if (base_len == 0) {
-            error_detail_set(E_PARSE, loc_idx, "location '%.*s' missing base before offset", token_tok.len, token_tok.bytes);
+            error_set(E_PARSE, loc_idx, "location '%.*s' missing base before offset", token_tok.len, token_tok.bytes);
             return E_PARSE;
         }
         if (base_len > INT32_MAX) {
-            error_detail_set(E_PARSE, loc_idx, "location '%.*s' base is too long", token_tok.len, token_tok.bytes);
+            error_set(E_PARSE, loc_idx, "location '%.*s' base is too long", token_tok.len, token_tok.bytes);
             return E_PARSE;
         }
 
@@ -1842,7 +1840,7 @@ static enum Err parse_loc_expr(const String* tokens, i32* idx, i32 token_count, 
         String offset_str = { offset_start, offset_len };
         enum Err err = parse_offset(offset_str, &loc->offset, &loc->unit);
         if (err != E_OK) {
-            error_detail_set(E_PARSE, loc_idx, "invalid offset '%.*s' in location '%.*s'", offset_str.len, offset_str.bytes, token_tok.len, token_tok.bytes);
+            error_set(E_PARSE, loc_idx, "invalid offset '%.*s' in location '%.*s'", offset_str.len, offset_str.bytes, token_tok.len, token_tok.bytes);
             return err;
         }
 
@@ -1879,7 +1877,7 @@ static enum Err parse_loc_expr(const String* tokens, i32* idx, i32 token_count, 
         }
         loc->name_idx = name_idx;
     } else {
-        error_detail_set(E_PARSE, loc_idx, "unknown location '%.*s'", token_tok.len, token_tok.bytes);
+        error_set(E_PARSE, loc_idx, "unknown location '%.*s'", token_tok.len, token_tok.bytes);
         return E_PARSE;
     }
 
@@ -1901,7 +1899,7 @@ static enum Err parse_loc_expr(const String* tokens, i32* idx, i32 token_count, 
 static enum Err parse_at_expr(const String* tokens, i32* idx, i32 token_count, LocExpr* at)
 {
     if (*idx >= token_count) {
-        error_detail_set(E_PARSE, token_count, "expected location after 'at'");
+        error_set(E_PARSE, token_count, "expected location after 'at'");
         return E_PARSE;
     }
 
@@ -1916,11 +1914,11 @@ static enum Err parse_at_expr(const String* tokens, i32* idx, i32 token_count, L
         // Parse base part
         size_t base_len = (size_t)(offset_start - token);
         if (base_len == 0) {
-            error_detail_set(E_PARSE, at_idx, "location '%.*s' missing base before offset", token_tok.len, token_tok.bytes);
+            error_set(E_PARSE, at_idx, "location '%.*s' missing base before offset", token_tok.len, token_tok.bytes);
             return E_PARSE;
         }
         if (base_len > INT32_MAX) {
-            error_detail_set(E_PARSE, at_idx, "location '%.*s' base is too long", token_tok.len, token_tok.bytes);
+            error_set(E_PARSE, at_idx, "location '%.*s' base is too long", token_tok.len, token_tok.bytes);
             return E_PARSE;
         }
 
@@ -1930,7 +1928,7 @@ static enum Err parse_at_expr(const String* tokens, i32* idx, i32 token_count, L
         String offset_str = { offset_start, offset_len };
         enum Err err = parse_offset(offset_str, &at->offset, &at->unit);
         if (err != E_OK) {
-            error_detail_set(E_PARSE, at_idx, "invalid offset '%.*s' in location '%.*s'", offset_str.len, offset_str.bytes, token_tok.len, token_tok.bytes);
+            error_set(E_PARSE, at_idx, "invalid offset '%.*s' in location '%.*s'", offset_str.len, offset_str.bytes, token_tok.len, token_tok.bytes);
             return err;
         }
 
@@ -1954,7 +1952,7 @@ static enum Err parse_at_expr(const String* tokens, i32* idx, i32 token_count, L
     } else if (is_keyword(base_tok, &kw_line_end)) {
         at->base = LOC_LINE_END;
     } else {
-        error_detail_set(E_PARSE, at_idx, "unknown 'at' location '%.*s'", token_tok.len, token_tok.bytes);
+        error_set(E_PARSE, at_idx, "unknown 'at' location '%.*s'", token_tok.len, token_tok.bytes);
         return E_PARSE;
     }
 

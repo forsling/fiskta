@@ -2,14 +2,14 @@
 #define _GNU_SOURCE
 #endif
 
-#include "fiskta.h"
 #include "engine.h"
-#include "error.h"
 #include "fileio.h"
+#include "fiskta.h"
 #include "fiskta_types.h"
 #include "parse.h"
 #include "regex_prog.h"
 #include "util.h"
+#include <stdarg.h>
 #include <stdalign.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -26,6 +26,61 @@
 #define ftello _ftelli64
 #endif
 #endif
+
+/******************
+ * ERROR HANDLING *
+ ******************/
+#define ERROR_MESSAGE_MAX 160
+
+_Thread_local static enum Err tl_err = E_OK;
+_Thread_local static i32 tl_position = -1;
+_Thread_local static char tl_message[ERROR_MESSAGE_MAX] = {0};
+_Thread_local static FiskataErrorCallback tl_callback = NULL;
+_Thread_local static void* tl_userdata = NULL;
+
+void error_set(enum Err err, i32 position, const char* fmt, ...)
+{
+    tl_err = err;
+    tl_position = position;
+
+    if (fmt) {
+        va_list args;
+        va_start(args, fmt);
+        vsnprintf(tl_message, ERROR_MESSAGE_MAX, fmt, args);
+        va_end(args);
+    } else {
+        tl_message[0] = '\0';
+    }
+}
+
+static enum Err error_code(void)
+{
+    return tl_err;
+}
+
+static i32 error_position(void)
+{
+    return tl_position;
+}
+
+static const char* error_message(void)
+{
+    return tl_message[0] != '\0' ? tl_message : NULL;
+}
+
+void fiskta_set_error_handler(FiskataErrorCallback callback, void* userdata)
+{
+    tl_callback = callback;
+    tl_userdata = userdata;
+}
+
+static FiskataErrorCallback error_get_handler(void** userdata_out)
+{
+    if (userdata_out) {
+        *userdata_out = tl_userdata;
+    }
+    return tl_callback;
+}
 
 // Sentinel: means "no saved VM yet"
 #define VM_CURSOR_UNSET ((i64) - 1)
@@ -153,25 +208,48 @@ static const char* err_str(enum Err e)
     }
 }
 
-static void print_err(enum Err e, const char* msg)
+static void print_err(enum Err e, const char* context)
 {
+    i32 position = error_position();
+    const char* message = error_message();
+
+    void* userdata = NULL;
+    FiskataErrorCallback callback = error_get_handler(&userdata);
+
+    if (callback) {
+        callback(e, context, position, message, userdata);
+        return;
+    }
+
     fprintf(stderr, "fiskta: ");
-    if (msg) {
-        fprintf(stderr, "%s (%s)", msg, err_str(e));
+    if (context) {
+        fprintf(stderr, "%s (%s)", context, err_str(e));
     } else {
         fprintf(stderr, "%s", err_str(e));
     }
 
-    const ErrorDetail* detail = error_detail_last();
-    if (detail && detail->message[0] != '\0' && detail->err == e) {
-        if (detail->position >= 0) {
-            fprintf(stderr, ": %s (token %d)", detail->message, detail->position + 1);
+    if (message && error_code() == e) {
+        if (position >= 0) {
+            fprintf(stderr, ": %s (token %d)", message, position + 1);
         } else {
-            fprintf(stderr, ": %s", detail->message);
+            fprintf(stderr, ": %s", message);
         }
     }
 
     fputc('\n', stderr);
+}
+
+static enum Err emit_output(const void* data, size_t len, const RuntimeConfig* cfg)
+{
+    if (cfg && cfg->output_callback) {
+        cfg->output_callback(data, len, cfg->output_userdata);
+        return E_OK;
+    }
+
+    if (fwrite(data, 1, len, stdout) != len) {
+        return E_IO;
+    }
+    return E_OK;
 }
 
 // Align a size value, returning non-zero on failure without exiting.
@@ -337,7 +415,7 @@ static void loop_commit(LoopState* state, i64 data_hi, IterResult result, bool i
 static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm,
     Range* clause_ranges, LabelWrite* clause_labels,
     char* clause_inline, i32 inline_slots_total,
-    i64 data_lo, i64 data_hi)
+    i64 data_lo, i64 data_hi, const RuntimeConfig* cfg)
 {
     io_reset_full(io);
 
@@ -405,11 +483,36 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
             for (i32 i = 0; i < result.range_count; i++) {
                 const Range* range = &result.ranges[i];
                 if (range->kind == RANGE_FILE) {
-                    e = io_emit(io, range->file.start, range->file.end, stdout);
-                } else {
-                    if ((size_t)fwrite(range->lit.bytes, 1, (size_t)range->lit.len, stdout) != (size_t)range->lit.len) {
-                        e = E_IO;
+                    i64 start = range->file.start;
+                    i64 end = range->file.end;
+                    if (start < end) {
+                        if (start < 0 || end > io->size) {
+                            e = E_IO;
+                            break;
+                        }
+                        if (fseeko(io->f, start, SEEK_SET) != 0) {
+                            e = E_IO;
+                            break;
+                        }
+                        i64 remaining = end - start;
+                        while (remaining > 0) {
+                            size_t chunk_size = (remaining > (i64)io->buf_cap) ? io->buf_cap : (size_t)remaining;
+                            size_t n = fread(io->buf, 1, chunk_size, io->f);
+                            if (n == 0) {
+                                if (ferror(io->f)) {
+                                    e = E_IO;
+                                }
+                                break;
+                            }
+                            e = emit_output(io->buf, n, cfg);
+                            if (e != E_OK) {
+                                break;
+                            }
+                            remaining -= (i64)n;
+                        }
                     }
+                } else {
+                    e = emit_output(range->lit.bytes, (size_t)range->lit.len, cfg);
                 }
                 if (e != E_OK) {
                     break;
@@ -476,7 +579,6 @@ int program_requirements(i32 token_count, const String* tokens,
         return FISKTA_EXIT_PARSE;
     }
 
-    // Initialize output
     memset(out, 0, sizeof(*out));
 
     /*******************************************************
@@ -538,7 +640,7 @@ int program_requirements(i32 token_count, const String* tokens,
     /****************************************************
      * PHASE 3: COMPUTE TOTAL ARENA SIZE WITH ALIGNMENT *
      ****************************************************/
-    size_t search_buf_size, clauses_size, ops_size, re_prog_size, re_ins_size, re_cls_size, str_pool_size;
+    size_t search_buf_size = 0, clauses_size = 0, ops_size = 0, re_prog_size = 0, re_ins_size = 0, re_cls_size = 0, str_pool_size = 0;
     if (align_or_fail(search_buf_cap, alignof(unsigned char), &search_buf_size) != 0
         || align_or_fail(clauses_bytes, alignof(Clause), &clauses_size) != 0
         || align_or_fail(ops_bytes, alignof(Op), &ops_size) != 0
@@ -608,7 +710,6 @@ int build_program(i32 token_count, const String* tokens,
         return FISKTA_EXIT_PARSE;
     }
 
-    // Initialize outputs
     memset(prog_out, 0, sizeof(*prog_out));
     memset(buffers_out, 0, sizeof(*buffers_out));
 
@@ -737,7 +838,7 @@ int build_program(i32 token_count, const String* tokens,
     int actual_thread_cap = compute_thread_cap_from_budget(FISKTA_REGEX_BUDGET_DEFAULT, max_seen_bytes);
     if (actual_thread_cap == 0) {
         print_err(E_CAPACITY, NULL);
-        error_detail_set(E_CAPACITY, -1,
+        error_set(E_CAPACITY, -1,
             "regex patterns require %zu bytes for seen tables, exceeding budget of %zu bytes",
             max_seen_bytes * 2, (size_t)FISKTA_REGEX_BUDGET_DEFAULT);
         return FISKTA_EXIT_CAPACITY;
@@ -839,7 +940,7 @@ int runtime_execute(const Program* prog,
         IterResult iteration = execute_program_iteration(prog, &io, &loop_state.vm,
             buffers->clause_ranges, buffers->clause_labels,
             buffers->clause_inline, buffers->sum_inline_lits,
-            lo, hi);
+            lo, hi, config);
 
         loop_commit(&loop_state, hi, iteration, config->ignore_loop_failures);
         fflush(stdout);
@@ -864,7 +965,7 @@ int runtime_execute(const Program* prog,
 
     if (loop_state.exit_code) {
         // Print error details before returning for non-OK exit codes
-        if (loop_state.exit_code == FISKTA_EXIT_PROGRAM_FAIL && error_detail_has()) {
+        if (loop_state.exit_code == FISKTA_EXIT_PROGRAM_FAIL && error_message()) {
             print_err(loop_state.last_result.last_err, NULL);
         }
         return loop_state.exit_code;
@@ -885,7 +986,7 @@ int runtime_execute(const Program* prog,
         return FISKTA_EXIT_CAPACITY;
     case ITER_PROGRAM_FAIL:
         // Print error details if available for helpful diagnostics
-        if (error_detail_has()) {
+        if (error_message()) {
             print_err(loop_state.last_result.last_err, NULL);
         }
         return FISKTA_EXIT_PROGRAM_FAIL;
@@ -893,4 +994,3 @@ int runtime_execute(const Program* prog,
         return FISKTA_EXIT_IO;
     }
 }
-

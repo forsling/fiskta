@@ -18,9 +18,15 @@
 
 #pragma once
 
+#include "fiskta_types.h"
+
+// Callback types
+typedef void (*FiskataErrorCallback)(enum Err err, const char* context,
+    i32 position, const char* message, void* userdata);
+typedef void (*FiskataOutputCallback)(const void* data, size_t len, void* userdata);
+
 #include "engine.h"
 #include "fileio.h"
-#include "fiskta_types.h"
 
 /********************************
  * REGEX ENGINE RESOURCE LIMITS *
@@ -57,13 +63,17 @@
 /*************************
  * RUNTIME CONFIGURATION *
  *************************/
-// Runtime configuration
 typedef struct {
     i32 loop_ms;
     bool loop_enabled;
     bool ignore_loop_failures;
     i32 idle_timeout_ms;
     i32 exec_timeout_ms;
+
+    FiskataErrorCallback error_callback;
+    void* error_userdata;
+    FiskataOutputCallback output_callback;
+    void* output_userdata;
 } RuntimeConfig;
 
 /***************************
@@ -173,7 +183,7 @@ typedef struct {
 //   - Returns FISKTA_EXIT_OK on success, fills *out
 //   - Returns FISKTA_EXIT_PARSE if tokens or pattern invalid
 //   - Returns FISKTA_EXIT_CAPACITY if capacity exceeded
-//   - Sets error_detail_* for human-readable diagnostics
+//   - Errors reported via fiskta_set_error_handler() or stderr
 int program_requirements(i32 token_count, const String* tokens,
     RuntimeRequirements* out);
 
@@ -241,3 +251,25 @@ int runtime_execute(const Program* prog,
     const char* file_path,
     RuntimeBuffers* buffers,
     const RuntimeConfig* config);
+
+// Error handling API
+//
+// Set diagnostic information for the current error. Used internally by
+// parse, regex, and runtime code to provide detailed error messages.
+// Maximum message length is 160 bytes.
+void error_set(enum Err err, i32 position, const char* fmt, ...);
+
+// Set error handler for this thread (optional)
+//
+// If set, errors will invoke the callback with diagnostic information.
+// If not set, errors print to stderr (default behavior).
+//
+// Thread-local: each thread can have its own error handler.
+// Safe to call multiple times to change handler.
+//
+// Example:
+//   void my_handler(enum Err err, const char* ctx, i32 pos, const char* msg, void* data) {
+//       fprintf(stderr, "Error: %s\n", msg);
+//   }
+//   fiskta_set_error_handler(my_handler, NULL);
+void fiskta_set_error_handler(FiskataErrorCallback callback, void* userdata);

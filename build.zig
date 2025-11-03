@@ -163,7 +163,6 @@ fn createBuildStep(
         "src/regex_vm.c",
         "src/regex_prog.c",
         "src/util.c",
-        "src/error.c",
         "-o",
         b.fmt("zig-out/bin/{s}{s}", .{ out_name, out_ext }),
     });
@@ -245,7 +244,6 @@ fn createAsanBuildStep(
         "src/regex_vm.c",
         "src/regex_prog.c",
         "src/util.c",
-        "src/error.c",
         "-o",
         b.fmt("zig-out/bin/{s}{s}", .{ out_name, out_ext }),
     });

@@ -3,7 +3,6 @@
 #endif
 
 #include "search_literal.h"
-#include "error.h"
 #include "util.h"
 #include <string.h>
 #include <sys/types.h>

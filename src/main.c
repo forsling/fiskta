@@ -3,9 +3,8 @@
 #endif
 
 #include "cli_help.h"
-#include "error.h"
-#include "fiskta_types.h"
 #include "fiskta.h"
+#include "fiskta_types.h"
 #include "util.h"
 #include <ctype.h>
 #include <limits.h>
