@@ -97,8 +97,23 @@ typedef struct {
     bool in_use;
 } LineBlockIdx;
 
+typedef enum {
+    FILE_MODE_DISK,
+    FILE_MODE_MEMORY
+} FileMode;
+
 typedef struct File {
-    FILE* f;
+    FileMode mode;
+    union {
+        struct {
+            FILE* f;
+        } disk;
+        struct {
+            const unsigned char* data;
+            size_t len;
+            i64 pos;
+        } mem;
+    };
     i64 size;
     // one reusable buffer for searching
     unsigned char* buf;
@@ -122,9 +137,14 @@ typedef struct File {
 // Open using caller-provided search buffer. No dynamic ownership here.
 enum Err io_open(File* io, const char* path,
     unsigned char* search_buf, size_t search_buf_cap);
+enum Err io_open_buffer(File* io, const unsigned char* data, size_t len,
+    unsigned char* search_buf, size_t search_buf_cap);
 void io_close(File* io);
 void io_reset_full(File* io);
 enum Err io_emit(File* io, i64 start, i64 end, FILE* out);
+
+// Helper to read from a specific offset (abstracts disk vs memory)
+enum Err io_read_at(File* io, i64 offset, unsigned char* dest, size_t requested, size_t* actual_out);
 
 // Provide preallocated regex scratch to File (no mallocs during search).
 //

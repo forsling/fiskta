@@ -82,10 +82,11 @@ enum Err literal_search_window(File* io, i64 win_lo, i64 win_hi,
                 block_hi = win_hi;
             }
 
-            if (fseeko(io->f, block_lo, SEEK_SET) != 0) {
-                return E_IO;
+            size_t n;
+            enum Err read_err = io_read_at(io, block_lo, io->buf, (size_t)(block_hi - block_lo), &n);
+            if (read_err != E_OK) {
+                return read_err;
             }
-            size_t n = fread(io->buf, 1, (size_t)(block_hi - block_lo), io->f);
             if (n == 0) {
                 break;
             }
@@ -133,11 +134,11 @@ enum Err literal_search_window(File* io, i64 win_lo, i64 win_hi,
             break;
         }
 
-        if (fseeko(io->f, block_lo, SEEK_SET) != 0) {
-            return E_IO;
+        size_t n;
+        enum Err read_err = io_read_at(io, block_lo, io->buf, (size_t)block_size, &n);
+        if (read_err != E_OK) {
+            return read_err;
         }
-
-        size_t n = fread(io->buf, 1, (size_t)block_size, io->f);
         if (n == 0) {
             break;
         }

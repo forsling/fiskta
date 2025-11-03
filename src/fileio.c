@@ -29,11 +29,12 @@ enum Err io_open(File* io, const char* path,
     unsigned char* search_buf, size_t search_buf_cap)
 {
     memset(io, 0, sizeof(*io));
+    io->mode = FILE_MODE_DISK;
 
     if (strcmp(path, "-") == 0) {
         // Spool stdin to temp file
-        io->f = tmpfile();
-        if (!io->f) {
+        io->disk.f = tmpfile();
+        if (!io->disk.f) {
             return E_IO;
         }
 
@@ -49,55 +50,55 @@ enum Err io_open(File* io, const char* path,
             size_t n = fread(buf, 1, sizeof(buf), stdin);
             if (n == 0) {
                 if (ferror(stdin)) {
-                    fclose(io->f);
+                    fclose(io->disk.f);
                     return E_IO;
                 }
                 break;
             }
 
-            size_t written = fwrite(buf, 1, n, io->f);
+            size_t written = fwrite(buf, 1, n, io->disk.f);
             if (written != n) {
-                fclose(io->f);
+                fclose(io->disk.f);
                 return E_IO;
             }
         }
 
-        if (fflush(io->f) != 0) {
-            fclose(io->f);
+        if (fflush(io->disk.f) != 0) {
+            fclose(io->disk.f);
             return E_IO;
         }
-        if (fseeko(io->f, 0, SEEK_END) != 0) {
-            fclose(io->f);
+        if (fseeko(io->disk.f, 0, SEEK_END) != 0) {
+            fclose(io->disk.f);
             return E_IO;
         }
-        off_t sz = ftello(io->f);
+        off_t sz = ftello(io->disk.f);
         if (sz < 0) {
-            fclose(io->f);
+            fclose(io->disk.f);
             return E_IO;
         }
         io->size = (i64)sz;
-        if (fseek(io->f, 0, SEEK_SET) != 0) {
-            fclose(io->f);
+        if (fseek(io->disk.f, 0, SEEK_SET) != 0) {
+            fclose(io->disk.f);
             return E_IO;
         }
     } else {
-        io->f = fopen(path, "rb");
-        if (!io->f) {
+        io->disk.f = fopen(path, "rb");
+        if (!io->disk.f) {
             return E_IO;
         }
 
-        if (fseeko(io->f, 0, SEEK_END) != 0) {
-            fclose(io->f);
+        if (fseeko(io->disk.f, 0, SEEK_END) != 0) {
+            fclose(io->disk.f);
             return E_IO;
         }
-        off_t sz = ftello(io->f);
+        off_t sz = ftello(io->disk.f);
         if (sz < 0) {
-            fclose(io->f);
+            fclose(io->disk.f);
             return E_IO;
         }
         io->size = (i64)sz;
-        if (fseek(io->f, 0, SEEK_SET) != 0) {
-            fclose(io->f);
+        if (fseek(io->disk.f, 0, SEEK_SET) != 0) {
+            fclose(io->disk.f);
             return E_IO;
         }
     }
@@ -117,11 +118,35 @@ enum Err io_open(File* io, const char* path,
     return E_OK;
 }
 
+enum Err io_open_buffer(File* io, const unsigned char* data, size_t len,
+    unsigned char* search_buf, size_t search_buf_cap)
+{
+    memset(io, 0, sizeof(*io));
+    io->mode = FILE_MODE_MEMORY;
+
+    io->mem.data = data;
+    io->mem.len = len;
+    io->mem.pos = 0;
+    io->size = (i64)len;
+
+    io->buf = search_buf;
+    io->buf_cap = search_buf_cap;
+
+    io->line_idx_gen = 0;
+    for (i32 i = 0; i < IDX_MAX_BLOCKS; ++i) {
+        io->line_idx[i].in_use = false;
+        io->line_idx[i].gen = 0;
+        io->line_idx[i].sub_count = 0;
+    }
+
+    return E_OK;
+}
+
 void io_close(File* io)
 {
-    if (io->f) {
-        fclose(io->f);
-        io->f = NULL;
+    if (io->mode == FILE_MODE_DISK && io->disk.f) {
+        fclose(io->disk.f);
+        io->disk.f = NULL;
     }
 
     io->size = 0;
@@ -134,12 +159,14 @@ void io_reset_full(File* io)
     if (!io) {
         return;
     }
-    if (io->f) {
+    if (io->mode == FILE_MODE_DISK && io->disk.f) {
         // 64-bit safe seek to BOF
-        if (fseeko(io->f, 0, SEEK_SET) != 0) {
+        if (fseeko(io->disk.f, 0, SEEK_SET) != 0) {
             // Best effort: clear any error state
-            clearerr(io->f);
+            clearerr(io->disk.f);
         }
+    } else if (io->mode == FILE_MODE_MEMORY) {
+        io->mem.pos = 0;
     }
 
     // Reset all line index cache but preserve arena-owned slabs
@@ -154,28 +181,62 @@ void io_reset_full(File* io)
     }
 }
 
+// Helper to read from a specific offset into a buffer
+// Returns E_OK on success, E_IO on error
+// Sets *actual_out to the number of bytes actually read
+enum Err io_read_at(File* io, i64 offset, unsigned char* dest, size_t requested, size_t* actual_out)
+{
+    if (offset < 0 || offset > io->size) {
+        *actual_out = 0;
+        return E_IO;
+    }
+
+    if (io->mode == FILE_MODE_DISK) {
+        if (fseeko(io->disk.f, offset, SEEK_SET) != 0) {
+            *actual_out = 0;
+            return E_IO;
+        }
+        size_t n = fread(dest, 1, requested, io->disk.f);
+        if (n == 0 && ferror(io->disk.f)) {
+            *actual_out = 0;
+            return E_IO;
+        }
+        *actual_out = n;
+        return E_OK;
+    } else {
+        // FILE_MODE_MEMORY
+        i64 available = io->size - offset;
+        if (available <= 0) {
+            *actual_out = 0;
+            return E_OK;
+        }
+        size_t to_copy = (size_t)available < requested ? (size_t)available : requested;
+        memcpy(dest, io->mem.data + offset, to_copy);
+        *actual_out = to_copy;
+        return E_OK;
+    }
+}
+
 enum Err io_emit(File* io, i64 start, i64 end, FILE* out)
 {
     if (start >= end) {
         return E_OK;
     }
     if (start < 0 || end > io->size) {
-        return E_IO; // outside file is an error
-    }
-
-    if (fseeko(io->f, start, SEEK_SET) != 0) {
         return E_IO;
     }
 
+    i64 offset = start;
     i64 remaining = end - start;
     while (remaining > 0) {
         size_t chunk_size = (remaining > (i64)io->buf_cap) ? io->buf_cap : (size_t)remaining;
-        size_t n = fread(io->buf, 1, chunk_size, io->f);
+        size_t n;
+        enum Err err = io_read_at(io, offset, io->buf, chunk_size, &n);
+        if (err != E_OK) {
+            return err;
+        }
         if (n == 0) {
-            if (ferror(io->f)) {
-                return E_IO;
-            }
-            break; // shouldn't happen with bounded ranges, but be defensive
+            break;
         }
 
         size_t written = fwrite(io->buf, 1, n, out);
@@ -183,6 +244,7 @@ enum Err io_emit(File* io, i64 start, i64 end, FILE* out)
             return E_IO;
         }
 
+        offset += (i64)n;
         remaining -= (i64)n;
     }
 
@@ -263,12 +325,10 @@ enum Err io_line_start(File* io, i64 pos, i64* out)
         }
 
         // Scan this subchunk for the last LF
-        if (fseeko(io->f, sub_start, SEEK_SET) != 0) {
-            return E_IO;
-        }
-        size_t n = fread(io->buf, 1, (size_t)(sub_end - sub_start), io->f);
-        if (n != (size_t)(sub_end - sub_start) && ferror(io->f)) {
-            return E_IO;
+        size_t n;
+        enum Err read_err = io_read_at(io, sub_start, io->buf, (size_t)(sub_end - sub_start), &n);
+        if (read_err != E_OK) {
+            return read_err;
         }
 
         i64 scan_end = cur_pos - sub_start;
@@ -339,12 +399,10 @@ enum Err io_line_end(File* io, i64 pos, i64* out)
         }
 
         // Scan this subchunk for the first LF
-        if (fseeko(io->f, sub_start, SEEK_SET) != 0) {
-            return E_IO;
-        }
-        size_t n = fread(io->buf, 1, (size_t)(sub_end - sub_start), io->f);
-        if (n != (size_t)(sub_end - sub_start) && ferror(io->f)) {
-            return E_IO;
+        size_t n;
+        enum Err read_err = io_read_at(io, sub_start, io->buf, (size_t)(sub_end - sub_start), &n);
+        if (read_err != E_OK) {
+            return read_err;
         }
 
         i64 scan_start = cur_pos - sub_start;
@@ -428,12 +486,10 @@ enum Err io_prev_char_start(File* io, i64 pos, i64* out)
         lo = 0;
     }
     i64 hi = pos;
-    if (fseeko(io->f, lo, SEEK_SET) != 0) {
-        return E_IO;
-    }
-    size_t n = fread(io->buf, 1, (size_t)(hi - lo), io->f);
-    if (n == 0 && ferror(io->f)) {
-        return E_IO;
+    size_t n;
+    enum Err err = io_read_at(io, lo, io->buf, (size_t)(hi - lo), &n);
+    if (err != E_OK) {
+        return err;
     }
 
     i64 rel_end = (i64)n; // number of bytes we have (hi - lo)
@@ -491,10 +547,11 @@ enum Err io_step_chars(File* io, i64 start, i32 delta, i64* out)
             if (hi > io->size) {
                 hi = io->size;
             }
-            if (fseeko(io->f, cur, SEEK_SET) != 0) {
-                return E_IO;
+            size_t n;
+            enum Err err = io_read_at(io, cur, io->buf, (size_t)(hi - cur), &n);
+            if (err != E_OK) {
+                return err;
             }
-            size_t n = fread(io->buf, 1, (size_t)(hi - cur), io->f);
             if (n == 0) {
                 *out = cur;
                 return E_OK;
@@ -612,12 +669,10 @@ static enum Err get_line_block(File* io, i64 pos, LineBlockIdx** out)
             sub_hi = block_hi;
         }
 
-        if (fseeko(io->f, sub_lo, SEEK_SET) != 0) {
-            return E_IO;
-        }
-        size_t n = fread(io->buf, 1, (size_t)(sub_hi - sub_lo), io->f);
-        if (n != (size_t)(sub_hi - sub_lo) && ferror(io->f)) {
-            return E_IO;
+        size_t n;
+        enum Err err = io_read_at(io, sub_lo, io->buf, (size_t)(sub_hi - sub_lo), &n);
+        if (err != E_OK) {
+            return err;
         }
 
         unsigned short cnt = 0;

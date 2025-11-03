@@ -346,11 +346,12 @@ enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
 
     // Initialize previous character correctly for anchor semantics
     if (win_lo > 0) {
-        if (fseeko(io->f, win_lo - 1, SEEK_SET) != 0) {
-            return E_IO;
-        }
         unsigned char b;
-        size_t n_read = fread(&b, 1, 1, io->f);
+        size_t n_read;
+        enum Err read_err = io_read_at(io, win_lo - 1, &b, 1, &n_read);
+        if (read_err != E_OK) {
+            return read_err;
+        }
         if (n_read == 1) {
             prev_c = b;
             have_prev = 1;
@@ -365,12 +366,9 @@ enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
             if (block_hi > win_hi) {
                 block_hi = win_hi;
             }
-            if (fseeko(io->f, block_lo, SEEK_SET) != 0) {
-                return E_IO;
-            }
-            n = fread(io->buf, 1, (size_t)(block_hi - block_lo), io->f);
-            if (n == 0 && ferror(io->f)) {
-                return E_IO;
+            enum Err read_err = io_read_at(io, block_lo, io->buf, (size_t)(block_hi - block_lo), &n);
+            if (read_err != E_OK) {
+                return read_err;
             }
             block_hi = block_lo + (i64)n; // clamp to bytes actually in buf
 
@@ -378,12 +376,13 @@ enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
             tail1 = tail2 = 0;
             tails = 0;
             if (block_hi < win_hi) {
-                if (fseeko(io->f, block_hi, SEEK_SET) != 0) {
-                    return E_IO;
-                }
                 unsigned char t[2];
                 size_t bytes_to_read = (win_hi - block_hi) >= 2 ? 2 : (size_t)(win_hi - block_hi);
-                size_t m = fread(t, 1, bytes_to_read, io->f);
+                size_t m;
+                enum Err tail_err = io_read_at(io, block_hi, t, bytes_to_read, &m);
+                if (tail_err != E_OK) {
+                    return tail_err;
+                }
                 if (m >= 1) {
                     tail1 = t[0];
                     tails = 1;

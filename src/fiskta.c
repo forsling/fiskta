@@ -280,11 +280,20 @@ static u64 now_millis(void)
 
 static void refresh_file_size(File* io)
 {
-    if (!io || !io->f) {
+    if (!io) {
         return;
     }
 
-    int fd = fileno(io->f);
+    if (io->mode == FILE_MODE_MEMORY) {
+        // Memory buffers have fixed size
+        return;
+    }
+
+    if (!io->disk.f) {
+        return;
+    }
+
+    int fd = fileno(io->disk.f);
     struct stat st;
     if (fd >= 0 && fstat(fd, &st) == 0 && S_ISREG(st.st_mode)) {
         // Regular file: we can refresh size without disturbing FILE* position
@@ -490,24 +499,23 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
                             e = E_IO;
                             break;
                         }
-                        if (fseeko(io->f, start, SEEK_SET) != 0) {
-                            e = E_IO;
-                            break;
-                        }
+                        i64 offset = start;
                         i64 remaining = end - start;
                         while (remaining > 0) {
                             size_t chunk_size = (remaining > (i64)io->buf_cap) ? io->buf_cap : (size_t)remaining;
-                            size_t n = fread(io->buf, 1, chunk_size, io->f);
+                            size_t n;
+                            e = io_read_at(io, offset, io->buf, chunk_size, &n);
+                            if (e != E_OK) {
+                                break;
+                            }
                             if (n == 0) {
-                                if (ferror(io->f)) {
-                                    e = E_IO;
-                                }
                                 break;
                             }
                             e = emit_output(io->buf, n, cfg);
                             if (e != E_OK) {
                                 break;
                             }
+                            offset += (i64)n;
                             remaining -= (i64)n;
                         }
                     }
@@ -986,6 +994,110 @@ int runtime_execute(const Program* prog,
         return FISKTA_EXIT_CAPACITY;
     case ITER_PROGRAM_FAIL:
         // Print error details if available for helpful diagnostics
+        if (error_message()) {
+            print_err(loop_state.last_result.last_err, NULL);
+        }
+        return FISKTA_EXIT_PROGRAM_FAIL;
+    default:
+        return FISKTA_EXIT_IO;
+    }
+}
+
+int runtime_execute_buffer(const Program* prog,
+    const unsigned char* data, size_t len,
+    RuntimeBuffers* buffers,
+    const RuntimeConfig* config)
+{
+    if (!prog || !data || !buffers || !config) {
+        return FISKTA_EXIT_PARSE;
+    }
+
+    File io = { 0 };
+    enum Err e = io_open_buffer(&io, data, len, buffers->search_buf, buffers->search_buf_cap);
+    if (e != E_OK) {
+        print_err(e, "I/O open");
+        return err_to_exit_code(e);
+    }
+
+    io_set_regex_scratch(&io, buffers->re_curr, buffers->re_next, buffers->re_thread_cap,
+        buffers->regex_work_budget, buffers->seen_curr, buffers->seen_next, buffers->seen_bytes);
+
+    LoopState loop_state;
+    loop_init(&loop_state, config);
+
+    for (;;) {
+        int reason = 0;
+        (void)loop_should_wait_or_stop(&loop_state, /*no_new_data=*/false, &reason);
+        if (reason == FISKTA_EXIT_TIMEOUT) {
+            loop_state.exit_reason = reason;
+            break;
+        }
+
+        i64 lo;
+        i64 hi;
+        loop_compute_window(&loop_state, &io, &lo, &hi, NULL);
+
+        bool no_new_data = (lo >= hi);
+
+        if (loop_state.enabled && no_new_data) {
+            if (loop_state.idle_timeout_ms == 0) {
+                loop_state.exit_reason = 0;
+                break;
+            }
+            if (loop_state.idle_timeout_ms > 0) {
+                reason = 0;
+                if (loop_should_wait_or_stop(&loop_state, /*no_new_data=*/true, &reason)) {
+                    continue;
+                }
+                loop_state.exit_reason = reason;
+                break;
+            }
+        }
+
+        IterResult iteration = execute_program_iteration(prog, &io, &loop_state.vm,
+            buffers->clause_ranges, buffers->clause_labels,
+            buffers->clause_inline, buffers->sum_inline_lits,
+            lo, hi, config);
+
+        loop_commit(&loop_state, hi, iteration, config->ignore_loop_failures);
+        fflush(stdout);
+
+        if (!loop_state.enabled || loop_state.exit_code) {
+            break;
+        }
+
+        if (loop_state.loop_ms > 0) {
+            sleep_msec(loop_state.loop_ms);
+        }
+        reason = 0;
+        (void)loop_should_wait_or_stop(&loop_state, /*no_new_data=*/false, &reason);
+        if ((loop_state.exit_reason = reason) != 0) {
+            break;
+        }
+    }
+
+    io_close(&io);
+
+    if (loop_state.exit_code) {
+        if (loop_state.exit_code == FISKTA_EXIT_PROGRAM_FAIL && error_message()) {
+            print_err(loop_state.last_result.last_err, NULL);
+        }
+        return loop_state.exit_code;
+    }
+    if (loop_state.exit_reason == FISKTA_EXIT_TIMEOUT) {
+        return FISKTA_EXIT_TIMEOUT;
+    }
+
+    switch (loop_state.last_result.status) {
+    case ITER_OK:
+        return FISKTA_EXIT_OK;
+    case ITER_IO_ERROR:
+        return FISKTA_EXIT_IO;
+    case ITER_RESOURCE_ERROR:
+        return FISKTA_EXIT_RESOURCE;
+    case ITER_CAPACITY_ERROR:
+        return FISKTA_EXIT_CAPACITY;
+    case ITER_PROGRAM_FAIL:
         if (error_message()) {
             print_err(loop_state.last_result.last_err, NULL);
         }

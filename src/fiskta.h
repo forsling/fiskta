@@ -252,6 +252,21 @@ int runtime_execute(const Program* prog,
     RuntimeBuffers* buffers,
     const RuntimeConfig* config);
 
+// Execute a compiled program on an in-memory buffer.
+//
+// Parameters:
+//   - prog: Compiled program structure
+//   - data: Pointer to input data buffer
+//   - len: Length of input data in bytes
+//   - buffers: Pre-allocated scratch space (from program_requirements)
+//   - config: Runtime configuration (loop mode, timeouts, callbacks)
+//
+// Returns same exit codes as runtime_execute().
+int runtime_execute_buffer(const Program* prog,
+    const unsigned char* data, size_t len,
+    RuntimeBuffers* buffers,
+    const RuntimeConfig* config);
+
 // Error handling API
 //
 // Set diagnostic information for the current error. Used internally by
