@@ -79,7 +79,6 @@ enum Err re_compile_into(String pattern,
 typedef struct {
     size_t nins; // Number of compiled instructions (diagnostic/logging)
     size_t seen_bytes; // Seen table size: nins × RE_SEEN_SLOTS × sizeof(u32), aligned
-    size_t thread_cap; // Recommended thread list capacity
     int counter_count; // Number of {n,m} quantifiers
     bool has_lazy; // True if lazy quantifiers present (affects priority tracking)
 } ReProgRequirements;
@@ -94,5 +93,5 @@ typedef struct {
 //   ReProgRequirements req;
 //   regex_prog_requirements(&prog, &req);
 //
-//   // Allocate scratch buffers using req.seen_bytes, req.thread_cap, etc.
+//   // Allocate scratch buffers using req.seen_bytes, req.counter_count, etc.
 void regex_prog_requirements(const ReProg* prog, ReProgRequirements* out);

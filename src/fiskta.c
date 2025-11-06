@@ -624,6 +624,7 @@ int program_requirements(i32 token_count, const String* tokens,
     // Report worst-case allocations since we don't know actual pattern sizes yet.
     // Actual thread_cap and seen_bytes will be derived in build_program().
     out->regex_thread_cap_max = (size_t)(FISKTA_REGEX_BUDGET_DEFAULT / (RE_THREAD_BYTES * RE_LISTS));
+    // Worst case: half of budget for one seen table (×2 for curr+next = full budget)
     out->regex_seen_bytes_max = FISKTA_REGEX_BUDGET_DEFAULT / 2;
 
     // Staging buffers
@@ -750,7 +751,8 @@ int build_program(i32 token_count, const String* tokens,
     // Worst case: entire budget goes to threads (if patterns are tiny)
     const int re_threads_cap_alloc = (int)(FISKTA_REGEX_BUDGET_DEFAULT / (RE_THREAD_BYTES * RE_LISTS));
     const size_t re_threads_bytes = (size_t)re_threads_cap_alloc * sizeof(ReThread);
-    // Worst case: entire budget goes to seen tables (if patterns are huge)
+    // Worst case: entire budget goes to seen tables (if patterns are huge).
+    // Half budget per table (×2 for curr+next = full budget)
     const size_t re_seen_bytes_each = FISKTA_REGEX_BUDGET_DEFAULT / 2;
 
     /*******************************
