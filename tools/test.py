@@ -276,6 +276,20 @@ def expect_stdout(actual: bytes, expect: dict) -> tuple[bool, str]:
     ok = len(actual) == 0
     return ok, "" if ok else f"expected empty stdout, got {len(actual)}B"
 
+def expect_stderr(actual: bytes, expect: dict) -> tuple[bool, str]:
+    """Validate stderr output matches expectations"""
+    if "stderr" in expect:
+        want = expect["stderr"].encode("utf-8")
+        ok = actual == want
+        return ok, "" if ok else f"stderr mismatch\n---want({len(want)}B)\n{want!r}\n---got({len(actual)}B)\n{actual!r}"
+    if "stderr_contains" in expect:
+        want_substr = expect["stderr_contains"]
+        actual_str = actual.decode('utf-8', 'ignore')
+        ok = want_substr in actual_str
+        return ok, "" if ok else f"stderr missing substring '{want_substr}'\n---got\n{actual_str}"
+    # default: no constraint on stderr (allow any output)
+    return True, ""
+
 def tests():
     # NOTE: Using 'THEN' as the clause separator per your decision.
     # Each test: id, tokens (without input path), in, stdin (optional), expect {stdout|stdout_len|stdout_sha256, exit}
@@ -3258,10 +3272,11 @@ def main():
             in_path = str(FIX / in_name)
         code, out, err = run(exe, tokens, in_path, stdin_data, extra_args)
         ok_stdout, stdout_why = expect_stdout(out, t["expect"])
+        ok_stderr, stderr_why = expect_stderr(err, t["expect"])
         ok_exit = (code == t["expect"]["exit"] or
                    ("alt_exit" in t["expect"] and code == t["expect"]["alt_exit"]))
 
-        if ok_stdout and ok_exit:
+        if ok_stdout and ok_stderr and ok_exit:
             print(f"[PASS] {tid}")
             passed += 1
         else:
@@ -3270,7 +3285,10 @@ def main():
                 print(f"  exit: want {t['expect']['exit']}, got {code}")
             if not ok_stdout:
                 print(f"  {stdout_why}")
-            if err:
+            if not ok_stderr:
+                print(f"  {stderr_why}")
+            elif err and not ("stderr" in t["expect"] or "stderr_contains" in t["expect"]):
+                # Only show actual stderr if we're not already reporting a mismatch
                 print(f"  stderr: {err.decode('utf-8', 'ignore').strip()}")
             failures += 1
 

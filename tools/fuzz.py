@@ -85,17 +85,38 @@ def auto_detect_binary() -> tuple[Path, bool]:
     Returns:
         (absolute_path, is_asan)
     """
-    if Path("./fiskta-asan").exists():
-        return Path("./fiskta-asan").absolute(), True
-    if Path("zig-out/bin/fiskta-asan").exists():
-        return Path("zig-out/bin/fiskta-asan").absolute(), True
-    if Path("./fiskta").exists():
-        return Path("./fiskta").absolute(), False
-    if Path("zig-out/bin/fiskta").exists():
-        return Path("zig-out/bin/fiskta").absolute(), False
+    # Check for ASAN binaries (with and without .exe for Windows)
+    for path in ["./fiskta-asan", "./fiskta-asan.exe", "zig-out/bin/fiskta-asan", "zig-out/bin/fiskta-asan.exe"]:
+        try:
+            p = Path(path)
+            if p.exists() and p.is_file():
+                return p.absolute(), True
+        except OSError:
+            continue
+
+    # Check for regular binaries
+    for path in ["./fiskta", "./fiskta.exe", "zig-out/bin/fiskta", "zig-out/bin/fiskta.exe"]:
+        try:
+            p = Path(path)
+            if p.exists() and p.is_file():
+                return p.absolute(), False
+        except OSError:
+            continue
 
     print("Error: No fiskta binary found. Run ./build.sh or zig build first", file=sys.stderr)
     sys.exit(2)
+
+def safe_read_stats(stats_path: Path, retries: int = 3) -> str:
+    """Safely read stats file with retry for Windows file locking"""
+    for attempt in range(retries):
+        try:
+            return stats_path.read_text()
+        except (PermissionError, OSError):
+            if attempt < retries - 1:
+                time.sleep(0.01 * (attempt + 1))
+            else:
+                return ""  # Return empty on final failure
+    return ""
 
 def setup_asan_env():
     """Configure ASAN environment variables"""
@@ -910,9 +931,21 @@ def gen_input(use_corpus: bool) -> bytes:
 def run_fiskta(ops_tokens: list[str], input_path: Path, timeout_ms: int,
                fiskta_path: Path) -> TestResult:
     """Execute fiskta with given operations and input"""
-    cmd = [str(fiskta_path), '--input', str(input_path), '--'] + ops_tokens
 
+    # Windows has shorter command-line limits (~32KB). Use --ops-file for long commands.
+    cmd_line_estimate = sum(len(t) + 3 for t in ops_tokens)  # +3 for quotes and space
+    use_ops_file = (sys.platform == 'win32' and cmd_line_estimate > 8000)
+
+    ops_file = None
     try:
+        if use_ops_file:
+            # Write operations to temporary file
+            ops_file = input_path.parent / f"{input_path.stem}_ops.txt"
+            ops_file.write_text(' '.join(ops_tokens))
+            cmd = [str(fiskta_path), '--input', str(input_path), '--ops-file', str(ops_file)]
+        else:
+            cmd = [str(fiskta_path), '--input', str(input_path), '--'] + ops_tokens
+
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -927,6 +960,18 @@ def run_fiskta(ops_tokens: list[str], input_path: Path, timeout_ms: int,
 
     except subprocess.TimeoutExpired:
         return TestResult(crashed=False, timed_out=True, exit_code=-2)
+
+    finally:
+        # Clean up temporary ops file with retry for Windows
+        if ops_file and ops_file.exists():
+            for attempt in range(3):
+                try:
+                    ops_file.unlink()
+                    break
+                except (PermissionError, OSError):
+                    if attempt < 2:
+                        time.sleep(0.01)
+                    # Give up silently if we can't delete it
 
 # ========= Minimizer =========
 
@@ -1010,9 +1055,25 @@ def worker_fn(args: tuple) -> dict:
         ]
         for code, count in stats['exits'].items():
             lines.append(f"exit[{code}]={count}")
-        # Atomic write: write to temp, then rename
+
+        # Atomic write with retry for Windows file locking
         temp_path.write_text('\n'.join(lines) + '\n')
-        temp_path.rename(stats_path)
+
+        # Windows requires target deletion before rename, but file may be locked
+        for attempt in range(3):
+            try:
+                if stats_path.exists():
+                    stats_path.unlink()
+                temp_path.rename(stats_path)
+                break
+            except (PermissionError, OSError):
+                if attempt < 2:
+                    time.sleep(0.01 * (attempt + 1))  # Back off: 10ms, 20ms
+                else:
+                    # Give up silently - coordinator will use stale data
+                    if temp_path.exists():
+                        temp_path.unlink()
+                    pass
 
     case_iter = 0
     while True:
@@ -1156,11 +1217,13 @@ def run_fuzzer(cfg: Config):
                     stats_path = cfg.run_dir / f"worker_{i}_stats.txt"
                     if stats_path.exists():
                         try:
-                            for line in stats_path.read_text().strip().split('\n'):
-                                if '=' in line:
-                                    key, val = line.split('=', 1)
-                                    if key in agg:
-                                        agg[key] = agg.get(key, 0) + int(val)
+                            content = safe_read_stats(stats_path)
+                            if content:
+                                for line in content.strip().split('\n'):
+                                    if '=' in line:
+                                        key, val = line.split('=', 1)
+                                        if key in agg:
+                                            agg[key] = agg.get(key, 0) + int(val)
                         except:
                             pass
 
@@ -1213,7 +1276,10 @@ def run_fuzzer(cfg: Config):
             stats_path = cfg.run_dir / f"worker_{i}_stats.txt"
             if stats_path.exists():
                 try:
-                    for line in stats_path.read_text().strip().split('\n'):
+                    content = safe_read_stats(stats_path)
+                    if not content:
+                        continue
+                    for line in content.strip().split('\n'):
                         if '=' in line:
                             key, val = line.split('=', 1)
                             if key == 'total':

@@ -11,6 +11,11 @@
 #include <string.h>
 #include <getopt.h>
 
+#ifdef _WIN32
+#include <io.h>
+#include <fcntl.h>
+#endif
+
 // Output callback: write to stdout
 static void output_to_stdout(const void* data, size_t len, void* userdata)
 {
@@ -161,6 +166,11 @@ static i32 parse_time_ms(const char* str)
 
 int main(int argc, char** argv)
 {
+#ifdef _WIN32
+    _setmode(_fileno(stdin), _O_BINARY);
+    _setmode(_fileno(stdout), _O_BINARY);
+#endif
+
     const char* input_path = NULL;
     const char* ops_file = NULL;
     bool loop_enabled = false;

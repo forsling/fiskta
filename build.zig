@@ -18,7 +18,15 @@ pub fn build(b: *std.Build) !void {
     };
 
     const out_dir = "zig-out/bin";
-    const mkdir_step = b.addSystemCommand(&.{ "mkdir", "-p", out_dir });
+    const mkdir_step = blk: {
+        const target_os = target.result.os.tag;
+        if (target_os == .windows) {
+            // On Windows, use cmd /c but suppress stderr (mkdir errors if dir exists)
+            break :blk b.addSystemCommand(&.{ "cmd", "/c", "if not exist zig-out\\bin mkdir zig-out\\bin" });
+        } else {
+            break :blk b.addSystemCommand(&.{ "mkdir", "-p", out_dir });
+        }
+    };
 
     const host_step = b.step("build", "Build fiskta (host)");
     const linkage_override = b.option(std.builtin.LinkMode, "linkage", "Linkage for host build") orelse .dynamic;
@@ -26,6 +34,7 @@ pub fn build(b: *std.Build) !void {
     const host_triple = try target.result.zigTriple(b.allocator);
     const host_os = target.result.os.tag;
     const host_shrink = optimize != .Debug;
+    const host_ext = if (host_os == .windows) ".exe" else "";
     const host_cmd = createBuildStep(
         b,
         &mkdir_step.step,
@@ -35,7 +44,7 @@ pub fn build(b: *std.Build) !void {
         optimize,
         version,
         "fiskta",
-        "",
+        host_ext,
         host_shrink,
         false,
     );
@@ -68,11 +77,12 @@ pub fn build(b: *std.Build) !void {
         host_os,
         version,
         "fiskta-asan",
-        "",
+        host_ext,
     );
     asan_step.dependOn(&asan_cmd.step);
 
     const wrapper_step = b.step("wrapper", "Build library wrapper for testing");
+    const wrapper_out = b.fmt("zig-out/bin/fiskta_library_wrapper{s}", .{host_ext});
     const wrapper_cmd = b.addSystemCommand(&.{
         "zig",
         "cc",
@@ -91,7 +101,7 @@ pub fn build(b: *std.Build) !void {
         "src/regex_prog.c",
         "src/util.c",
         "-o",
-        "zig-out/bin/fiskta_library_wrapper",
+        wrapper_out,
     });
     wrapper_cmd.addArg(b.fmt("-DFISKTA_VERSION=\"{s}\"", .{version}));
     wrapper_cmd.addArgs(&.{ "-target", host_triple });
@@ -113,16 +123,16 @@ pub fn build(b: *std.Build) !void {
 
     const test_step = b.step("test", "Run test suite (CLI)");
 
-    const test_cli_cmd = b.addSystemCommand(&.{ "sh", "-c", "python3 tools/test.py --exe zig-out/bin/fiskta | grep -v '\\[PASS\\]'" });
+    const python_exe = if (host_os == .windows) "python" else "python3";
+    const fiskta_path = b.fmt("zig-out/bin/fiskta{s}", .{host_ext});
+    const test_cli_cmd = b.addSystemCommand(&.{ python_exe, "tools/test.py", "--exe", fiskta_path });
     test_cli_cmd.setCwd(b.path("."));
-    test_cli_cmd.setEnvironmentVariable("PATH", b.pathJoin(&.{ b.pathFromRoot(out_dir), ":", std.posix.getenv("PATH") orelse "" }));
     test_cli_cmd.step.dependOn(host_step);
     test_step.dependOn(&test_cli_cmd.step);
 
     const test_lib_step = b.step("test-lib", "Run test suite through library wrapper");
-    const test_lib_cmd = b.addSystemCommand(&.{ "sh", "-c", "python3 tools/test.py --exe zig-out/bin/fiskta_library_wrapper | grep -v '\\[PASS\\]'" });
+    const test_lib_cmd = b.addSystemCommand(&.{ python_exe, "tools/test.py", "--exe", wrapper_out });
     test_lib_cmd.setCwd(b.path("."));
-    test_lib_cmd.setEnvironmentVariable("PATH", b.pathJoin(&.{ b.pathFromRoot(out_dir), ":", std.posix.getenv("PATH") orelse "" }));
     test_lib_cmd.step.dependOn(wrapper_step);
     test_lib_step.dependOn(&test_lib_cmd.step);
 
