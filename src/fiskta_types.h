@@ -9,6 +9,8 @@ typedef int64_t i64;
 typedef uint64_t u64;
 typedef int32_t i32;
 typedef uint32_t u32;
+typedef int16_t i16;
+typedef uint16_t u16;
 
 // Constants
 enum {
@@ -165,6 +167,7 @@ typedef struct {
         } viewclear;
         struct {
             String string;
+            i16* cursor_offsets;
             i32 cursor_marks;
             i32 literal_segments;
         } print;

@@ -278,7 +278,7 @@ size_t calculate_escaped_string_length(String str)
     return dst_len;
 }
 
-String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum Err* err_out, i32* cursor_marks_out)
+String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum Err* err_out, i32* cursor_marks_out, i16* cursor_offsets_out)
 {
     String out = { 0 };
     if (err_out) {
@@ -304,7 +304,7 @@ String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, s
                 continue;
             }
             if (esc == 'c' || esc == 'C') {
-                dst_len++;
+                // Cursor marks don't add bytes to output, just track positions
                 i++;
                 continue;
             }
@@ -367,8 +367,9 @@ String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, s
                 continue;
             }
             if (esc == 'c' || esc == 'C') {
-                dst[dst_pos++] = PRINT_CURSOR_SENTINEL;
-                if (cursor_marks_out) {
+                // Track offset where cursor should be inserted
+                if (cursor_marks_out && cursor_offsets_out) {
+                    cursor_offsets_out[*cursor_marks_out] = (i16)dst_pos;
                     (*cursor_marks_out)++;
                 }
                 i++;

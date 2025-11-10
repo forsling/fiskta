@@ -5,8 +5,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#define PRINT_CURSOR_SENTINEL '\x01'
-
 typedef struct {
     unsigned char* base;
     size_t cap;
@@ -37,7 +35,7 @@ bool string_eq_cstr(String s, const char* literal);
 char string_first(String s);
 String string_from_cstr(const char* s);
 
-String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum Err* err_out, i32* cursor_marks_out);
+String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum Err* err_out, i32* cursor_marks_out, i16* cursor_offsets_out);
 String parse_hex_to_bytes(String hex_str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum Err* err_out);
 
 // Parser-specific String helpers

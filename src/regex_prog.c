@@ -1676,9 +1676,9 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
     return E_OK;
 }
 
-/****************
- * PUBLIC API   *
- ****************/
+/**************
+ * PUBLIC API *
+ **************/
 
 enum Err re_compile_into(String pattern,
     ReProg* out,

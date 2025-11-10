@@ -2,15 +2,15 @@
 #define _GNU_SOURCE
 #endif
 
+#include "fiskta.h"
 #include "engine.h"
 #include "fileio.h"
-#include "fiskta.h"
 #include "fiskta_types.h"
 #include "parse.h"
 #include "regex_prog.h"
 #include "util.h"
-#include <stdarg.h>
 #include <stdalign.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,7 +34,7 @@
 
 _Thread_local static enum Err tl_err = E_OK;
 _Thread_local static i32 tl_position = -1;
-_Thread_local static char tl_message[ERROR_MESSAGE_MAX] = {0};
+_Thread_local static char tl_message[ERROR_MESSAGE_MAX] = { 0 };
 _Thread_local static FiskataErrorCallback tl_callback = NULL;
 _Thread_local static void* tl_userdata = NULL;
 
@@ -775,6 +775,7 @@ int build_program(i32 token_count, const String* tokens,
     ReInst* re_ins = arena_alloc(&arena, re_ins_bytes, alignof(ReInst));
     ReClass* re_cls = arena_alloc(&arena, re_cls_bytes, alignof(ReClass));
     char* str_pool = arena_alloc(&arena, str_pool_bytes, alignof(char));
+    i16* offset_pool = (plan.sum_inline_lits > 0) ? arena_alloc(&arena, (size_t)plan.sum_inline_lits * sizeof(i16), alignof(i16)) : NULL;
     Range* clause_ranges = (plan.sum_take_ops > 0) ? arena_alloc(&arena, (size_t)plan.sum_take_ops * sizeof(Range), alignof(Range)) : NULL;
     LabelWrite* clause_labels = (plan.sum_label_ops > 0) ? arena_alloc(&arena, (size_t)plan.sum_label_ops * sizeof(LabelWrite), alignof(LabelWrite)) : NULL;
     char* clause_inline = (plan.sum_inline_lits > 0) ? arena_alloc(&arena, (size_t)plan.sum_inline_lits * INLINE_LIT_CAP, alignof(char)) : NULL;
@@ -784,7 +785,8 @@ int build_program(i32 token_count, const String* tokens,
         || !re_progs || !re_ins || !re_cls || !str_pool
         || (plan.sum_take_ops > 0 && !clause_ranges)
         || (plan.sum_label_ops > 0 && !clause_labels)
-        || (plan.sum_inline_lits > 0 && !clause_inline)) {
+        || (plan.sum_inline_lits > 0 && !clause_inline)
+        || (plan.sum_inline_lits > 0 && !offset_pool)) {
         print_err(E_OOM, "arena carve (provided arena too small?)");
         return FISKTA_EXIT_RESOURCE;
     }
@@ -793,7 +795,7 @@ int build_program(i32 token_count, const String* tokens,
      * PHASE 5: BUILD PROGRAM (SAME AS BUILD_PROGRAM) *
      **************************************************/
     e = parse_build(token_count, tokens, NULL, prog_out, &path,
-        clauses_buf, ops_buf, str_pool, str_pool_bytes);
+        clauses_buf, ops_buf, str_pool, str_pool_bytes, offset_pool);
     if (e != E_OK) {
         print_err(e, "parse build");
         return err_to_exit_code(e);

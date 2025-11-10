@@ -133,39 +133,50 @@ static enum Err print_literal_op(
     const char* bytes = op->u.print.string.bytes;
     i32 len = op->u.print.string.len;
     i64 clamped = view_clamp(c_view, io, cursor);
-    i32 start = 0;
+    i32 pos = 0;
 
-    for (i32 i = 0; i <= len; ++i) {
-        bool is_sentinel = (i < len && bytes[i] == PRINT_CURSOR_SENTINEL);
-        if (is_sentinel || i == len) {
-            if (i > start) {
-                String seg = { bytes + start, i - start };
-                enum Err err = stage_lit_range(ranges, range_count, range_cap, seg);
-                if (err != E_OK) {
-                    return err;
-                }
+    // Iterate through cursor positions and emit literal segments + cursor values
+    for (i32 mark_idx = 0; mark_idx < op->u.print.cursor_marks; mark_idx++) {
+        i32 offset = op->u.print.cursor_offsets[mark_idx];
+
+        // Emit literal segment before cursor
+        if (offset > pos) {
+            String seg = { bytes + pos, offset - pos };
+            enum Err err = stage_lit_range(ranges, range_count, range_cap, seg);
+            if (err != E_OK) {
+                return err;
             }
-            if (is_sentinel) {
-                if (!inline_ptr || !*inline_ptr || !inline_end || *inline_ptr + INLINE_LIT_CAP > inline_end) {
-                    return E_CAPACITY;
-                }
-                char* slot = *inline_ptr;
-                int written = snprintf(slot, INLINE_LIT_CAP, "%lld", (long long)clamped);
-                if (written < 0) {
-                    return E_IO;
-                }
-                if (written >= INLINE_LIT_CAP) {
-                    written = INLINE_LIT_CAP - 1;
-                    slot[written] = '\0';
-                }
-                String dyn = { slot, written };
-                enum Err err = stage_lit_range(ranges, range_count, range_cap, dyn);
-                if (err != E_OK) {
-                    return err;
-                }
-                *inline_ptr += INLINE_LIT_CAP;
-            }
-            start = i + 1;
+        }
+
+        // Emit cursor value
+        if (!inline_ptr || !*inline_ptr || !inline_end || *inline_ptr + INLINE_LIT_CAP > inline_end) {
+            return E_CAPACITY;
+        }
+        char* slot = *inline_ptr;
+        int written = snprintf(slot, INLINE_LIT_CAP, "%lld", (long long)clamped);
+        if (written < 0) {
+            return E_IO;
+        }
+        if (written >= INLINE_LIT_CAP) {
+            written = INLINE_LIT_CAP - 1;
+            slot[written] = '\0';
+        }
+        String dyn = { slot, written };
+        enum Err err = stage_lit_range(ranges, range_count, range_cap, dyn);
+        if (err != E_OK) {
+            return err;
+        }
+        *inline_ptr += INLINE_LIT_CAP;
+
+        pos = offset;
+    }
+
+    // Emit trailing literal segment after all cursor marks
+    if (len > pos) {
+        String seg = { bytes + pos, len - pos };
+        enum Err err = stage_lit_range(ranges, range_count, range_cap, seg);
+        if (err != E_OK) {
+            return err;
         }
     }
 

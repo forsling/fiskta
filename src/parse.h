@@ -19,4 +19,4 @@ typedef struct ParsePlan {
 // Two-phase parsing: preflight to measure, build to construct
 enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
 enum Err parse_build(i32 token_count, const String* tokens, const char* in_path, Program* prg, const char** in_path_out,
-    Clause* clauses_buf, Op* ops_buf, char* str_pool, size_t str_pool_cap);
+    Clause* clauses_buf, Op* ops_buf, char* str_pool, size_t str_pool_cap, i16* offset_pool);

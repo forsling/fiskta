@@ -189,7 +189,8 @@ static inline bool is_keyword(String token, const String* kw)
 }
 static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op, Program* prg,
     LabelTable* labels,
-    char* str_pool, size_t* str_pool_off, size_t str_pool_cap);
+    char* str_pool, size_t* str_pool_off, size_t str_pool_cap,
+    i16* offset_pool, i32* offset_pool_off);
 static enum Err parse_loc_expr(const String* tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg, LabelTable* labels);
 static enum Err parse_at_expr(const String* tokens, i32* idx, i32 token_count, LocExpr* at);
 static enum Err parse_offset(String token, i64* offset, Unit* unit);
@@ -927,7 +928,7 @@ static bool has_empty_quantified_group(const char* pattern, i32 len)
 }
 
 enum Err parse_build(i32 token_count, const String* tokens, const char* in_path, Program* prg, const char** in_path_out,
-    Clause* clauses_buf, Op* ops_buf, char* str_pool, size_t str_pool_cap)
+    Clause* clauses_buf, Op* ops_buf, char* str_pool, size_t str_pool_cap, i16* offset_pool)
 {
     memset(prg, 0, sizeof(*prg));
 
@@ -944,8 +945,9 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
     prg->clause_count = 0;
     prg->name_count = 0;
 
-    // Track string pool usage
+    // Track string pool and offset pool usage
     size_t str_pool_off = 0;
+    i32 offset_pool_off = 0;
     LabelTable labels = { 0 };
 
     // Parse clauses separated by "THEN"
@@ -972,7 +974,7 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
         idx = clause_start;
         while (idx < token_count && !is_keyword(tokens[idx], &kw_then) && !is_keyword(tokens[idx], &kw_or)) {
             Op* op = &clause->ops[clause->op_count];
-            enum Err err = parse_op(tokens, &idx, token_count, op, prg, &labels, str_pool, &str_pool_off, str_pool_cap);
+            enum Err err = parse_op(tokens, &idx, token_count, op, prg, &labels, str_pool, &str_pool_off, str_pool_cap, offset_pool, &offset_pool_off);
             if (err != E_OK) {
                 return err;
             }
@@ -1453,7 +1455,8 @@ static enum Err parse_op_dry_run(const String* tokens, i32* idx, i32 token_count
 }
 
 static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op, Program* prg, LabelTable* labels,
-    char* str_pool, size_t* str_pool_off, size_t str_pool_cap)
+    char* str_pool, size_t* str_pool_off, size_t str_pool_cap,
+    i16* offset_pool, i32* offset_pool_off)
 {
     if (*idx >= token_count) {
         error_set(E_PARSE, token_count, "unexpected end of input while reading operation");
@@ -1499,7 +1502,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         }
 
         err = E_OK;
-        op->u.find.needle = parse_string_to_bytes(args.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
+        op->u.find.needle = parse_string_to_bytes(args.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL, NULL);
         if (err != E_OK) {
             return err;
         }
@@ -1531,7 +1534,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         }
 
         err = E_OK;
-        op->u.findr.pattern = parse_string_to_bytes(args.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
+        op->u.findr.pattern = parse_string_to_bytes(args.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL, NULL);
         if (err != E_OK) {
             return err;
         }
@@ -1630,7 +1633,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
             }
 
             err = E_OK;
-            op->u.take_until_re.pattern = parse_string_to_bytes(args.u.until.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
+            op->u.take_until_re.pattern = parse_string_to_bytes(args.u.until.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL, NULL);
             if (err != E_OK) {
                 return err;
             }
@@ -1685,7 +1688,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
             }
 
             err = E_OK;
-            op->u.take_until.needle = parse_string_to_bytes(args.u.until.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
+            op->u.take_until.needle = parse_string_to_bytes(args.u.until.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL, NULL);
             if (err != E_OK) {
                 return err;
             }
@@ -1774,12 +1777,26 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         err = E_OK;
         i32 parsed_marks = 0;
-        op->u.print.string = parse_string_to_bytes(args.str_tok, str_pool, str_pool_off, str_pool_cap, &err, &parsed_marks);
+
+        // Allocate offset array if there are cursor marks
+        i16* offsets = NULL;
+        if (offset_pool && offset_pool_off) {
+            offsets = offset_pool + *offset_pool_off;
+        }
+
+        op->u.print.string = parse_string_to_bytes(args.str_tok, str_pool, str_pool_off, str_pool_cap, &err, &parsed_marks, offsets);
         if (err != E_OK) {
             return err;
         }
+
         op->u.print.cursor_marks = parsed_marks;
         op->u.print.literal_segments = segments;
+        op->u.print.cursor_offsets = (parsed_marks > 0) ? offsets : NULL;
+
+        // Advance offset pool
+        if (offset_pool_off && parsed_marks > 0) {
+            *offset_pool_off += parsed_marks;
+        }
 
     } else if (is_keyword(cmd_tok, &kw_fail)) {
         op->kind = OP_FAIL;
@@ -1793,7 +1810,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         // Materialize
         err = E_OK;
-        op->u.fail.message = parse_string_to_bytes(args.str_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL);
+        op->u.fail.message = parse_string_to_bytes(args.str_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL, NULL);
         if (err != E_OK) {
             return err;
         }

@@ -525,18 +525,18 @@ int main(int argc, char** argv)
         return ops_result;
     }
 
-    /********************************
-     * PROGRAM MEMORY REQUIREMENTS  *
-     ********************************/
+    /*******************************
+     * PROGRAM MEMORY REQUIREMENTS *
+     *******************************/
     RuntimeRequirements req;
     int ret = program_requirements(ops.token_count, ops.tokens, &req);
     if (ret != FISKTA_EXIT_OK) {
         return ret;
     }
 
-    /*********************
-     * ARENA ALLOCATION  *
-     *********************/
+    /********************
+     * ARENA ALLOCATION *
+     ********************/
     void* arena = malloc(req.arena_bytes);
     if (!arena) {
         fprintf(stderr, "fiskta: failed to allocate %zu bytes\n", req.arena_bytes);
@@ -554,14 +554,14 @@ int main(int argc, char** argv)
         return ret;
     }
 
-    /*********************
-     * EXECUTE PROGRAM   *
-     *********************/
+    /*******************
+     * EXECUTE PROGRAM *
+     *******************/
     ret = runtime_execute(&prog, input_path, &buffers, &config);
 
-    /***********
-     * CLEANUP *
-     ***********/
+    /**************
+     * CLEANUP    *
+     **************/
     free(arena);
 
     return ret;
