@@ -581,7 +581,7 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
 /***************************************************
  * RESOURCE REQUIREMENTS QUERY (PRE-FLIGHT SIZING) *
  ***************************************************/
-int program_requirements(i32 token_count, const String* tokens,
+int fiskta_program_requirements(i32 token_count, const String* tokens,
     const BuildOptions* options,
     RuntimeRequirements* out)
 {
@@ -719,7 +719,7 @@ int program_requirements(i32 token_count, const String* tokens,
  * BUILD PROGRAM (COMPILE-TIME PHASE) *
  **************************************/
 // Build program using caller-provided arena
-int build_program(i32 token_count, const String* tokens,
+int fiskta_build_program(i32 token_count, const String* tokens,
     const BuildOptions* options,
     Program* prog_out,
     void* arena_block, size_t arena_size,
@@ -907,7 +907,7 @@ int build_program(i32 token_count, const String* tokens,
 /***********************************
  * EXECUTE PROGRAM (RUNTIME PHASE) *
  ***********************************/
-int runtime_execute(const Program* prog,
+int fiskta_runtime_execute(const Program* prog,
     const char* file_path,
     RuntimeBuffers* buffers,
     const RuntimeConfig* config)
@@ -1030,7 +1030,7 @@ int runtime_execute(const Program* prog,
     }
 }
 
-int runtime_execute_buffer(const Program* prog,
+int fiskta_runtime_execute_buffer(const Program* prog,
     const unsigned char* data, size_t len,
     RuntimeBuffers* buffers,
     const RuntimeConfig* config)

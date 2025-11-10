@@ -2,7 +2,7 @@
 //
 // CLI wrapper that uses the library API internally.
 // This allows the test suite to validate the library interface
-// by running all 630 tests through runtime_execute_buffer() and callbacks.
+// by running all 633 tests through fiskta_runtime_execute_buffer() and callbacks.
 
 #include "fiskta.h"
 #include "util.h"
@@ -462,7 +462,7 @@ int main(int argc, char** argv)
     // Get program requirements
     BuildOptions opts = {0};  // Use defaults
     RuntimeRequirements reqs;
-    int result = program_requirements(token_count, tokens, &opts, &reqs);
+    int result = fiskta_program_requirements(token_count, tokens, &opts, &reqs);
     if (result != FISKTA_EXIT_OK) {
         return result;
     }
@@ -477,7 +477,7 @@ int main(int argc, char** argv)
     // Build program
     Program prog = {0};
     RuntimeBuffers buffers = {0};
-    result = build_program(token_count, tokens, &opts, &prog, arena, reqs.arena_bytes, &buffers);
+    result = fiskta_build_program(token_count, tokens, &opts, &prog, arena, reqs.arena_bytes, &buffers);
     if (result != FISKTA_EXIT_OK) {
         free(arena);
         return result;
@@ -506,7 +506,7 @@ int main(int argc, char** argv)
     };
 
     // Execute on in-memory buffer
-    result = runtime_execute_buffer(&prog, input_data, input_len, &buffers, &config);
+    result = fiskta_runtime_execute_buffer(&prog, input_data, input_len, &buffers, &config);
 
     // Cleanup
     free(input_data);

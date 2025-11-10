@@ -184,7 +184,7 @@ typedef struct {
 //   - Returns FISKTA_EXIT_PARSE if tokens or pattern invalid
 //   - Returns FISKTA_EXIT_CAPACITY if capacity exceeded
 //   - Errors reported via fiskta_set_error_handler() or stderr
-int program_requirements(i32 token_count, const String* tokens,
+int fiskta_program_requirements(i32 token_count, const String* tokens,
     const BuildOptions* options,
     RuntimeRequirements* out);
 
@@ -216,12 +216,12 @@ int program_requirements(i32 token_count, const String* tokens,
 // Example usage:
 //   BuildOptions opts = {0};  // Use defaults
 //   RuntimeRequirements req;
-//   program_requirements(tokens, &opts, &req);
+//   fiskta_program_requirements(tokens, &opts, &req);
 //   void* arena = malloc(req.arena_bytes);
-//   build_program(tokens, &opts, &prog, arena, req.arena_bytes, &buffers);
-//   runtime_execute(&prog, file, &buffers, &config);
+//   fiskta_build_program(tokens, &opts, &prog, arena, req.arena_bytes, &buffers);
+//   fiskta_runtime_execute(&prog, file, &buffers, &config);
 //   free(arena);
-int build_program(i32 token_count, const String* tokens,
+int fiskta_build_program(i32 token_count, const String* tokens,
     const BuildOptions* options,
     Program* prog_out,
     void* arena_block, size_t arena_size,
@@ -250,7 +250,7 @@ int build_program(i32 token_count, const String* tokens,
 //   - FISKTA_EXIT_IO (10)           - File I/O error
 //   - FISKTA_EXIT_RESOURCE (11)     - Resource exhaustion (OOM)
 //   - FISKTA_EXIT_CAPACITY (9)      - Capacity exceeded
-int runtime_execute(const Program* prog,
+int fiskta_runtime_execute(const Program* prog,
     const char* file_path,
     RuntimeBuffers* buffers,
     const RuntimeConfig* config);
@@ -264,8 +264,8 @@ int runtime_execute(const Program* prog,
 //   - buffers: Pre-allocated scratch space (from program_requirements)
 //   - config: Runtime configuration (loop mode, timeouts, callbacks)
 //
-// Returns same exit codes as runtime_execute().
-int runtime_execute_buffer(const Program* prog,
+// Returns same exit codes as fiskta_runtime_execute().
+int fiskta_runtime_execute_buffer(const Program* prog,
     const unsigned char* data, size_t len,
     RuntimeBuffers* buffers,
     const RuntimeConfig* config);
