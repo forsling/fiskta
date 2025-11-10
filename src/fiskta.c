@@ -5,6 +5,7 @@
 #include "fiskta.h"
 #include "engine.h"
 #include "fileio.h"
+#include "fiskta_internal.h"
 #include "fiskta_types.h"
 #include "parse.h"
 #include "regex_prog.h"

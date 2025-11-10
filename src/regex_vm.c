@@ -4,6 +4,7 @@
 
 #include "regex_vm.h"
 #include "fiskta.h"
+#include "fiskta_internal.h"
 #include "util.h"
 #include <stdlib.h>
 #include <string.h>

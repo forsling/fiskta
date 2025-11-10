@@ -5,6 +5,7 @@
 #include "engine.h"
 #include "fileio.h"
 #include "fiskta.h"
+#include "fiskta_internal.h"
 #include "fiskta_types.h"
 #include "regex_vm.h"
 #include "search_literal.h"

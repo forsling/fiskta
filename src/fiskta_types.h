@@ -213,6 +213,12 @@ typedef struct {
     i64 label_pos[MAX_LABELS]; // name_idx -> position mapping (-1 = not set)
 } VM;
 
+// Build-time options for program compilation
+typedef struct {
+    size_t regex_budget_bytes; // 0 = use default (2 MiB)
+    u64 regex_work_budget;     // 0 = use default (1M enqueues)
+} BuildOptions;
+
 // Staged capture range or literal string
 typedef enum { RANGE_FILE,
     RANGE_LIT } RangeKind;

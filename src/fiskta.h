@@ -267,13 +267,6 @@ int runtime_execute_buffer(const Program* prog,
     RuntimeBuffers* buffers,
     const RuntimeConfig* config);
 
-// Error handling API
-//
-// Set diagnostic information for the current error. Used internally by
-// parse, regex, and runtime code to provide detailed error messages.
-// Maximum message length is 160 bytes.
-void error_set(enum Err err, i32 position, const char* fmt, ...);
-
 // Set error handler for this thread (optional)
 //
 // If set, errors will invoke the callback with diagnostic information.
