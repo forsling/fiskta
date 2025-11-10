@@ -514,8 +514,9 @@ int main(int argc, char** argv)
     /*******************************
      * PROGRAM MEMORY REQUIREMENTS *
      *******************************/
+    BuildOptions build_opts = {0};  // Use defaults
     RuntimeRequirements req;
-    int ret = program_requirements(ops.token_count, ops.tokens, &req);
+    int ret = program_requirements(ops.token_count, ops.tokens, &build_opts, &req);
     if (ret != FISKTA_EXIT_OK) {
         return ret;
     }
@@ -534,7 +535,7 @@ int main(int argc, char** argv)
      ***************************/
     Program prog;
     RuntimeBuffers buffers;
-    ret = build_program(ops.token_count, ops.tokens, &prog, arena, req.arena_bytes, &buffers);
+    ret = build_program(ops.token_count, ops.tokens, &build_opts, &prog, arena, req.arena_bytes, &buffers);
     if (ret != FISKTA_EXIT_OK) {
         free(arena);
         return ret;

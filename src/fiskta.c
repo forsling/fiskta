@@ -582,6 +582,7 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
  * RESOURCE REQUIREMENTS QUERY (PRE-FLIGHT SIZING) *
  ***************************************************/
 int program_requirements(i32 token_count, const String* tokens,
+    const BuildOptions* options,
     RuntimeRequirements* out)
 {
     if (!tokens || !out) {
@@ -589,6 +590,13 @@ int program_requirements(i32 token_count, const String* tokens,
     }
 
     memset(out, 0, sizeof(*out));
+
+    // Apply defaults if options is NULL or fields are zero
+    size_t regex_budget = FISKTA_REGEX_BUDGET_DEFAULT;
+
+    if (options && options->regex_budget_bytes > 0) {
+        regex_budget = options->regex_budget_bytes;
+    }
 
     /*******************************************************
      * PHASE 1: PREFLIGHT PARSE                            *
@@ -624,9 +632,9 @@ int program_requirements(i32 token_count, const String* tokens,
     // Regex VM buffers: unified budget (actual split computed after compilation)
     // Report worst-case allocations since we don't know actual pattern sizes yet.
     // Actual thread_cap and seen_bytes will be derived in build_program().
-    out->regex_thread_cap_max = (size_t)(FISKTA_REGEX_BUDGET_DEFAULT / (RE_THREAD_BYTES * RE_LISTS));
+    out->regex_thread_cap_max = (size_t)(regex_budget / (RE_THREAD_BYTES * RE_LISTS));
     // Worst case: half of budget for one seen table (×2 for curr+next = full budget)
-    out->regex_seen_bytes_max = FISKTA_REGEX_BUDGET_DEFAULT / 2;
+    out->regex_seen_bytes_max = regex_budget / 2;
 
     // Staging buffers
     size_t ranges_bytes = (plan.sum_take_ops > 0) ? (size_t)plan.sum_take_ops * sizeof(Range) : 0;
@@ -712,6 +720,7 @@ int program_requirements(i32 token_count, const String* tokens,
  **************************************/
 // Build program using caller-provided arena
 int build_program(i32 token_count, const String* tokens,
+    const BuildOptions* options,
     Program* prog_out,
     void* arena_block, size_t arena_size,
     RuntimeBuffers* buffers_out)
@@ -722,6 +731,19 @@ int build_program(i32 token_count, const String* tokens,
 
     memset(prog_out, 0, sizeof(*prog_out));
     memset(buffers_out, 0, sizeof(*buffers_out));
+
+    // Apply defaults if options is NULL or fields are zero
+    size_t regex_budget = FISKTA_REGEX_BUDGET_DEFAULT;
+    u64 work_budget = REGEX_WORK_BUDGET_DEFAULT;
+
+    if (options) {
+        if (options->regex_budget_bytes > 0) {
+            regex_budget = options->regex_budget_bytes;
+        }
+        if (options->regex_work_budget > 0) {
+            work_budget = options->regex_work_budget;
+        }
+    }
 
     // Perform same build logic as build_program(), but use provided arena
     // This is essentially a copy of build_program() with malloc() replaced
@@ -750,11 +772,11 @@ int build_program(i32 token_count, const String* tokens,
 
     // Allocate conservatively for regex VM (actual usage computed after compilation)
     // Worst case: entire budget goes to threads (if patterns are tiny)
-    const int re_threads_cap_alloc = (int)(FISKTA_REGEX_BUDGET_DEFAULT / (RE_THREAD_BYTES * RE_LISTS));
+    const int re_threads_cap_alloc = (int)(regex_budget / (RE_THREAD_BYTES * RE_LISTS));
     const size_t re_threads_bytes = (size_t)re_threads_cap_alloc * sizeof(ReThread);
     // Worst case: entire budget goes to seen tables (if patterns are huge).
     // Half budget per table (×2 for curr+next = full budget)
-    const size_t re_seen_bytes_each = FISKTA_REGEX_BUDGET_DEFAULT / 2;
+    const size_t re_seen_bytes_each = regex_budget / 2;
 
     /*******************************
      * PHASE 3: USE PROVIDED ARENA *
@@ -848,12 +870,12 @@ int build_program(i32 token_count, const String* tokens,
         }
     }
 
-    int actual_thread_cap = compute_thread_cap_from_budget(FISKTA_REGEX_BUDGET_DEFAULT, max_seen_bytes);
+    int actual_thread_cap = compute_thread_cap_from_budget(regex_budget, max_seen_bytes);
     if (actual_thread_cap == 0) {
         print_err(E_CAPACITY, NULL);
         error_set(E_CAPACITY, -1,
             "regex patterns require %zu bytes for seen tables, exceeding budget of %zu bytes",
-            max_seen_bytes * 2, (size_t)FISKTA_REGEX_BUDGET_DEFAULT);
+            max_seen_bytes * 2, regex_budget);
         return FISKTA_EXIT_CAPACITY;
     }
 
@@ -868,7 +890,7 @@ int build_program(i32 token_count, const String* tokens,
     buffers_out->re_curr = re_curr_thr;
     buffers_out->re_next = re_next_thr;
     buffers_out->re_thread_cap = actual_thread_cap;
-    buffers_out->regex_work_budget = REGEX_WORK_BUDGET_DEFAULT;
+    buffers_out->regex_work_budget = work_budget;
     buffers_out->seen_curr = seen_curr;
     buffers_out->seen_next = seen_next;
     buffers_out->seen_bytes = actual_seen_bytes;

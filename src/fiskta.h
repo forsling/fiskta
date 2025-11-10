@@ -185,6 +185,7 @@ typedef struct {
 //   - Returns FISKTA_EXIT_CAPACITY if capacity exceeded
 //   - Errors reported via fiskta_set_error_handler() or stderr
 int program_requirements(i32 token_count, const String* tokens,
+    const BuildOptions* options,
     RuntimeRequirements* out);
 
 // Build program from tokens (compile-time phase)
@@ -213,13 +214,15 @@ int program_requirements(i32 token_count, const String* tokens,
 //   - Program and buffers are invalidated when arena is freed
 //
 // Example usage:
+//   BuildOptions opts = {0};  // Use defaults
 //   RuntimeRequirements req;
-//   program_requirements(tokens, &req);
+//   program_requirements(tokens, &opts, &req);
 //   void* arena = malloc(req.arena_bytes);
-//   build_program(tokens, &prog, arena, req.arena_bytes, &buffers);
+//   build_program(tokens, &opts, &prog, arena, req.arena_bytes, &buffers);
 //   runtime_execute(&prog, file, &buffers, &config);
 //   free(arena);
 int build_program(i32 token_count, const String* tokens,
+    const BuildOptions* options,
     Program* prog_out,
     void* arena_block, size_t arena_size,
     RuntimeBuffers* buffers_out);
