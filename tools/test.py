@@ -2672,7 +2672,7 @@ def tests():
 
         dict(id="cli-005-ops-file",
              tokens=[], input_file="overlap.txt",
-             extra_args=["--ops", str(FIX / "commands_take_plus_2b.txt")],
+             extra_args=["--ops-file", str(FIX / "commands_take_plus_2b.txt")],
              expect=dict(stdout="ab", exit=0)),
 
         # Test MAX_TOKENS limit (1024 tokens)

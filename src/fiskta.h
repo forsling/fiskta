@@ -20,13 +20,13 @@
 
 #include "fiskta_types.h"
 
+typedef struct ReThread ReThread;
+typedef struct LabelWrite LabelWrite;
+
 // Callback types
 typedef void (*FiskataErrorCallback)(enum Err err, const char* context,
     i32 position, const char* message, void* userdata);
 typedef void (*FiskataOutputCallback)(const void* data, size_t len, void* userdata);
-
-#include "engine.h"
-#include "fileio.h"
 
 /********************************
  * REGEX ENGINE RESOURCE LIMITS *

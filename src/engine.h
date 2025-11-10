@@ -1,7 +1,6 @@
 #pragma once
 #include "fiskta_types.h"
 
-// Forward declaration for File type (defined in fileio.h)
 typedef struct File File;
 
 // Clamping policy for location resolution
@@ -12,7 +11,7 @@ typedef enum {
 } ClampPolicy;
 
 // Label write staging
-typedef struct {
+typedef struct LabelWrite {
     i64 pos;
     i32 name_idx;
 } LabelWrite;

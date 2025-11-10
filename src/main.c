@@ -194,7 +194,7 @@ static bool parse_cli_args(int argc, char** argv,
             argi++;
             continue;
         }
-        if (strcmp(arg, "-k") == 0 || strcmp(arg, "--ignore-failures") == 0) {
+        if (strcmp(arg, "-k") == 0 || strcmp(arg, "--ignore-failures") == 0 || strcmp(arg, "--continue-on-fail") == 0) {
             cfg.ignore_loop_failures = true;
             argi++;
             continue;
@@ -210,14 +210,7 @@ static bool parse_cli_args(int argc, char** argv,
                 *exit_code_out = FISKTA_EXIT_USAGE;
                 return false;
             }
-            const char* value = argv[argi + 1];
-            FILE* test = fopen(value, "rb");
-            if (test) {
-                fclose(test);
-                ops_file = value;
-            } else {
-                ops_arg = value;
-            }
+            ops_arg = argv[argi + 1];
             argi += 2;
             continue;
         }
@@ -232,14 +225,7 @@ static bool parse_cli_args(int argc, char** argv,
                 *exit_code_out = FISKTA_EXIT_USAGE;
                 return false;
             }
-            const char* value = arg + 6;
-            FILE* test = fopen(value, "rb");
-            if (test) {
-                fclose(test);
-                ops_file = value;
-            } else {
-                ops_arg = value;
-            }
+            ops_arg = arg + 6;
             argi++;
             continue;
         }
