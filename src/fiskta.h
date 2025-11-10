@@ -44,7 +44,7 @@ typedef void (*FiskataOutputCallback)(const void* data, size_t len, void* userda
 // Memory usage is predictable and independent of runtime complexity. Patterns
 // that exceed the budget fail gracefully with E_CAPACITY.
 //
-// Future: Can expose via CLI (--regex-budget) or build-time flags.
+// These defaults can be overridden via BuildOptions (see fiskta_types.h).
 //
 #ifndef FISKTA_REGEX_BUDGET_DEFAULT
 #define FISKTA_REGEX_BUDGET_DEFAULT (2 * 1024 * 1024) // 2 MiB total

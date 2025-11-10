@@ -112,12 +112,12 @@ static inline void print_usage(void)
     printf("\n");
     printf("OPTIONS:\n");
     printf("  -i, --input <path>          Read input from path (default: stdin)\n");
-    printf("      --ops <string>          Provide operations inline as a single string\n");
-    printf("      --ops-file <path>       Load operations from a file\n");
+    printf("      --ops <string>          Operations as inline string\n");
+    printf("      --ops-file <path>       Operations from file\n");
     printf("      --                      Treat subsequent arguments as operations\n");
     printf("      --for <time>            Halt execution after set duration\n");
-    printf("  -k, --ignore-failures       Suppress exit code 1 when all clauses fail (keep going)\n");
-    printf("                              Especially useful with looping to continue iterations\n");
+    printf("      --continue-on-fail      Suppress exit code 1 when clauses fail (useful with looping)\n");
+    printf("  -k, --ignore-failures       Alias for --continue-on-fail (deprecated)\n");
     printf("  -h, --help                  Show this help message\n");
     printf("  -v, --version               Show version information\n");
     printf("\n");
