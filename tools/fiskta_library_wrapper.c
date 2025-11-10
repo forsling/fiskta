@@ -18,23 +18,46 @@ static void output_to_stdout(const void* data, size_t len, void* userdata)
     fwrite(data, 1, len, stdout);
 }
 
-// Error callback: write to stderr in fiskta format
+// Map enum Err to string (must match fiskta.c:err_str)
+static const char* err_str(enum Err e)
+{
+    switch (e) {
+    case E_OK: return "ok";
+    case E_PARSE: return "parse error";
+    case E_BAD_NEEDLE: return "empty needle";
+    case E_BAD_HEX: return "invalid hex string";
+    case E_LOC_RESOLVE: return "location not resolvable";
+    case E_NO_MATCH: return "no match in window";
+    case E_FAIL_OP: return "fail operation";
+    case E_LABEL_FMT: return "bad label (A-Z0-9_-; first A-Z; <16)";
+    case E_IO: return "I/O error";
+    case E_CAPACITY: return "buffer capacity exceeded";
+    case E_OOM: return "out of memory";
+    default: return "unknown error";
+    }
+}
+
+// Error callback: write to stderr in fiskta format (match fiskta.c:print_err)
 static void error_to_stderr(enum Err err, const char* context,
     i32 position, const char* message, void* userdata)
 {
-    (void)err;
     (void)userdata;
 
     fprintf(stderr, "fiskta: ");
     if (context) {
-        fprintf(stderr, "%s", context);
+        fprintf(stderr, "%s (%s)", context, err_str(err));
+    } else {
+        fprintf(stderr, "%s", err_str(err));
     }
-    if (position >= 0) {
-        fprintf(stderr, " (position %d)", position);
-    }
+
     if (message && message[0]) {
-        fprintf(stderr, ": %s", message);
+        if (position >= 0) {
+            fprintf(stderr, ": %s (token %d)", message, position + 1);
+        } else {
+            fprintf(stderr, ": %s", message);
+        }
     }
+
     fprintf(stderr, "\n");
 }
 
@@ -163,6 +186,7 @@ int main(int argc, char** argv)
 {
     const char* input_path = NULL;
     const char* ops_file = NULL;
+    const char* ops_string = NULL;
     bool loop_enabled = false;
     bool ignore_loop_failures = false;
     i32 loop_ms = 0;
@@ -295,18 +319,34 @@ int main(int argc, char** argv)
             continue;
         }
 
-        // --ops FILE
+        // --ops STRING (inline operations)
         if (strcmp(arg, "--ops") == 0) {
             if (argi + 1 >= argc) {
                 fprintf(stderr, "fiskta_library_wrapper: --ops requires a value\n");
+                return 7;
+            }
+            ops_string = argv[argi + 1];
+            argi += 2;
+            continue;
+        }
+        if (strncmp(arg, "--ops=", 6) == 0) {
+            ops_string = arg + 6;
+            argi++;
+            continue;
+        }
+
+        // --ops-file FILE (operations from file)
+        if (strcmp(arg, "--ops-file") == 0) {
+            if (argi + 1 >= argc) {
+                fprintf(stderr, "fiskta_library_wrapper: --ops-file requires a value\n");
                 return 7;
             }
             ops_file = argv[argi + 1];
             argi += 2;
             continue;
         }
-        if (strncmp(arg, "--ops=", 6) == 0) {
-            ops_file = arg + 6;
+        if (strncmp(arg, "--ops-file=", 11) == 0) {
+            ops_file = arg + 11;
             argi++;
             continue;
         }
@@ -328,10 +368,28 @@ int main(int argc, char** argv)
     char file_content_buf[16384];
     char tokenize_scratch[16384];
 
-    if (ops_file) {
-        // Load operations from file
+    if (ops_string) {
+        // Parse inline operations string
         if (token_start_idx < argc) {
             fprintf(stderr, "fiskta_library_wrapper: --ops cannot be combined with positional operations\n");
+            return 7;
+        }
+
+        i32 n = tokenize_ops_string(ops_string, tokens, 1024, tokenize_scratch, sizeof(tokenize_scratch));
+        if (n == -1) {
+            fprintf(stderr, "fiskta_library_wrapper: operations string too long (max %d bytes)\n", 16384);
+            return FISKTA_EXIT_CAPACITY;
+        }
+        if (n <= 0) {
+            fprintf(stderr, "fiskta_library_wrapper: empty ops string\n");
+            return 7;
+        }
+
+        token_count = n;
+    } else if (ops_file) {
+        // Load operations from file
+        if (token_start_idx < argc) {
+            fprintf(stderr, "fiskta_library_wrapper: --ops-file cannot be combined with positional operations\n");
             return 7;
         }
 
@@ -402,8 +460,9 @@ int main(int argc, char** argv)
     fiskta_set_error_handler(error_to_stderr, NULL);
 
     // Get program requirements
+    BuildOptions opts = {0};  // Use defaults
     RuntimeRequirements reqs;
-    int result = program_requirements(token_count, tokens, &reqs);
+    int result = program_requirements(token_count, tokens, &opts, &reqs);
     if (result != FISKTA_EXIT_OK) {
         return result;
     }
@@ -418,7 +477,7 @@ int main(int argc, char** argv)
     // Build program
     Program prog = {0};
     RuntimeBuffers buffers = {0};
-    result = build_program(token_count, tokens, &prog, arena, reqs.arena_bytes, &buffers);
+    result = build_program(token_count, tokens, &opts, &prog, arena, reqs.arena_bytes, &buffers);
     if (result != FISKTA_EXIT_OK) {
         free(arena);
         return result;
