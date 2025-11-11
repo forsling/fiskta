@@ -24,7 +24,7 @@ import sys
 import argparse
 
 # Configuration
-MIN_BOX_WIDTH = 12  # Minimum content width (text + padding)
+MIN_BOX_WIDTH = 10 # Minimum content width (text + padding)
 
 # Global options
 g_lowercase = False

@@ -33,13 +33,13 @@ typedef void (*FiskataOutputCallback)(const void* data, size_t len, void* userda
  ********************************/
 //
 // Total memory budget for regex VM execution. This budget is split between:
-// - Seen tables: sized per-pattern (nins × 32 bytes), takes what it needs
+// - Seen tables: 2 tables (curr+next), sized per-pattern (nins × 32 bytes each)
 // - Thread lists: gets remaining budget, typically ~9-10K threads for normal patterns
 //
-// With 2 MiB default:
-// - Small pattern (60 ins): ~4 KiB seen, ~10K threads
-// - Large pattern (500 ins): ~32 KiB seen, ~10K threads
-// - Max pattern (16K ins): ~1 MiB seen, ~5K threads
+// With 2 MiB default budget:
+// - Small pattern (60 ins): ~4 KiB total seen (2×2 KiB), ~10K threads
+// - Large pattern (500 ins): ~32 KiB total seen (2×16 KiB), ~10K threads
+// - Max pattern (16K ins): ~2 MiB total seen (2×1 MiB), minimal threads
 //
 // Memory usage is predictable and independent of runtime complexity. Patterns
 // that exceed the budget fail gracefully with E_CAPACITY.
@@ -134,8 +134,8 @@ typedef struct {
     // Regex VM scratch (fixed policy budget)
     // These are NOT computed per-pattern - they're fixed policy limits that
     // all regexes must work within. See FISKTA_REGEX_*_DEFAULT constants.
-    size_t regex_seen_bytes_max; // Fixed seen table budget (512 KiB default)
-    size_t regex_thread_cap_max; // Fixed thread capacity (10K default)
+    size_t regex_seen_bytes_max; // Per-table seen budget (1 MiB default; 2 tables needed)
+    size_t regex_thread_cap_max; // Fixed thread capacity (~10K default)
 
     // Per-clause temporary working memory at runtime
     // (ranges, label writes, inline expansion buffer)
