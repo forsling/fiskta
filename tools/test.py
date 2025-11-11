@@ -3245,6 +3245,7 @@ def main():
     ap.add_argument("--list", action="store_true", help="List tests and exit")
     ap.add_argument("--no-fixtures", action="store_true", help="Do not regenerate fixtures")
     ap.add_argument("--slow", action="store_true", help="Include slow tests (file growth, timing-sensitive)")
+    ap.add_argument("--show-stderr", action="store_true", help="Show stderr output for all tests")
     args = ap.parse_args()
 
     exe = Path(args.exe)
@@ -3290,6 +3291,8 @@ def main():
 
         if ok_stdout and ok_stderr and ok_exit:
             print(f"[PASS] {tid}")
+            if args.show_stderr and err:
+                print(f"  stderr: {err.decode('utf-8', 'ignore').strip()}")
             passed += 1
         else:
             print(f"[FAIL] {tid}")
