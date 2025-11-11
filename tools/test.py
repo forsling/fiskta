@@ -327,6 +327,16 @@ def tests():
              tokens=[item for i in range(129) for item in ["label", f"L{i}"]], input_file="small.txt",
              expect=dict(stdout="", exit=9, stderr_contains="too many labels")),
 
+        dict(id="gram-004e-hyphenated-label",
+             stdin=b"test123",
+             tokens=["label","FOO-BAR","skip","4b","take","3b"],
+             expect=dict(stdout="123", exit=0)),
+
+        dict(id="gram-004f-hyphenated-label-with-offset",
+             stdin=b"test123",
+             tokens=["label","FOO-BAR","skip","2b","take","to","FOO-BAR+1b"],
+             expect=dict(stdout="e", exit=0)),
+
         dict(id="gram-005-view-inline-offsets",
              tokens=["view","BOF+2b","BOF+5b","take","+3b"], input_file="overlap.txt",
              expect=dict(stdout="cde", exit=0)),
@@ -3121,6 +3131,27 @@ def tests():
         dict(id="capacity-008-huge-alternation-chain",
              tokens=["find:re","a|x|\\t|a|a|\\0|[a-z]|\\{|[^0-9]|.|x|x|.|[\\d\\w]|[^0-9]|\\w|\\W|\\D|.|[0321a]|[\\d\\w]|$|x|[^a-z]|[\\d\\w]|\\w|x||\\s|x|[0-9]|\\}|x|\\n|x|$|[\\d\\w]"], input_file="-", stdin=b"test",
              expect=dict(exit=0)),  # Should compile and match via [a-z] or \w or . branches
+
+        # Guardrails: thread capacity limit (NFA state explosion)
+        # Pattern (a*){50} with input creates massive parallel threads (>10K)
+        dict(id="capacity-009-thread-capacity-limit",
+             tokens=["find:re","(a*){50}","take","to","match-end"], input_file="-", stdin=b"a" * 50,
+             expect=dict(stdout="", exit=CAPACITY_EXIT, stderr_contains="exceeded internal NFA thread limit")),
+
+        # Guardrails: work budget exhaustion (step-count explosion during epsilon closure)
+        # Pattern with many nested alternations causes work explosion during closure
+        # (a|b|c)* can match in exponentially many ways, hitting work budget before thread cap
+        dict(id="capacity-010-work-budget-exhaustion",
+             tokens=["find:re","((a|b|c|d|e){5,20}){10}","take","to","match-end"], input_file="-",
+             stdin=b"abcde" * 100,
+             expect=dict(stdout="", exit=CAPACITY_EXIT)),  # May hit work budget or thread cap
+
+        # Guardrails: recursion depth limit (pathological epsilon closures)
+        # Pattern ((a?){30}){30} creates deep epsilon-closure recursion
+        # Each quantified group adds depth, hitting MAX_EPSILON_RECURSION_DEPTH (500)
+        dict(id="capacity-011-recursion-depth-limit",
+             tokens=["find:re","((a?){30}){30}","take","to","match-end"], input_file="-", stdin=b"aaa",
+             expect=dict(stdout="", exit=CAPACITY_EXIT, stderr_contains="recursion depth exceeded")),
 
         # Tests for large quantifiers (post-cap-removal)
         dict(id="large-quantifier-atom-150",
