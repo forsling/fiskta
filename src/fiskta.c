@@ -878,6 +878,7 @@ int fiskta_runtime_execute(const Program* prog,
     File io = { 0 };
     enum Err e = io_open(&io, file_path, buffers->search_buf, buffers->search_buf_cap);
     if (e != E_OK) {
+        error_set(e, -1, "failed to open file '%s'", file_path ? file_path : "stdin");
         return err_to_exit_code(e);
     }
 
@@ -988,6 +989,7 @@ int fiskta_runtime_execute_buffer(const Program* prog,
     File io = { 0 };
     enum Err e = io_open_buffer(&io, data, len, buffers->search_buf, buffers->search_buf_cap);
     if (e != E_OK) {
+        error_set(e, -1, "failed to open buffer");
         return err_to_exit_code(e);
     }
 

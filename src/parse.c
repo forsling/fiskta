@@ -1725,6 +1725,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         i32 name_idx = find_or_add_label(prg, labels, args.name_tok);
         if (name_idx < 0) {
+            error_set(E_CAPACITY, *idx, "too many labels (max %d)", MAX_LABELS);
             return E_CAPACITY;
         }
         op->u.label.name_idx = name_idx;
@@ -1891,6 +1892,7 @@ static enum Err parse_loc_expr(const String* tokens, i32* idx, i32 token_count, 
         loc->base = LOC_NAME;
         i32 name_idx = find_or_add_label(prg, labels, base_tok);
         if (name_idx < 0) {
+            error_set(E_CAPACITY, loc_idx, "too many labels (max %d)", MAX_LABELS);
             return E_CAPACITY;
         }
         loc->name_idx = name_idx;
