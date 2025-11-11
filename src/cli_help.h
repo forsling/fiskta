@@ -59,7 +59,7 @@ static inline void print_usage(void)
     printf("  c                           UTF-8 code points\n");
     printf("\n");
     printf("LABELS:\n");
-    printf("  NAME                        Must be UPPERCASE, <16 chars, [A-Z0-9_-], starts with A-Z\n");
+    printf("  NAME                        Must be UPPERCASE, max 15 chars, [A-Z0-9_-], starts with A-Z\n");
     printf("                              Maximum 128 labels\n");
     printf("\n");
     printf("LOCATIONS:\n");
