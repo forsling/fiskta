@@ -99,9 +99,9 @@ static enum Err emit_class(ReB* b, const ReClass* src, int* idx_out)
  **************************/
 
 // Parse a character class: pattern points at first char AFTER '['; returns index AFTER ']'
-static enum Err parse_char_class(ReB* b, String pat, int* i_inout, int* out_cls_idx)
+static enum Err parse_char_class(ReB* b, String pat, size_t* i_inout, int* out_cls_idx)
 {
-    int i = *i_inout;
+    size_t i = *i_inout;
     ReClass cls;
     cls_clear(&cls);
     int negated = 0;
@@ -223,16 +223,16 @@ static enum Err parse_char_class(ReB* b, String pat, int* i_inout, int* out_cls_
  * PATTERN COMPILATION *
  ***********************/
 
-static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullable);
+static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_nullable);
 
 // Syntactic nullability analysis - determines if pattern can match empty string
 // without actually compiling it. Returns true if pattern is nullable.
 // This is used to reject pathological patterns like (a*)* before compilation.
-static bool is_pattern_nullable(String pat, int len);
+static bool is_pattern_nullable(String pat, size_t len);
 
 // Syntactic nullability check implementation
 // Add recursion depth guard to prevent stack overflow
-static bool is_pattern_nullable_impl(String pat, int len, int depth)
+static bool is_pattern_nullable_impl(String pat, size_t len, int depth)
 {
     // Guard against stack overflow from deeply nested patterns
     if (depth > 100) {
@@ -246,8 +246,8 @@ static bool is_pattern_nullable_impl(String pat, int len, int depth)
     // Check for alternation at top level - pattern is nullable if ANY branch is nullable
     int paren_depth = 0;
     bool has_alt = false;
-    int alt_start = 0;
-    for (int j = 0; j < len; ++j) {
+    size_t alt_start = 0;
+    for (size_t j = 0; j < len; ++j) {
         if (pat.bytes[j] == '\\') {
             ++j; // Skip escaped char
             continue;
@@ -275,7 +275,7 @@ static bool is_pattern_nullable_impl(String pat, int len, int depth)
 
     // No alternation at top level - check concatenation
     // ALL atoms must be nullable for concat to be nullable
-    int i = 0;
+    size_t i = 0;
     while (i < len) {
         unsigned char c = (unsigned char)pat.bytes[i];
 
@@ -333,7 +333,7 @@ static bool is_pattern_nullable_impl(String pat, int len, int depth)
 
         // Character classes [...]
         if (c == '[') {
-            int j = i + 1;
+            size_t j = i + 1;
             if (j < len && pat.bytes[j] == '^') {
                 ++j;
             }
@@ -383,7 +383,7 @@ static bool is_pattern_nullable_impl(String pat, int len, int depth)
         if (c == '(') {
             // Find matching )
             int group_depth = 1;
-            int j = i + 1;
+            size_t j = i + 1;
             while (j < len && group_depth > 0) {
                 if (pat.bytes[j] == '\\') {
                     ++j;
@@ -395,9 +395,9 @@ static bool is_pattern_nullable_impl(String pat, int len, int depth)
                 ++j;
             }
             // Group content is pat[i+1 .. j-1)
-            int inner_len = j - i - 2;
+            size_t inner_len = j - i - 2;
             bool group_nullable = false;
-            if (inner_len >= 0) {
+            if (j > i + 2) {
                 String inner = (String) { pat.bytes + i + 1, inner_len };
                 group_nullable = is_pattern_nullable_impl(inner, inner_len, depth + 1);
             }
@@ -456,7 +456,7 @@ static bool is_pattern_nullable_impl(String pat, int len, int depth)
                 continue; // Nullable
             }
             if (c == '{') {
-                int j = i + 2;
+                size_t j = i + 2;
                 int min_count = 0;
                 while (j < len && pat.bytes[j] >= '0' && pat.bytes[j] <= '9') {
                     min_count = min_count * 10 + (pat.bytes[j] - '0');
@@ -486,7 +486,7 @@ static bool is_pattern_nullable_impl(String pat, int len, int depth)
 }
 
 // Wrapper for is_pattern_nullable_impl with initial depth=0
-static bool is_pattern_nullable(String pat, int len)
+static bool is_pattern_nullable(String pat, size_t len)
 {
     return is_pattern_nullable_impl(pat, len, 0);
 }
@@ -494,12 +494,12 @@ static bool is_pattern_nullable(String pat, int len)
 // Compiles pat[0..len) into `b` without emitting RI_MATCH.
 // Uses N-1 splits so there is no epsilon path that skips all alts.
 // If out_nullable is non-NULL, sets *out_nullable to true if pattern can match empty string.
-static enum Err compile_alt_sequence(ReB* b, String pat, int len, bool* out_nullable)
+static enum Err compile_alt_sequence(ReB* b, String pat, size_t len, bool* out_nullable)
 {
     // 1) Collect top-level alternatives (respect escapes/parentheses)
     int depth = 0;
     int nalt = 1;
-    for (int j = 0; j < len; ++j) {
+    for (size_t j = 0; j < len; ++j) {
         if (pat.bytes[j] == '\\') {
             if (j + 1 < len) {
                 ++j;
@@ -517,7 +517,7 @@ static enum Err compile_alt_sequence(ReB* b, String pat, int len, bool* out_null
 
     // Single alt: compile linearly and return
     if (nalt == 1) {
-        int i = 0;
+        size_t i = 0;
         String tmp_bytes = { pat.bytes, len };
         // Concatenation is nullable only if ALL atoms are nullable
         bool sequence_nullable = true;
@@ -543,23 +543,23 @@ static enum Err compile_alt_sequence(ReB* b, String pat, int len, bool* out_null
     }
 
     // 2) Record (lo,len) for each alt using fixed-size arrays
-    int lo_arr[MAX_ALTS];
-    int alen_arr[MAX_ALTS];
+    size_t lo_arr[MAX_ALTS];
+    size_t alen_arr[MAX_ALTS];
     int split_pc_arr[MAX_ALTS];
     int alt_start_pc_arr[MAX_ALTS];
     int jmp_pc_arr[MAX_ALTS];
 
-    int* lo = lo_arr;
-    int* alen = alen_arr;
+    size_t* lo = lo_arr;
+    size_t* alen = alen_arr;
     int* split_pc = split_pc_arr;
     int* alt_start_pc = alt_start_pc_arr;
     int* jmp_pc = jmp_pc_arr;
     enum Err err = E_OK;
 
     int k = 0;
-    int start = 0;
+    size_t start = 0;
     depth = 0;
-    for (int j = 0; j < len; ++j) {
+    for (size_t j = 0; j < len; ++j) {
         if (pat.bytes[j] == '\\') {
             if (j + 1 < len) {
                 ++j;
@@ -595,7 +595,7 @@ static enum Err compile_alt_sequence(ReB* b, String pat, int len, bool* out_null
 
         alt_start_pc[i] = b->nins;
         // compile alt i - each alt is a sequence, nullable only if all atoms nullable
-        int pi = 0;
+        size_t pi = 0;
         String frag_bytes = { pat.bytes + lo[i], alen[i] };
         bool this_alt_nullable = true;
         while (pi < alen[i]) {
@@ -622,7 +622,7 @@ static enum Err compile_alt_sequence(ReB* b, String pat, int len, bool* out_null
 
     // Last alternative (no leading split)
     alt_start_pc[nalt - 1] = b->nins;
-    int pi = 0;
+    size_t pi = 0;
     String last_bytes = { pat.bytes + lo[nalt - 1], alen[nalt - 1] };
     bool last_alt_nullable = true;
     while (pi < alen[nalt - 1]) {
@@ -669,9 +669,9 @@ cleanup:
 
 // Parse quantifier at position i, updating i_inout to position after quantifier
 // Returns parsed min/max counts, whether a quantifier was found, and if it's lazy
-static enum Err parse_quantifier(String pat, int* i_inout, int* min_count, int* max_count, bool* is_quantified, bool* is_lazy)
+static enum Err parse_quantifier(String pat, size_t* i_inout, int* min_count, int* max_count, bool* is_quantified, bool* is_lazy)
 {
-    int i = *i_inout;
+    size_t i = *i_inout;
     *is_quantified = false;
     *is_lazy = false;
     *min_count = 1;
@@ -775,9 +775,9 @@ static enum Err parse_quantifier(String pat, int* i_inout, int* min_count, int* 
 
 // Compile a single regex atom (+ optional quantifier)
 // If out_nullable is non-NULL, sets *out_nullable to true if atom can match empty string.
-static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullable)
+static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_nullable)
 {
-    int i = *i_inout;
+    size_t i = *i_inout;
     if (i >= pat.len) {
         return E_PARSE;
     }
@@ -796,7 +796,7 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
 
     // --- Unescaped grouping '(' ... ')' (handles nested alternation) ---
     if (pat.bytes[i] == '(') {
-        int j = i + 1;
+        size_t j = i + 1;
         int depth = 1;
         while (j < pat.len) {
             if (pat.bytes[j] == '\\') {
@@ -820,12 +820,12 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
             return E_PARSE; // unmatched '('
         }
 
-        int inner_lo = i + 1;
-        int inner_len = j - inner_lo;
+        size_t inner_lo = i + 1;
+        size_t inner_len = j - inner_lo;
 
         if (inner_len == 0) {
             // Empty group - skip past ) and any quantifier
-            int k = j + 1;
+            size_t k = j + 1;
             int min_count, max_count;
             bool is_quantified, is_lazy;
             enum Err e = parse_quantifier(pat, &k, &min_count, &max_count, &is_quantified, &is_lazy);
@@ -841,7 +841,7 @@ static enum Err compile_atom(ReB* b, String pat, int* i_inout, bool* out_nullabl
         }
 
         // Parse quantifier after the closing )
-        int k = j + 1;
+        size_t k = j + 1;
         int min_count, max_count;
         bool is_quantified, is_lazy;
         enum Err e = parse_quantifier(pat, &k, &min_count, &max_count, &is_quantified, &is_lazy);
@@ -1687,7 +1687,7 @@ enum Err re_compile_into(String pattern,
     ReClass* cls_base, int cls_cap, int* cls_used)
 {
     if (getenv("FISKTA_TRACE_COMPILE")) {
-        fprintf(stderr, "TRACE COMPILE begin pattern='%.*s'\n", pattern.len, pattern.bytes);
+        fprintf(stderr, "TRACE COMPILE begin pattern='%.*s'\n", (int)pattern.len, pattern.bytes);
     }
     ReB b = { 0 };
     b.out = out;
@@ -1713,7 +1713,7 @@ enum Err re_compile_into(String pattern,
     // First, check top-level alternation
     int depth = 0;
     int has_bar = 0;
-    for (int j = 0; j < pattern.len; ++j) {
+    for (size_t j = 0; j < pattern.len; ++j) {
         if (pattern.bytes[j] == '\\') {
             if (j + 1 < pattern.len) {
                 j++;
@@ -1731,7 +1731,7 @@ enum Err re_compile_into(String pattern,
     }
 
     if (!has_bar) {
-        int i = 0;
+        size_t i = 0;
         while (i < pattern.len) {
             enum Err e = compile_atom(&b, pattern, &i, NULL);
             if (e != E_OK) {
@@ -1765,7 +1765,7 @@ enum Err re_compile_into(String pattern,
         *cls_used = cls_start + b.ncls;
     }
     if (getenv("FISKTA_TRACE_COMPILE")) {
-        fprintf(stderr, "TRACE COMPILE pattern='%.*s' nins=%d\n", pattern.len, pattern.bytes, b.nins);
+        fprintf(stderr, "TRACE COMPILE pattern='%.*s' nins=%d\n", (int)pattern.len, pattern.bytes, b.nins);
     }
     return E_OK;
 }

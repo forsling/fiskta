@@ -145,11 +145,7 @@ String string_from_cstr(const char* s)
     if (!s) {
         return (String) { NULL, 0 };
     }
-    size_t len = strlen(s);
-    if (len > INT32_MAX) {
-        len = INT32_MAX;
-    }
-    return (String) { s, (i32)len };
+    return (String) { s, strlen(s) };
 }
 
 static int hex_value(char c)
@@ -173,12 +169,8 @@ String parse_hex_to_bytes(String hex_str, char* str_pool, size_t* str_pool_off, 
         *err_out = E_OK;
     }
 
-    if (hex_str.len < 0) {
-        goto bad_hex;
-    }
-
     size_t hex_digit_count = 0;
-    for (i32 i = 0; i < hex_str.len; ++i) {
+    for (size_t i = 0; i < hex_str.len; ++i) {
         unsigned char c = (unsigned char)hex_str.bytes[i];
         if (isspace(c)) {
             continue;
@@ -206,7 +198,7 @@ String parse_hex_to_bytes(String hex_str, char* str_pool, size_t* str_pool_off, 
     size_t dst_pos = 0;
     int pending_nibble = -1;
 
-    for (i32 i = 0; i < hex_str.len; ++i) {
+    for (size_t i = 0; i < hex_str.len; ++i) {
         unsigned char c = (unsigned char)hex_str.bytes[i];
         if (isspace(c)) {
             continue;
@@ -227,7 +219,7 @@ String parse_hex_to_bytes(String hex_str, char* str_pool, size_t* str_pool_off, 
 
     *str_pool_off = new_off;
     out.bytes = dst;
-    out.len = (i32)byte_count;
+    out.len = byte_count;
     return out;
 
 bad_hex:
@@ -241,11 +233,7 @@ bad_hex:
 // without actually allocating or processing it
 size_t calculate_escaped_string_length(String str)
 {
-    if (str.len < 0) {
-        return 0;
-    }
-
-    size_t src_len = (size_t)str.len;
+    size_t src_len = str.len;
     size_t dst_len = 0;
 
     for (size_t i = 0; i < src_len; i++) {
@@ -288,11 +276,7 @@ String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, s
         *cursor_marks_out = 0;
     }
 
-    if (str.len < 0) {
-        return out;
-    }
-
-    size_t src_len = (size_t)str.len;
+    size_t src_len = str.len;
     size_t dst_len = 0;
 
     for (size_t i = 0; i < src_len; i++) {
@@ -396,7 +380,7 @@ String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, s
 
     *str_pool_off = new_off;
     out.bytes = dst;
-    out.len = (i32)dst_len;
+    out.len = dst_len;
     return out;
 
 parse_err:
@@ -433,7 +417,7 @@ bool string_is_valid_label(String s)
     }
 
     // Remaining characters must be A-Z, 0-9, _, or -
-    for (i32 i = 1; i < s.len; i++) {
+    for (size_t i = 1; i < s.len; i++) {
         char c = s.bytes[i];
         if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-')) {
             return false;
@@ -449,7 +433,7 @@ bool string_copy_to_buffer(String src, char* dst, size_t dst_cap)
         return false;
     }
 
-    size_t copy_len = (size_t)src.len;
+    size_t copy_len = src.len;
     if (copy_len >= dst_cap) {
         return false; // Would truncate
     }
@@ -459,7 +443,7 @@ bool string_copy_to_buffer(String src, char* dst, size_t dst_cap)
     return true;
 }
 
-static bool parse_unit_suffix(String s, i32* unit_start, Unit* unit)
+static bool parse_unit_suffix(String s, size_t* unit_start, Unit* unit)
 {
     if (s.len == 0) {
         return false;
@@ -484,14 +468,14 @@ static bool parse_unit_suffix(String s, i32* unit_start, Unit* unit)
     return true;
 }
 
-static bool parse_number_part(String s, i32 unit_start, u64* out)
+static bool parse_number_part(String s, size_t unit_start, u64* out)
 {
-    if (unit_start <= 0) {
+    if (unit_start == 0) {
         return false;
     }
 
     u64 result = 0;
-    for (i32 i = 0; i < unit_start; i++) {
+    for (size_t i = 0; i < unit_start; i++) {
         char c = s.bytes[i];
         if (c < '0' || c > '9') {
             return false;
@@ -515,7 +499,7 @@ bool string_try_parse_unsigned(String s, u64* out, Unit* unit)
         return false;
     }
 
-    i32 unit_start;
+    size_t unit_start;
     if (!parse_unit_suffix(s, &unit_start, unit)) {
         return false;
     }
@@ -525,11 +509,11 @@ bool string_try_parse_unsigned(String s, u64* out, Unit* unit)
 
 bool string_try_parse_signed(String s, i64* out, Unit* unit)
 {
-    if (!s.bytes || s.len <= 0 || !out || !unit) {
+    if (!s.bytes || s.len == 0 || !out || !unit) {
         return false;
     }
 
-    i32 start = 0;
+    size_t start = 0;
     bool negative = false;
 
     // Check for sign
@@ -583,7 +567,7 @@ i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens, char* scratc
 {
     size_t boff = 0;
     i32 ntok = 0;
-    i32 token_start = 0;
+    size_t token_start = 0;
 
     enum { S_WS,
         S_TOKEN,
@@ -604,7 +588,7 @@ i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens, char* scratc
                 if (boff >= scratch_cap - 1) {
                     return -1;
                 }
-                token_start = (i32)boff;
+                token_start = (size_t)boff;
                 st = (c == '\'') ? S_SQ : S_DQ;
                 p++;
                 continue;
@@ -613,7 +597,7 @@ i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens, char* scratc
             if (boff >= scratch_cap - 1) {
                 return -1;
             }
-            token_start = (i32)boff;
+            token_start = (size_t)boff;
             st = S_TOKEN;
             continue;
         }
@@ -621,7 +605,7 @@ i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens, char* scratc
             if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
                 // End token
                 out[ntok].bytes = scratch_buf + token_start;
-                out[ntok].len = (i32)boff - token_start;
+                out[ntok].len = boff - token_start;
                 ntok++;
                 st = S_WS;
                 p++;
@@ -688,7 +672,7 @@ i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens, char* scratc
     if (st == S_TOKEN || st == S_SQ || st == S_DQ) {
         if (ntok < max_tokens) {
             out[ntok].bytes = scratch_buf + token_start;
-            out[ntok].len = (i32)boff - token_start;
+            out[ntok].len = (size_t)boff - token_start;
             ntok++;
         }
     }

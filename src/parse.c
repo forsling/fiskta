@@ -197,7 +197,7 @@ static enum Err parse_at_expr(const String* tokens, i32* idx, i32 token_count, L
 static enum Err parse_offset(String token, i64* offset, Unit* unit);
 static i32 find_or_add_label(Program* prg, LabelTable* labels, String name);
 static bool is_label_name_valid(String name);
-static bool has_empty_quantified_group(const char* pattern, i32 len);
+static bool has_empty_quantified_group(const char* pattern, size_t len);
 
 // Count total number of counter-using quantifiers in a pattern
 // Counters are allocated permanently (never released), so we count total usage
@@ -209,7 +209,7 @@ static i32 count_counter_quantifiers_in_pattern(String pattern)
     bool in_escape = false;
     bool in_charclass = false;
 
-    for (i32 i = 0; i < pattern.len; i++) {
+    for (size_t i = 0; i < pattern.len; i++) {
         char c = pattern.bytes[i];
 
         if (in_escape) {
@@ -237,7 +237,7 @@ static i32 count_counter_quantifiers_in_pattern(String pattern)
         // Check for counter-using quantifiers: {n}, {n,}, {n,m}
         // Skip {0} and {1} as they don't allocate counters
         if (c == '{') {
-            i32 j = i + 1;
+            size_t j = i + 1;
             i32 min_val = 0;
             i32 max_val = 0;
             bool has_min = false;
@@ -324,7 +324,7 @@ static i32 estimate_regex_instructions(String pattern)
     bool in_charclass = false;
     i32 paren_depth = 0;
 
-    for (i32 i = 0; i < pattern.len; i++) {
+    for (size_t i = 0; i < pattern.len; i++) {
         char c = pattern.bytes[i];
 
         if (in_escape) {
@@ -381,7 +381,7 @@ static i32 estimate_regex_instructions(String pattern)
                 paren_depth--;
 
                 // Check if this closing paren is followed by a quantifier
-                i32 j = i + 1;
+                size_t j = i + 1;
                 if (j < pattern.len) {
                     char next = pattern.bytes[j];
                     if (next == '*' || next == '+' || next == '?' || next == '{') {
@@ -405,7 +405,7 @@ static i32 estimate_regex_instructions(String pattern)
 
         if (c == '{') {
             // Parse to see if this is a counter-using quantifier
-            i32 j = i + 1;
+            size_t j = i + 1;
             bool has_digits = false;
 
             // Skip digits
@@ -537,7 +537,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                     i32 group_start_classes[16] = { 0 }; // Track classes at each group level
                     i32 max_depth = 0;
 
-                    for (i32 pi = 0; pi < pat_tok.len; ++pi) {
+                    for (size_t pi = 0; pi < pat_tok.len; ++pi) {
                         char c = pat[pi];
 
                         if (c == '\\' && pi + 1 < pat_tok.len) {
@@ -610,7 +610,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                 if (idx < token_count) {
                     const String hex_tok = tokens[idx];
                     size_t hex_digits = 0;
-                    for (i32 pi = 0; pi < hex_tok.len; ++pi) {
+                    for (size_t pi = 0; pi < hex_tok.len; ++pi) {
                         unsigned char c = (unsigned char)hex_tok.bytes[pi];
                         if (!isspace(c)) {
                             hex_digits++;
@@ -682,7 +682,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                             i32 group_start_classes[16] = { 0 };
                             i32 max_depth = 0;
 
-                            for (i32 pi = 0; pi < pat_tok.len; ++pi) {
+                            for (size_t pi = 0; pi < pat_tok.len; ++pi) {
                                 char c = pat[pi];
 
                                 if (c == '\\' && pi + 1 < pat_tok.len) {
@@ -749,7 +749,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                         if (idx < token_count) {
                             const String hex_tok = tokens[idx];
                             size_t hex_digits = 0;
-                            for (i32 pi = 0; pi < hex_tok.len; ++pi) {
+                            for (size_t pi = 0; pi < hex_tok.len; ++pi) {
                                 unsigned char c = (unsigned char)hex_tok.bytes[pi];
                                 if (!isspace(c)) {
                                     hex_digits++;
@@ -877,13 +877,13 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
 
 // Check if regex pattern contains empty alternative in quantified group
 // Patterns like (|a)*, (a|)*, (||)+ cause exponential expansion
-static bool has_empty_quantified_group(const char* pattern, i32 len)
+static bool has_empty_quantified_group(const char* pattern, size_t len)
 {
     i32 depth = 0;
     bool in_group = false;
     bool group_has_empty_alt = false;
 
-    for (i32 i = 0; i < len; i++) {
+    for (size_t i = 0; i < len; i++) {
         char c = pattern[i];
 
         if (c == '\\' && i + 1 < len) {
@@ -1854,17 +1854,17 @@ static enum Err parse_loc_expr(const String* tokens, i32* idx, i32 token_count, 
         }
 
         // Parse offset part
-        i32 offset_len = (i32)(token_tok.len - (offset_start - token_tok.bytes));
+        size_t offset_len = token_tok.len - (size_t)(offset_start - token_tok.bytes);
         String offset_str = { offset_start, offset_len };
         enum Err err = parse_offset(offset_str, &loc->offset, &loc->unit);
         if (err != E_OK) {
-            error_set(E_PARSE, loc_idx, "invalid offset '%.*s' in location '%.*s'", offset_str.len, offset_str.bytes, token_tok.len, token_tok.bytes);
+            error_set(E_PARSE, loc_idx, "invalid offset '%.*s' in location '%.*s'", (int)offset_str.len, offset_str.bytes, (int)token_tok.len, token_tok.bytes);
             return err;
         }
 
         // Reuse the original token buffer for the base substring
         base_tok.bytes = token_tok.bytes;
-        base_tok.len = (i32)base_len;
+        base_tok.len = base_len;
     } else {
         // No offset - use original token
         base_tok = token_tok;
@@ -1942,17 +1942,17 @@ static enum Err parse_at_expr(const String* tokens, i32* idx, i32 token_count, L
 
         // Parse offset part
         // Create String for offset part - compute length directly
-        i32 offset_len = (i32)(token_tok.len - (offset_start - token_tok.bytes));
+        size_t offset_len = token_tok.len - (size_t)(offset_start - token_tok.bytes);
         String offset_str = { offset_start, offset_len };
         enum Err err = parse_offset(offset_str, &at->offset, &at->unit);
         if (err != E_OK) {
-            error_set(E_PARSE, at_idx, "invalid offset '%.*s' in location '%.*s'", offset_str.len, offset_str.bytes, token_tok.len, token_tok.bytes);
+            error_set(E_PARSE, at_idx, "invalid offset '%.*s' in location '%.*s'", (int)offset_str.len, offset_str.bytes, (int)token_tok.len, token_tok.bytes);
             return err;
         }
 
         // Reuse the original token buffer for the base substring
         base_tok.bytes = token_tok.bytes;
-        base_tok.len = (i32)base_len;
+        base_tok.len = base_len;
     } else {
         // No offset - use original token
         base_tok = token_tok;

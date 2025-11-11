@@ -23,7 +23,7 @@ enum {
 
 typedef struct {
     const char* bytes;
-    i32 len;
+    size_t len;
 } String;
 
 // Unit type: bytes, lines, chars

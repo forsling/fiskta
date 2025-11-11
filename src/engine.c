@@ -132,13 +132,13 @@ static enum Err print_literal_op(
     char* inline_end)
 {
     const char* bytes = op->u.print.string.bytes;
-    i32 len = op->u.print.string.len;
+    size_t len = op->u.print.string.len;
     i64 clamped = view_clamp(c_view, io, cursor);
-    i32 pos = 0;
+    size_t pos = 0;
 
     // Iterate through cursor positions and emit literal segments + cursor values
     for (i32 mark_idx = 0; mark_idx < op->u.print.cursor_marks; mark_idx++) {
-        i32 offset = op->u.print.cursor_offsets[mark_idx];
+        size_t offset = (size_t)op->u.print.cursor_offsets[mark_idx];
 
         // Emit literal segment before cursor
         if (offset > pos) {
@@ -162,7 +162,7 @@ static enum Err print_literal_op(
             written = INLINE_LIT_CAP - 1;
             slot[written] = '\0';
         }
-        String dyn = { slot, written };
+        String dyn = { slot, (size_t)written };
         enum Err err = stage_lit_range(ranges, range_count, range_cap, dyn);
         if (err != E_OK) {
             return err;
