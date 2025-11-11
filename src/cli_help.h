@@ -44,7 +44,9 @@ static inline void print_usage(void)
     printf("  find:bin [to <location>] <hex-string>\n");
     printf("                              Find binary pattern (hex: DEADBEEF or DE AD BE EF)\n");
     printf("                              Case-insensitive, whitespace ignored\n");
-    printf("  label <name>                Mark current position with label\n");
+    printf("  label <NAME>                Mark current position with label\n");
+    printf("                              Fails if label already set (use 'clear <NAME>' first)\n");
+    printf("  clear <NAME>                Unset a label (allows relabeling)\n");
     printf("  view <L1> <L2>              Limit all ops to [min(L1,L2), max(L1,L2))\n");
     printf("  clear view                  Clear view; return to full file\n");
     printf("  print <string>              Emit literal bytes (alias: echo)\n");
@@ -61,6 +63,7 @@ static inline void print_usage(void)
     printf("LABELS:\n");
     printf("  NAME                        Must be UPPERCASE, max 15 chars, [A-Z0-9_-], starts with A-Z\n");
     printf("                              Maximum 128 labels\n");
+    printf("                              Labels cannot be overwritten; use 'clear <NAME>' to unset\n");
     printf("\n");
     printf("LOCATIONS:\n");
     printf("  cursor                      Current cursor position\n");
