@@ -284,3 +284,15 @@ int fiskta_runtime_execute_buffer(const Program* prog,
 //   }
 //   fiskta_set_error_handler(my_handler, NULL);
 void fiskta_set_error_handler(FiskataErrorCallback callback, void* userdata);
+
+// Get last error code (thread-local)
+enum Err fiskta_error_code(void);
+
+// Get last error message (thread-local, may be NULL)
+const char* fiskta_error_message(void);
+
+// Get last error token position (thread-local, -1 if not set)
+i32 fiskta_error_position(void);
+
+// Get human-readable string for error code
+const char* fiskta_err_str(enum Err e);

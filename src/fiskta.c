@@ -54,17 +54,17 @@ void error_set(enum Err err, i32 position, const char* fmt, ...)
     }
 }
 
-static enum Err error_code(void)
+enum Err fiskta_error_code(void)
 {
     return tl_err;
 }
 
-static i32 error_position(void)
+i32 fiskta_error_position(void)
 {
     return tl_position;
 }
 
-static const char* error_message(void)
+const char* fiskta_error_message(void)
 {
     return tl_message[0] != '\0' ? tl_message : NULL;
 }
@@ -73,14 +73,6 @@ void fiskta_set_error_handler(FiskataErrorCallback callback, void* userdata)
 {
     tl_callback = callback;
     tl_userdata = userdata;
-}
-
-static FiskataErrorCallback error_get_handler(void** userdata_out)
-{
-    if (userdata_out) {
-        *userdata_out = tl_userdata;
-    }
-    return tl_callback;
 }
 
 // Sentinel: means "no saved VM yet"
@@ -179,7 +171,7 @@ static int err_to_exit_code(enum Err e)
     }
 }
 
-static const char* err_str(enum Err e)
+const char* fiskta_err_str(enum Err e)
 {
     switch (e) {
     case E_OK:
@@ -209,37 +201,6 @@ static const char* err_str(enum Err e)
     }
 }
 
-static void print_err(enum Err e, const char* context)
-{
-    i32 position = error_position();
-    const char* message = error_message();
-
-    void* userdata = NULL;
-    FiskataErrorCallback callback = error_get_handler(&userdata);
-
-    if (callback) {
-        callback(e, context, position, message, userdata);
-        return;
-    }
-
-    fprintf(stderr, "fiskta: ");
-    if (context) {
-        fprintf(stderr, "%s (%s)", context, err_str(e));
-    } else {
-        fprintf(stderr, "%s", err_str(e));
-    }
-
-    if (message && error_code() == e) {
-        if (position >= 0) {
-            fprintf(stderr, ": %s (token %d)", message, position + 1);
-        } else {
-            fprintf(stderr, ": %s", message);
-        }
-    }
-
-    fputc('\n', stderr);
-}
-
 static enum Err emit_output(const void* data, size_t len, const RuntimeConfig* cfg)
 {
     if (cfg && cfg->output_callback) {
@@ -258,7 +219,7 @@ static int align_or_fail(size_t x, size_t align, size_t* out)
 {
     size_t aligned = safe_align(x, align);
     if (aligned == SIZE_MAX) {
-        print_err(E_OOM, "arena alignment overflow");
+        error_set(E_OOM, -1, "arena alignment overflow");
         return -1;
     }
     *out = aligned;
@@ -606,7 +567,6 @@ int fiskta_program_requirements(i32 token_count, const String* tokens,
     const char* path = NULL;
     enum Err e = parse_preflight(token_count, tokens, NULL, &plan, &path);
     if (e != E_OK) {
-        print_err(e, "parse preflight");
         return err_to_exit_code(e);
     }
 
@@ -673,7 +633,7 @@ int fiskta_program_requirements(i32 token_count, const String* tokens,
     const size_t re_threads_bytes = out->regex_thread_cap_max * sizeof(ReThread);
     size_t re_seen_size;
     if (add_overflow(out->regex_seen_bytes_max, out->regex_seen_bytes_max, &re_seen_size)) {
-        print_err(E_OOM, "regex 'seen' size overflow");
+        error_set(E_OOM, -1, "regex 'seen' size overflow");
         return FISKTA_EXIT_RESOURCE;
     }
     size_t re_thrbufs_aligned = 0;
@@ -682,7 +642,7 @@ int fiskta_program_requirements(i32 token_count, const String* tokens,
     }
     size_t re_thrbufs_size = 0;
     if (mul_overflow(re_thrbufs_aligned, 2, &re_thrbufs_size)) {
-        print_err(E_OOM, "thread buffer size overflow");
+        error_set(E_OOM, -1, "thread buffer size overflow");
         return FISKTA_EXIT_RESOURCE;
     }
 
@@ -707,7 +667,7 @@ int fiskta_program_requirements(i32 token_count, const String* tokens,
     // Sum everything with overflow checking
     size_t total = search_buf_size;
     if (add_overflow(total, clauses_size, &total) || add_overflow(total, ops_size, &total) || add_overflow(total, re_prog_size, &total) || add_overflow(total, re_ins_size, &total) || add_overflow(total, re_cls_size, &total) || add_overflow(total, str_pool_size, &total) || add_overflow(total, re_thrbufs_size, &total) || add_overflow(total, re_seen_size, &total) || add_overflow(total, ranges_size, &total) || add_overflow(total, labels_size, &total) || add_overflow(total, inline_size, &total) || add_overflow(total, 64, &total)) { // small cushion
-        print_err(E_OOM, "arena size overflow");
+        error_set(E_OOM, -1, "arena size overflow");
         return FISKTA_EXIT_RESOURCE;
     }
 
@@ -755,7 +715,6 @@ int fiskta_build_program(i32 token_count, const String* tokens,
     const char* path = NULL;
     enum Err e = parse_preflight(token_count, tokens, NULL, &plan, &path);
     if (e != E_OK) {
-        print_err(e, "parse preflight");
         return err_to_exit_code(e);
     }
 
@@ -810,7 +769,7 @@ int fiskta_build_program(i32 token_count, const String* tokens,
         || (plan.sum_label_ops > 0 && !clause_labels)
         || (plan.sum_inline_lits > 0 && !clause_inline)
         || (plan.sum_inline_lits > 0 && !offset_pool)) {
-        print_err(E_OOM, "arena carve (provided arena too small?)");
+        error_set(E_OOM, -1, "arena carve (provided arena too small?)");
         return FISKTA_EXIT_RESOURCE;
     }
 
@@ -820,11 +779,10 @@ int fiskta_build_program(i32 token_count, const String* tokens,
     e = parse_build(token_count, tokens, NULL, prog_out, &path,
         clauses_buf, ops_buf, str_pool, str_pool_bytes, offset_pool);
     if (e != E_OK) {
-        print_err(e, "parse build");
         return err_to_exit_code(e);
     }
     if (prog_out->clause_count == 0) {
-        print_err(E_PARSE, "no operations parsed");
+        error_set(E_PARSE, -1, "no operations parsed");
         return FISKTA_EXIT_PARSE;
     }
 
@@ -842,7 +800,6 @@ int fiskta_build_program(i32 token_count, const String* tokens,
                     re_ins, (i32)(re_ins_bytes / sizeof(ReInst)), &re_ins_idx,
                     re_cls, (i32)(re_cls_bytes / sizeof(ReClass)), &re_cls_idx);
                 if (err != E_OK) {
-                    print_err(err, "regex compile");
                     return err_to_exit_code(err);
                 }
                 op->u.findr.prog = prog;
@@ -852,7 +809,6 @@ int fiskta_build_program(i32 token_count, const String* tokens,
                     re_ins, (i32)(re_ins_bytes / sizeof(ReInst)), &re_ins_idx,
                     re_cls, (i32)(re_cls_bytes / sizeof(ReClass)), &re_cls_idx);
                 if (err != E_OK) {
-                    print_err(err, "regex compile");
                     return err_to_exit_code(err);
                 }
                 op->u.take_until_re.prog = prog;
@@ -872,7 +828,6 @@ int fiskta_build_program(i32 token_count, const String* tokens,
 
     int actual_thread_cap = compute_thread_cap_from_budget(regex_budget, max_seen_bytes);
     if (actual_thread_cap == 0) {
-        print_err(E_CAPACITY, NULL);
         error_set(E_CAPACITY, -1,
             "regex patterns require %zu bytes for seen tables, exceeding budget of %zu bytes",
             max_seen_bytes * 2, regex_budget);
@@ -923,7 +878,6 @@ int fiskta_runtime_execute(const Program* prog,
     File io = { 0 };
     enum Err e = io_open(&io, file_path, buffers->search_buf, buffers->search_buf_cap);
     if (e != E_OK) {
-        print_err(e, "I/O open");
         return err_to_exit_code(e);
     }
 
@@ -999,10 +953,6 @@ int fiskta_runtime_execute(const Program* prog,
     io_close(&io);
 
     if (loop_state.exit_code) {
-        // Print error details before returning for non-OK exit codes
-        if (loop_state.exit_code == FISKTA_EXIT_PROGRAM_FAIL && error_message()) {
-            print_err(loop_state.last_result.last_err, NULL);
-        }
         return loop_state.exit_code;
     }
     if (loop_state.exit_reason == FISKTA_EXIT_TIMEOUT) {
@@ -1020,10 +970,6 @@ int fiskta_runtime_execute(const Program* prog,
     case ITER_CAPACITY_ERROR:
         return FISKTA_EXIT_CAPACITY;
     case ITER_PROGRAM_FAIL:
-        // Print error details if available for helpful diagnostics
-        if (error_message()) {
-            print_err(loop_state.last_result.last_err, NULL);
-        }
         return FISKTA_EXIT_PROGRAM_FAIL;
     default:
         return FISKTA_EXIT_IO;
@@ -1042,7 +988,6 @@ int fiskta_runtime_execute_buffer(const Program* prog,
     File io = { 0 };
     enum Err e = io_open_buffer(&io, data, len, buffers->search_buf, buffers->search_buf_cap);
     if (e != E_OK) {
-        print_err(e, "I/O open");
         return err_to_exit_code(e);
     }
 
@@ -1106,9 +1051,6 @@ int fiskta_runtime_execute_buffer(const Program* prog,
     io_close(&io);
 
     if (loop_state.exit_code) {
-        if (loop_state.exit_code == FISKTA_EXIT_PROGRAM_FAIL && error_message()) {
-            print_err(loop_state.last_result.last_err, NULL);
-        }
         return loop_state.exit_code;
     }
     if (loop_state.exit_reason == FISKTA_EXIT_TIMEOUT) {
@@ -1125,9 +1067,6 @@ int fiskta_runtime_execute_buffer(const Program* prog,
     case ITER_CAPACITY_ERROR:
         return FISKTA_EXIT_CAPACITY;
     case ITER_PROGRAM_FAIL:
-        if (error_message()) {
-            print_err(loop_state.last_result.last_err, NULL);
-        }
         return FISKTA_EXIT_PROGRAM_FAIL;
     default:
         return FISKTA_EXIT_IO;

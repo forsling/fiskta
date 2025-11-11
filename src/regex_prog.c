@@ -702,6 +702,7 @@ static enum Err parse_quantifier(String pat, size_t* i_inout, int* min_count, in
         // Parse {n,m} quantifier
         i++; // skip '{'
         if (i >= pat.len || !isdigit(pat.bytes[i])) {
+            error_set(E_PARSE, -1, "invalid quantifier syntax");
             return E_PARSE;
         }
 
@@ -711,14 +712,16 @@ static enum Err parse_quantifier(String pat, size_t* i_inout, int* min_count, in
             // Check for overflow before multiplication
             // Safe limit: (INT_MAX - 9) / 10 to ensure count * 10 + digit fits in int
             if (*min_count > (INT_MAX - 9) / 10) {
-                return E_PARSE; // quantifier too large
+                error_set(E_PARSE, -1, "quantifier value too large");
+                return E_PARSE;
             }
             *min_count = *min_count * 10 + (pat.bytes[i] - '0');
             i++;
         }
 
         if (i >= pat.len) {
-            return E_PARSE; // missing closing '}'
+            error_set(E_PARSE, -1, "missing closing brace in quantifier");
+            return E_PARSE;
         }
         if (pat.bytes[i] == '}') {
             // {n} - exactly n times
@@ -727,7 +730,8 @@ static enum Err parse_quantifier(String pat, size_t* i_inout, int* min_count, in
         } else if (pat.bytes[i] == ',') {
             i++; // skip ','
             if (i >= pat.len) {
-                return E_PARSE; // missing closing '}'
+                error_set(E_PARSE, -1, "missing closing brace after comma in quantifier");
+                return E_PARSE;
             }
             if (pat.bytes[i] == '}') {
                 // {n,} - n or more times
@@ -739,19 +743,23 @@ static enum Err parse_quantifier(String pat, size_t* i_inout, int* min_count, in
                 while (i < pat.len && isdigit(pat.bytes[i])) {
                     // Check for overflow before multiplication
                     if (*max_count > (INT_MAX - 9) / 10) {
-                        return E_PARSE; // quantifier too large
+                        error_set(E_PARSE, -1, "quantifier value too large");
+                        return E_PARSE;
                     }
                     *max_count = *max_count * 10 + (pat.bytes[i] - '0');
                     i++;
                 }
                 if (i >= pat.len || pat.bytes[i] != '}') {
+                    error_set(E_PARSE, -1, "missing closing brace in quantifier");
                     return E_PARSE;
                 }
                 i++;
             } else {
+                error_set(E_PARSE, -1, "invalid quantifier syntax");
                 return E_PARSE;
             }
         } else {
+            error_set(E_PARSE, -1, "invalid quantifier syntax");
             return E_PARSE;
         }
         *is_quantified = true;
@@ -760,6 +768,7 @@ static enum Err parse_quantifier(String pat, size_t* i_inout, int* min_count, in
     // Validate quantifier bounds
     if (*is_quantified) {
         if (*max_count > 0 && *min_count > *max_count) {
+            error_set(E_PARSE, -1, "quantifier bounds inverted {%d,%d}", *min_count, *max_count);
             return E_PARSE;
         }
         // Check for lazy suffix '?'

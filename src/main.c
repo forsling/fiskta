@@ -21,6 +21,25 @@
 #include <io.h>
 #endif
 
+// Error printing for CLI
+static void print_err(enum Err e)
+{
+    i32 position = fiskta_error_position();
+    const char* message = fiskta_error_message();
+
+    fprintf(stderr, "fiskta: %s", fiskta_err_str(e));
+
+    if (message && fiskta_error_code() == e) {
+        if (position >= 0) {
+            fprintf(stderr, ": %s (token %d)", message, position + 1);
+        } else {
+            fprintf(stderr, ": %s", message);
+        }
+    }
+
+    fputc('\n', stderr);
+}
+
 typedef struct {
     String* tokens;
     i32 token_count;
@@ -518,6 +537,9 @@ int main(int argc, char** argv)
     RuntimeRequirements req;
     int ret = fiskta_program_requirements(ops.token_count, ops.tokens, &build_opts, &req);
     if (ret != FISKTA_EXIT_OK) {
+        if (fiskta_error_code() != E_OK) {
+            print_err(fiskta_error_code());
+        }
         return ret;
     }
 
@@ -537,6 +559,9 @@ int main(int argc, char** argv)
     RuntimeBuffers buffers;
     ret = fiskta_build_program(ops.token_count, ops.tokens, &build_opts, &prog, arena, req.arena_bytes, &buffers);
     if (ret != FISKTA_EXIT_OK) {
+        if (fiskta_error_code() != E_OK) {
+            print_err(fiskta_error_code());
+        }
         free(arena);
         return ret;
     }
@@ -545,6 +570,11 @@ int main(int argc, char** argv)
      * EXECUTE PROGRAM *
      *******************/
     ret = fiskta_runtime_execute(&prog, input_path, &buffers, &config);
+    if (ret != FISKTA_EXIT_OK && ret != FISKTA_EXIT_PROGRAM_FAIL) {
+        if (fiskta_error_code() != E_OK) {
+            print_err(fiskta_error_code());
+        }
+    }
 
     /**************
      * CLEANUP    *
