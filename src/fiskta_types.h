@@ -46,6 +46,7 @@ enum {
     OP_TAKE_UNTIL_RE,
     OP_TAKE_UNTIL_BIN,
     OP_LABEL,
+    OP_LABEL_CLEAR,
     OP_VIEWSET,
     OP_VIEWCLEAR,
     OP_PRINT,
@@ -73,6 +74,7 @@ enum Err {
     E_NO_MATCH,
     E_FAIL_OP,
     E_LABEL_FMT,
+    E_LABEL_EXISTS, // Label already set; use 'clear label' to overwrite
     E_IO,
     E_CAPACITY,
     E_OOM
@@ -159,6 +161,9 @@ typedef struct {
         struct {
             i32 name_idx;
         } label;
+        struct {
+            i32 name_idx;
+        } label_clear;
         struct {
             LocExpr a, b;
         } viewset;

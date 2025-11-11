@@ -72,6 +72,7 @@ void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap, i32*
             break;
         }
         case OP_LABEL:
+        case OP_LABEL_CLEAR:
             lc++;
             break;
         default:
@@ -196,17 +197,64 @@ static enum Err fail_with_message_op(const Op* op)
 
 static enum Err label_op(
     const Op* op,
+    const VM* vm,
     const i64* c_cursor,
     LabelWrite* label_writes,
     i32* label_count,
     i32 label_cap)
 {
+    i32 name_idx = op->u.label.name_idx;
+
+    // Check if label is already set
+    // Look for the most recent operation on this label in staged writes (search backwards)
+    bool found_in_staged = false;
+    bool most_recent_is_clear = false;
+    for (i32 i = *label_count - 1; i >= 0; i--) {
+        if (label_writes[i].name_idx == name_idx) {
+            found_in_staged = true;
+            most_recent_is_clear = (label_writes[i].pos < 0);
+            break;
+        }
+    }
+
+    if (found_in_staged) {
+        // Found a staged operation on this label
+        if (!most_recent_is_clear) {
+            // Most recent was a write (not a clear), so label is already set
+            error_set(E_LABEL_EXISTS, -1, "label already set; use 'clear' to overwrite");
+            return E_LABEL_EXISTS;
+        }
+        // Most recent was a clear, so we can write
+    } else {
+        // Not found in staged, check committed state in VM
+        if (vm->label_pos[name_idx] >= 0) {
+            error_set(E_LABEL_EXISTS, -1, "label already set; use 'clear' to overwrite");
+            return E_LABEL_EXISTS;
+        }
+    }
+
     // Stage label write
     if (*label_count >= label_cap) {
         return E_CAPACITY;
     }
-    label_writes[*label_count].name_idx = op->u.label.name_idx;
+    label_writes[*label_count].name_idx = name_idx;
     label_writes[*label_count].pos = *c_cursor;
+    (*label_count)++;
+    return E_OK;
+}
+
+static enum Err label_clear_op(
+    const Op* op,
+    LabelWrite* label_writes,
+    i32* label_count,
+    i32 label_cap)
+{
+    // Stage label clear (pos = -1 sentinel)
+    if (*label_count >= label_cap) {
+        return E_CAPACITY;
+    }
+    label_writes[*label_count].name_idx = op->u.label_clear.name_idx;
+    label_writes[*label_count].pos = -1;
     (*label_count)++;
     return E_OK;
 }
@@ -763,7 +811,9 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
     case OP_TAKE_UNTIL_BIN:
         return take_until_bin_op(io, op, vm, c_cursor, c_last_match, *ranges, range_count, *range_cap, *label_writes, *label_count, c_view);
     case OP_LABEL:
-        return label_op(op, c_cursor, *label_writes, label_count, *label_cap);
+        return label_op(op, vm, c_cursor, *label_writes, label_count, *label_cap);
+    case OP_LABEL_CLEAR:
+        return label_clear_op(op, *label_writes, label_count, *label_cap);
     case OP_VIEWSET:
         return viewset_op(io, op, vm, c_cursor, c_last_match, *label_writes, *label_count, c_view);
     case OP_VIEWCLEAR:

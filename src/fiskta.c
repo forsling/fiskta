@@ -165,6 +165,7 @@ static int err_to_exit_code(enum Err e)
     case E_LOC_RESOLVE:
     case E_NO_MATCH:
     case E_FAIL_OP:
+    case E_LABEL_EXISTS:
         return FISKTA_EXIT_PROGRAM_FAIL;
     default:
         return FISKTA_EXIT_PROGRAM_FAIL;
@@ -190,6 +191,8 @@ const char* fiskta_err_str(enum Err e)
         return "fail operation";
     case E_LABEL_FMT:
         return "bad label (A-Z0-9_-; first A-Z; <16)";
+    case E_LABEL_EXISTS:
+        return "label already set";
     case E_IO:
         return "I/O error";
     case E_CAPACITY:

@@ -1367,7 +1367,7 @@ static enum Err parse_label_args(const String* tokens, i32* idx, i32 token_count
 }
 
 // Parse arguments for clear operation
-// Grammar: view (currently only "clear view" is supported)
+// Grammar: clear (view | <LABEL_NAME>)
 static enum Err parse_clear_args(const String* tokens, i32* idx, i32 token_count, i32 cmd_idx)
 {
     if (*idx >= token_count) {
@@ -1375,17 +1375,18 @@ static enum Err parse_clear_args(const String* tokens, i32* idx, i32 token_count
         return E_PARSE;
     }
 
-    i32 target_idx = *idx;
     String target_tok = tokens[*idx];
     (*idx)++;
 
-    if (!is_keyword(target_tok, &kw_view)) {
-        // Future: clear <LABEL> - for now, error
-        error_set(E_PARSE, target_idx, "unsupported clear target '%.*s'", target_tok.len, target_tok.bytes);
+    // Accept either 'view' or a valid label name
+    if (is_keyword(target_tok, &kw_view)) {
+        return E_OK;
+    } else if (is_label_name_valid(target_tok)) {
+        return E_OK;
+    } else {
+        error_set(E_PARSE, *idx - 1, "invalid clear target '%.*s' (expected 'view' or label name)", target_tok.len, target_tok.bytes);
         return E_PARSE;
     }
-
-    return E_OK;
 }
 
 /*********************************************************************
@@ -1749,14 +1750,29 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         op->u.viewset.b = args.b;
 
     } else if (is_keyword(cmd_tok, &kw_clear)) {
-        // Parse arguments
+        // Parse arguments (parse_clear_args already consumed tokens)
+        i32 args_start = *idx;
         enum Err err = parse_clear_args(tokens, idx, token_count, cmd_idx);
         if (err != E_OK) {
             return err;
         }
 
-        // Materialize (currently only "clear view" is supported)
-        op->kind = OP_VIEWCLEAR;
+        // Materialize based on what was cleared
+        String target_tok = tokens[args_start];
+        if (is_keyword(target_tok, &kw_view)) {
+            op->kind = OP_VIEWCLEAR;
+        } else {
+            // clear <LABEL_NAME>
+            op->kind = OP_LABEL_CLEAR;
+
+            // Find or add label
+            i32 name_idx = find_or_add_label(prg, labels, target_tok);
+            if (name_idx < 0) {
+                error_set(E_CAPACITY, args_start, "too many labels (max %d)", MAX_LABELS);
+                return E_CAPACITY;
+            }
+            op->u.label_clear.name_idx = name_idx;
+        }
 
         /*****************************
          * OUTPUT/UTILITY OPERATIONS *

@@ -337,6 +337,32 @@ def tests():
              tokens=["label","FOO-BAR","skip","2b","take","to","FOO-BAR+1b"],
              expect=dict(stdout="e", exit=0)),
 
+        # Label overwrite protection (2.0 breaking change)
+        dict(id="gram-004g-label-overwrite-same-clause",
+             stdin=b"test",
+             tokens=["label","A","label","A"],
+             expect=dict(stdout="", exit=1)),
+
+        dict(id="gram-004h-label-overwrite-across-clauses",
+             stdin=b"test",
+             tokens=["label","A","THEN","label","A"],
+             expect=dict(stdout="", exit=0)),
+
+        dict(id="gram-004i-label-clear-and-rewrite-same-clause",
+             stdin=b"test",
+             tokens=["label","A","clear","A","label","A"],
+             expect=dict(stdout="", exit=0)),
+
+        dict(id="gram-004j-label-clear-and-rewrite-across-clauses",
+             stdin=b"test",
+             tokens=["label","A","THEN","clear","A","THEN","label","A"],
+             expect=dict(stdout="", exit=0)),
+
+        dict(id="gram-004k-label-rollback-on-clause-failure",
+             stdin=b"test",
+             tokens=["label","A","find","MISSING","THEN","label","A","take","to","EOF"],
+             expect=dict(stdout="test", exit=0)),
+
         dict(id="gram-005-view-inline-offsets",
              tokens=["view","BOF+2b","BOF+5b","take","+3b"], input_file="overlap.txt",
              expect=dict(stdout="cde", exit=0)),
@@ -884,12 +910,12 @@ def tests():
 
         # ---------- Label staging precedence tests ----------
         dict(id="clause-109-staged-label-override",
-             tokens=["label","A","THEN","skip","3b","label","A","skip","to","A","take","+3b"], input_file="overlap.txt",
-             expect=dict(stdout="def", exit=0)),  # Should use staged A at position 3, not committed A at position 0
+             tokens=["label","A","THEN","skip","3b","clear","A","THEN","label","A","skip","to","A","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="def", exit=0)),  # Clear A in one clause, then relabel and use in next clause
 
         dict(id="clause-110-failed-clause-label-isolation",
-             tokens=["label","A","THEN","skip","3b","label","A","THEN","find","XYZ","THEN","skip","to","A","take","+3b"], input_file="overlap.txt",
-             expect=dict(stdout="def", exit=0)),  # Second clause succeeds and commits A at position 3, third clause fails, fourth clause uses committed A at position 3
+             tokens=["label","A","THEN","skip","3b","clear","A","label","A","THEN","find","XYZ","THEN","skip","to","A","take","+3b"], input_file="overlap.txt",
+             expect=dict(stdout="def", exit=0)),  # Second clause clears and relabels A at position 3, third clause fails, fourth clause uses committed A at position 3
 
         # ---------- Edge cases and boundary conditions ----------
         dict(id="edge-101-empty-file-operations",
