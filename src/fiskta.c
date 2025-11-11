@@ -190,7 +190,7 @@ const char* fiskta_err_str(enum Err e)
     case E_FAIL_OP:
         return "fail operation";
     case E_LABEL_FMT:
-        return "bad label (A-Z0-9_-; first A-Z; <16)";
+        return "bad label (A-Z0-9_-; first A-Z; max 15)";
     case E_LABEL_EXISTS:
         return "label already set";
     case E_IO:

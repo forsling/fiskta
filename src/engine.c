@@ -854,17 +854,22 @@ static enum Err resolve_location(
             return E_PARSE;
         }
         // Check staged labels first (overrides committed)
+        // Search backwards to find most recent operation on this label
         bool found = false;
-        for (i32 i = 0; i < staged_label_count; i++) {
+        for (i32 i = staged_label_count - 1; i >= 0; i--) {
             if (staged_labels[i].name_idx == loc->name_idx) {
-                base = staged_labels[i].pos;
-                found = true;
+                // pos < 0 means cleared - treat as not resolvable
+                if (staged_labels[i].pos >= 0) {
+                    base = staged_labels[i].pos;
+                    found = true;
+                }
                 break;
             }
         }
         // If not found in staged, check committed labels
         if (!found) {
             i64 committed_pos = vm->label_pos[loc->name_idx];
+            // pos < 0 means cleared - treat as not resolvable
             if (committed_pos >= 0) {
                 base = committed_pos;
                 found = true;

@@ -363,6 +363,11 @@ def tests():
              tokens=["label","A","find","MISSING","THEN","label","A","take","to","EOF"],
              expect=dict(stdout="test", exit=0)),
 
+        dict(id="gram-004l-cleared-label-not-resolvable",
+             stdin=b"test",
+             tokens=["label","A","clear","A","skip","to","A"],
+             expect=dict(stdout="", exit=1)),
+
         dict(id="gram-005-view-inline-offsets",
              tokens=["view","BOF+2b","BOF+5b","take","+3b"], input_file="overlap.txt",
              expect=dict(stdout="cde", exit=0)),
