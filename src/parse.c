@@ -1720,6 +1720,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         // Validate and materialize
         if (!is_label_name_valid(args.name_tok)) {
+            error_set(E_LABEL_FMT, *idx, "invalid label name (must be A-Z followed by A-Z0-9_-, max %d chars)", MAX_LABEL_LEN);
             return E_LABEL_FMT;
         }
 
@@ -1896,6 +1897,10 @@ static enum Err parse_loc_expr(const String* tokens, i32* idx, i32 token_count, 
             return E_CAPACITY;
         }
         loc->name_idx = name_idx;
+    } else if (base_tok.len > MAX_LABEL_LEN && base_tok.bytes[0] >= 'A' && base_tok.bytes[0] <= 'Z') {
+        // Looks like a label but too long - give helpful error
+        error_set(E_LABEL_FMT, loc_idx, "label too long (max %d chars)", MAX_LABEL_LEN);
+        return E_LABEL_FMT;
     } else {
         error_set(E_PARSE, loc_idx, "unknown location '%.*s'", token_tok.len, token_tok.bytes);
         return E_PARSE;

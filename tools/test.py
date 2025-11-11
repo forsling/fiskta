@@ -311,6 +311,22 @@ def tests():
              tokens=["label","Bad"], input_file="small.txt",
              expect=dict(stdout="", exit=8)),
 
+        dict(id="gram-004a-label-15-char-valid",
+             tokens=["label","ABCDEFGHIJKLMNO","skip","5b"], input_file="small.txt",
+             expect=dict(stdout="", exit=0)),
+
+        dict(id="gram-004b-label-16-char-invalid",
+             tokens=["label","ABCDEFGHIJKLMNOP","skip","5b"], input_file="small.txt",
+             expect=dict(stdout="", exit=8, stderr_contains="max 15 chars")),
+
+        dict(id="gram-004c-label-too-long-in-location",
+             tokens=["skip","to","ABCDEFGHIJKLMNOP"], input_file="small.txt",
+             expect=dict(stdout="", exit=8, stderr_contains="label too long")),
+
+        dict(id="gram-004d-too-many-labels",
+             tokens=[item for i in range(129) for item in ["label", f"L{i}"]], input_file="small.txt",
+             expect=dict(stdout="", exit=9, stderr_contains="too many labels")),
+
         dict(id="gram-005-view-inline-offsets",
              tokens=["view","BOF+2b","BOF+5b","take","+3b"], input_file="overlap.txt",
              expect=dict(stdout="cde", exit=0)),

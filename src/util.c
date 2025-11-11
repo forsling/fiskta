@@ -407,7 +407,7 @@ bool string_char_in_set(char c, const char* set)
 
 bool string_is_valid_label(String s)
 {
-    if (s.len <= 0 || s.len > 16 || !s.bytes) {
+    if (s.len <= 0 || s.len > MAX_LABEL_LEN || !s.bytes) {
         return false;
     }
 
