@@ -214,9 +214,23 @@ typedef struct {
 } VM;
 
 // Build-time options for program compilation
+//
+// Controls resource limits for regex engine. These limits apply globally across
+// all patterns in the program and are allocated once at build time.
+//
+// Default behavior (pass NULL or zero fields):
+//   - regex_budget_bytes: 2 MiB total (split between seen tables + thread lists)
+//   - regex_work_budget: 50M thread enqueues per search operation
+//
+// The regex_budget_bytes is split between:
+//   - Seen tables: 2 tables (curr+next), sized per-pattern (nins × 32 bytes each)
+//   - Thread lists: remaining budget → typically ~10K threads for normal patterns
+//
+// The regex_work_budget limits total thread enqueues during one search to prevent
+// step-count explosion from pathological patterns like ((a?){50}){50}.
 typedef struct {
-    size_t regex_budget_bytes; // 0 = use default (2 MiB)
-    u64 regex_work_budget;     // 0 = use default (1M enqueues)
+    size_t regex_budget_bytes; // Total regex VM memory budget (0 = 2 MiB default)
+    u64 regex_work_budget;     // Max thread enqueues per search (0 = 50M default)
 } BuildOptions;
 
 // Staged capture range or literal string
