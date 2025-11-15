@@ -1,7 +1,6 @@
 #include "regex_prog.h"
 #include "fileio.h"
 #include "fiskta.h"
-#include "fiskta_internal.h"
 #include <ctype.h>
 #include <limits.h>
 #include <stdio.h>

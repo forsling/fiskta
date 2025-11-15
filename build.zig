@@ -1,5 +1,20 @@
 const std = @import("std");
 
+const lib_sources = [_][]const u8{
+    "src/parse.c",
+    "src/fiskta.c",
+    "src/engine.c",
+    "src/fileio.c",
+    "src/search_literal.c",
+    "src/regex_vm.c",
+    "src/regex_prog.c",
+    "src/util.c",
+};
+
+const cli_extra_sources = [_][]const u8{
+    "src/main.c",
+};
+
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
@@ -17,8 +32,10 @@ pub fn build(b: *std.Build) !void {
         break :blk if (trimmed.len > 0 and trimmed[0] == 'v') trimmed[1..] else trimmed;
     };
 
+    const version_parts = parseVersionParts(version);
+
     const out_dir = "zig-out/bin";
-    const mkdir_step = b.addSystemCommand(&.{ "mkdir", "-p", out_dir });
+    try std.fs.cwd().makePath(out_dir);
 
     const host_step = b.step("build", "Build fiskta (host)");
     const linkage_override = b.option(std.builtin.LinkMode, "linkage", "Linkage for host build") orelse .dynamic;
@@ -28,32 +45,34 @@ pub fn build(b: *std.Build) !void {
     const host_shrink = optimize != .Debug;
     const host_cmd = createBuildStep(
         b,
-        &mkdir_step.step,
         host_triple,
         host_os,
         linkage_override,
         optimize,
         version,
+        out_dir,
         "fiskta",
         "",
         host_shrink,
         false,
+        version_parts,
     );
     host_step.dependOn(&host_cmd.step);
 
     if (host_os == .linux) {
         const musl_cmd = createBuildStep(
             b,
-            &mkdir_step.step,
             "x86_64-linux-musl",
             .linux,
             .static,
             optimize,
             version,
+            out_dir,
             "fiskta-musl",
             "",
             host_shrink,
             false,
+            version_parts,
         );
         host_step.dependOn(&musl_cmd.step);
     }
@@ -63,10 +82,11 @@ pub fn build(b: *std.Build) !void {
     const asan_step = b.step("asan", "Build fiskta with AddressSanitizer (for fuzzing)");
     const asan_cmd = createAsanBuildStep(
         b,
-        &mkdir_step.step,
         host_triple,
         host_os,
         version,
+        out_dir,
+        version_parts,
         "fiskta-asan",
         "",
     );
@@ -82,25 +102,20 @@ pub fn build(b: *std.Build) !void {
         "-I",
         "src",
         "tools/fiskta_library_wrapper.c",
-        "src/parse.c",
-        "src/fiskta.c",
-        "src/engine.c",
-        "src/fileio.c",
-        "src/search_literal.c",
-        "src/regex_vm.c",
-        "src/regex_prog.c",
-        "src/util.c",
         "-o",
         "zig-out/bin/fiskta_library_wrapper",
     });
+    addLibrarySources(wrapper_cmd);
     wrapper_cmd.addArg(b.fmt("-DFISKTA_VERSION=\"{s}\"", .{version}));
     wrapper_cmd.addArgs(&.{ "-target", host_triple });
+    wrapper_cmd.addArg(b.fmt("-DFISKTA_ABI_MAJOR={d}", .{version_parts.major}));
+    wrapper_cmd.addArg(b.fmt("-DFISKTA_ABI_MINOR={d}", .{version_parts.minor}));
+    wrapper_cmd.addArg("-DFISKTA_BUILD");
     if (optimize == .Debug) {
         wrapper_cmd.addArgs(&.{ "-g", "-O0", "-DDEBUG" });
     } else {
         wrapper_cmd.addArg("-O3");
     }
-    wrapper_cmd.step.dependOn(&mkdir_step.step);
     wrapper_step.dependOn(&wrapper_cmd.step);
 
     const run_cmd = b.addSystemCommand(&.{"zig-out/bin/fiskta"});
@@ -126,7 +141,9 @@ pub fn build(b: *std.Build) !void {
     test_lib_cmd.step.dependOn(wrapper_step);
     test_lib_step.dependOn(&test_lib_cmd.step);
 
-    const release_step = b.step("release", "Build release binaries (<150 KiB) for all platforms");
+    const release_root = "zig-out/release";
+    try std.fs.cwd().makePath(release_root);
+    const release_step = b.step("release", "Build release packages (CLI + libs + header) for all platforms");
     const release_targets = [_]struct {
         triple: []const u8,
         os: std.Target.Os.Tag,
@@ -134,43 +151,108 @@ pub fn build(b: *std.Build) !void {
         name: []const u8,
         ext: []const u8,
         use_lto: bool,
+        build_shared: bool,
     }{
-        .{ .triple = "x86_64-linux-gnu", .os = .linux, .linkage = .dynamic, .name = "fiskta-linux-x86_64", .ext = "", .use_lto = true },
-        .{ .triple = "x86_64-linux-musl", .os = .linux, .linkage = .static, .name = "fiskta-linux-x86_64-musl", .ext = "", .use_lto = true },
-        .{ .triple = "aarch64-macos", .os = .macos, .linkage = .dynamic, .name = "fiskta-macos-arm64", .ext = "", .use_lto = false },
-        .{ .triple = "x86_64-windows", .os = .windows, .linkage = .dynamic, .name = "fiskta-x86_64", .ext = ".exe", .use_lto = false },
+        .{ .triple = "x86_64-linux-gnu", .os = .linux, .linkage = .dynamic, .name = "fiskta-linux-x86_64", .ext = "", .use_lto = true, .build_shared = true },
+        .{ .triple = "x86_64-linux-musl", .os = .linux, .linkage = .static, .name = "fiskta-linux-x86_64-musl", .ext = "", .use_lto = true, .build_shared = false },
+        .{ .triple = "aarch64-macos", .os = .macos, .linkage = .dynamic, .name = "fiskta-macos-arm64", .ext = "", .use_lto = false, .build_shared = true },
+        .{ .triple = "x86_64-windows", .os = .windows, .linkage = .dynamic, .name = "fiskta-x86_64", .ext = ".exe", .use_lto = false, .build_shared = true },
     };
 
     for (release_targets) |entry| {
-        const step = createBuildStep(
+        const pkg_root = b.fmt("{s}/{s}", .{ release_root, entry.name });
+        try std.fs.cwd().makePath(pkg_root);
+        const bin_dir = b.fmt("{s}/bin", .{pkg_root});
+        const lib_dir = b.fmt("{s}/lib", .{pkg_root});
+        const include_dir = b.fmt("{s}/include", .{pkg_root});
+        try std.fs.cwd().makePath(bin_dir);
+        try std.fs.cwd().makePath(lib_dir);
+        try std.fs.cwd().makePath(include_dir);
+
+        const copy_fiskta = b.addSystemCommand(&.{
+            "cp",
+            "src/fiskta.h",
+            b.fmt("{s}/fiskta.h", .{include_dir}),
+        });
+        release_step.dependOn(&copy_fiskta.step);
+        const copy_fiskta_types = b.addSystemCommand(&.{
+            "cp",
+            "src/fiskta_types.h",
+            b.fmt("{s}/fiskta_types.h", .{include_dir}),
+        });
+        release_step.dependOn(&copy_fiskta_types.step);
+
+        const cli_cmd = createBuildStep(
             b,
-            &mkdir_step.step,
             entry.triple,
             entry.os,
             entry.linkage,
             .ReleaseFast,
             version,
-            entry.name,
+            bin_dir,
+            "fiskta",
             entry.ext,
             true,
             entry.use_lto,
+            version_parts,
         );
-        release_step.dependOn(&step.step);
+        release_step.dependOn(&cli_cmd.step);
+
+        const static_name = switch (entry.os) {
+            .windows => b.fmt("fiskta-static-{d}-{d}.lib", .{ version_parts.major, version_parts.minor }),
+            else => "libfiskta.a",
+        };
+        const static_cmd = createStaticLibStep(
+            b,
+            entry.triple,
+            .ReleaseFast,
+            version,
+            version_parts,
+            lib_dir,
+            static_name,
+        );
+        release_step.dependOn(&static_cmd.step);
+
+        if (entry.build_shared) {
+            const shared_name = switch (entry.os) {
+                .linux => b.fmt("libfiskta.so.{d}.{d}", .{ version_parts.major, version_parts.minor }),
+                .macos => b.fmt("libfiskta.{d}.{d}.dylib", .{ version_parts.major, version_parts.minor }),
+                .windows => b.fmt("fiskta-{d}-{d}.dll", .{ version_parts.major, version_parts.minor }),
+                else => b.fmt("libfiskta.so.{d}.{d}", .{ version_parts.major, version_parts.minor }),
+            };
+            const implib_name = if (entry.os == .windows)
+                b.fmt("fiskta-{d}-{d}.lib", .{ version_parts.major, version_parts.minor })
+            else
+                null;
+            const shared_cmd = createSharedLibStep(
+                b,
+                entry.triple,
+                entry.os,
+                .ReleaseFast,
+                version,
+                version_parts,
+                lib_dir,
+                shared_name,
+                implib_name,
+            );
+            release_step.dependOn(&shared_cmd.step);
+        }
     }
 }
 
 fn createBuildStep(
     b: *std.Build,
-    mkdir_step: *std.Build.Step,
     target_triple: []const u8,
     target_os: std.Target.Os.Tag,
     linkage: std.builtin.LinkMode,
     optimize: std.builtin.OptimizeMode,
     version: []const u8,
+    out_dir: []const u8,
     out_name: []const u8,
     out_ext: []const u8,
     shrink: bool,
     use_lto: bool,
+    version_parts: VersionParts,
 ) *std.Build.Step.Run {
     const cmd = b.addSystemCommand(&.{
         "zig",
@@ -193,28 +275,18 @@ fn createBuildStep(
         "-fdata-sections",
         "-I",
         "src",
-        "src/main.c",
-        "src/parse.c",
-        "src/fiskta.c",
-        "src/engine.c",
-        "src/fileio.c",
-        "src/search_literal.c",
-        "src/regex_vm.c",
-        "src/regex_prog.c",
-        "src/util.c",
         "-o",
-        b.fmt("zig-out/bin/{s}{s}", .{ out_name, out_ext }),
+        b.fmt("{s}/{s}{s}", .{ out_dir, out_name, out_ext }),
     });
 
+    addCliSources(cmd);
     cmd.addArg(b.fmt("-DFISKTA_VERSION=\"{s}\"", .{version}));
+    cmd.addArg(b.fmt("-DFISKTA_ABI_MAJOR={d}", .{version_parts.major}));
+    cmd.addArg(b.fmt("-DFISKTA_ABI_MINOR={d}", .{version_parts.minor}));
+    cmd.addArg("-DFISKTA_BUILD");
     cmd.addArgs(&.{ "-target", target_triple });
 
-    switch (optimize) {
-        .Debug => cmd.addArgs(&.{ "-g", "-O0", "-DDEBUG" }),
-        .ReleaseFast => cmd.addArg("-O3"),
-        .ReleaseSafe => cmd.addArg("-O2"),
-        .ReleaseSmall => cmd.addArg("-Os"),
-    }
+    addOptimizeArgs(cmd, optimize);
 
     if (shrink) {
         if (use_lto) {
@@ -234,6 +306,8 @@ fn createBuildStep(
 
     if (target_os == .macos) {
         cmd.addArg("-Wl,-dead_strip");
+    } else if (target_os == .windows) {
+        // Windows linkers do not accept GNU-style --gc-sections
     } else {
         cmd.addArg("-Wl,--gc-sections");
     }
@@ -241,17 +315,73 @@ fn createBuildStep(
     if (linkage == .static) {
         cmd.addArg("-static");
     }
-
-    cmd.step.dependOn(mkdir_step);
     return cmd;
+}
+
+const VersionParts = struct {
+    major: u32,
+    minor: u32,
+};
+
+fn parseVersionParts(version: []const u8) VersionParts {
+    var parts = VersionParts{ .major = 0, .minor = 0 };
+    var it = std.mem.splitScalar(u8, version, '.');
+    var idx: usize = 0;
+    while (it.next()) |segment| {
+        const trimmed = std.mem.trim(u8, segment, &std.ascii.whitespace);
+        if (trimmed.len == 0) {
+            continue;
+        }
+        const value = std.fmt.parseUnsigned(u32, trimmed, 10) catch break;
+        if (idx == 0) {
+            parts.major = value;
+        } else if (idx == 1) {
+            parts.minor = value;
+            break;
+        }
+        idx += 1;
+    }
+    return parts;
+}
+
+fn addLibrarySources(cmd: *std.Build.Step.Run) void {
+    for (lib_sources) |src| {
+        cmd.addArg(src);
+    }
+}
+
+fn addCliSources(cmd: *std.Build.Step.Run) void {
+    addLibrarySources(cmd);
+    for (cli_extra_sources) |src| {
+        cmd.addArg(src);
+    }
+}
+
+fn addOptimizeArgs(cmd: *std.Build.Step.Run, optimize: std.builtin.OptimizeMode) void {
+    switch (optimize) {
+        .Debug => cmd.addArgs(&.{ "-g", "-O0", "-DDEBUG" }),
+        .ReleaseFast => cmd.addArg("-O3"),
+        .ReleaseSafe => cmd.addArg("-O2"),
+        .ReleaseSmall => cmd.addArg("-Os"),
+    }
+}
+
+fn addOptimizeArgsForBuildLib(cmd: *std.Build.Step.Run, optimize: std.builtin.OptimizeMode) void {
+    switch (optimize) {
+        .Debug => cmd.addArgs(&.{ "-g", "-O0", "-DDEBUG" }),
+        .ReleaseFast => cmd.addArg("-OReleaseFast"),
+        .ReleaseSafe => cmd.addArg("-OReleaseSafe"),
+        .ReleaseSmall => cmd.addArg("-OReleaseSmall"),
+    }
 }
 
 fn createAsanBuildStep(
     b: *std.Build,
-    mkdir_step: *std.Build.Step,
     target_triple: []const u8,
     target_os: std.Target.Os.Tag,
     version: []const u8,
+    out_dir: []const u8,
+    version_parts: VersionParts,
     out_name: []const u8,
     out_ext: []const u8,
 ) *std.Build.Step.Run {
@@ -274,20 +404,15 @@ fn createAsanBuildStep(
         "-Wstrict-aliasing=2",
         "-I",
         "src",
-        "src/main.c",
-        "src/parse.c",
-        "src/fiskta.c",
-        "src/engine.c",
-        "src/fileio.c",
-        "src/search_literal.c",
-        "src/regex_vm.c",
-        "src/regex_prog.c",
-        "src/util.c",
         "-o",
-        b.fmt("zig-out/bin/{s}{s}", .{ out_name, out_ext }),
+        b.fmt("{s}/{s}{s}", .{ out_dir, out_name, out_ext }),
     });
 
+    addCliSources(cmd);
     cmd.addArg(b.fmt("-DFISKTA_VERSION=\"{s}\"", .{version}));
+    cmd.addArg(b.fmt("-DFISKTA_ABI_MAJOR={d}", .{version_parts.major}));
+    cmd.addArg(b.fmt("-DFISKTA_ABI_MINOR={d}", .{version_parts.minor}));
+    cmd.addArg("-DFISKTA_BUILD");
     cmd.addArgs(&.{ "-target", target_triple });
 
     // ASAN build: optimized with sanitizers
@@ -304,7 +429,79 @@ fn createAsanBuildStep(
     } else {
         cmd.addArg("-Wl,--gc-sections");
     }
+    return cmd;
+}
 
-    cmd.step.dependOn(mkdir_step);
+fn createStaticLibStep(
+    b: *std.Build,
+    target_triple: []const u8,
+    optimize: std.builtin.OptimizeMode,
+    version: []const u8,
+    version_parts: VersionParts,
+    lib_dir: []const u8,
+    file_name: []const u8,
+) *std.Build.Step.Run {
+    const out_path = b.pathJoin(&.{ b.pathFromRoot(lib_dir), file_name });
+    const cmd = b.addSystemCommand(&.{
+        "zig",
+        "build-lib",
+        "-static",
+        "-lc",
+        "-I",
+        "src",
+        b.fmt("-femit-bin={s}", .{out_path}),
+    });
+    addLibrarySources(cmd);
+    cmd.addArg(b.fmt("-DFISKTA_VERSION=\"{s}\"", .{version}));
+    cmd.addArg(b.fmt("-DFISKTA_ABI_MAJOR={d}", .{version_parts.major}));
+    cmd.addArg(b.fmt("-DFISKTA_ABI_MINOR={d}", .{version_parts.minor}));
+    cmd.addArg("-DFISKTA_BUILD");
+    cmd.addArgs(&.{ "-target", target_triple });
+    addOptimizeArgsForBuildLib(cmd, optimize);
+    return cmd;
+}
+
+fn createSharedLibStep(
+    b: *std.Build,
+    target_triple: []const u8,
+    target_os: std.Target.Os.Tag,
+    optimize: std.builtin.OptimizeMode,
+    version: []const u8,
+    version_parts: VersionParts,
+    lib_dir: []const u8,
+    file_name: []const u8,
+    implib_name: ?[]const u8,
+) *std.Build.Step.Run {
+    const out_path = b.pathJoin(&.{ b.pathFromRoot(lib_dir), file_name });
+    const cmd = b.addSystemCommand(&.{
+        "zig",
+        "build-lib",
+        "-dynamic",
+        "-lc",
+        "-I",
+        "src",
+        b.fmt("-femit-bin={s}", .{out_path}),
+    });
+    if (target_os != .windows) {
+        cmd.addArg("-fPIC");
+    }
+    addLibrarySources(cmd);
+    cmd.addArg(b.fmt("-DFISKTA_VERSION=\"{s}\"", .{version}));
+    cmd.addArg(b.fmt("-DFISKTA_ABI_MAJOR={d}", .{version_parts.major}));
+    cmd.addArg(b.fmt("-DFISKTA_ABI_MINOR={d}", .{version_parts.minor}));
+    cmd.addArg("-DFISKTA_BUILD");
+    cmd.addArgs(&.{ "-target", target_triple });
+    if (target_os == .linux) {
+        cmd.addArg(b.fmt("-fsoname={s}", .{file_name}));
+    } else if (target_os == .macos) {
+        cmd.addArg("-install_name");
+        cmd.addArg(b.fmt("@rpath/{s}", .{file_name}));
+    } else if (target_os == .windows) {
+        if (implib_name) |libname| {
+            const implib_path = b.pathJoin(&.{ b.pathFromRoot(lib_dir), libname });
+            cmd.addArg(b.fmt("-femit-implib={s}", .{implib_path}));
+        }
+    }
+    addOptimizeArgsForBuildLib(cmd, optimize);
     return cmd;
 }

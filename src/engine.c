@@ -5,7 +5,6 @@
 #include "engine.h"
 #include "fileio.h"
 #include "fiskta.h"
-#include "fiskta_internal.h"
 #include "fiskta_types.h"
 #include "regex_vm.h"
 #include "search_literal.h"
@@ -858,11 +857,11 @@ static enum Err resolve_location(
         bool found = false;
         for (i32 i = staged_label_count - 1; i >= 0; i--) {
             if (staged_labels[i].name_idx == loc->name_idx) {
-                // pos < 0 means cleared - treat as not resolvable
-                if (staged_labels[i].pos >= 0) {
-                    base = staged_labels[i].pos;
-                    found = true;
+                if (staged_labels[i].pos < 0) {
+                    return E_LOC_RESOLVE;
                 }
+                base = staged_labels[i].pos;
+                found = true;
                 break;
             }
         }

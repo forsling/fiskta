@@ -5,7 +5,6 @@
 #include "fiskta.h"
 #include "engine.h"
 #include "fileio.h"
-#include "fiskta_internal.h"
 #include "fiskta_types.h"
 #include "parse.h"
 #include "regex_prog.h"
@@ -201,6 +200,21 @@ const char* fiskta_err_str(enum Err e)
         return "out of memory";
     default:
         return "unknown error";
+    }
+}
+
+const char* fiskta_version(void)
+{
+    return FISKTA_VERSION;
+}
+
+void fiskta_abi_version(int* major, int* minor)
+{
+    if (major) {
+        *major = FISKTA_ABI_MAJOR;
+    }
+    if (minor) {
+        *minor = FISKTA_ABI_MINOR;
     }
 }
 

@@ -18,7 +18,43 @@
 
 #pragma once
 
+#ifndef FISKTA_VERSION
+#define FISKTA_VERSION "dev"
+#endif
+
+#ifndef FISKTA_ABI_MAJOR
+#define FISKTA_ABI_MAJOR 0
+#endif
+
+#ifndef FISKTA_ABI_MINOR
+#define FISKTA_ABI_MINOR 0
+#endif
+
+#ifndef FISKTA_API
+#if defined(_WIN32)
+#if defined(FISKTA_STATIC)
+#define FISKTA_API
+#elif defined(FISKTA_BUILD)
+#define FISKTA_API __declspec(dllexport)
+#else
+#define FISKTA_API __declspec(dllimport)
+#endif
+#elif defined(__GNUC__) || defined(__clang__)
+#if defined(FISKTA_BUILD)
+#define FISKTA_API __attribute__((visibility("default")))
+#else
+#define FISKTA_API
+#endif
+#else
+#define FISKTA_API
+#endif
+#endif // FISKTA_API
+
 #include "fiskta_types.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct ReThread ReThread;
 typedef struct LabelWrite LabelWrite;
@@ -184,7 +220,7 @@ typedef struct {
 //   - Returns FISKTA_EXIT_PARSE if tokens or pattern invalid
 //   - Returns FISKTA_EXIT_CAPACITY if capacity exceeded
 //   - Errors reported via fiskta_set_error_handler() or stderr
-int fiskta_program_requirements(i32 token_count, const String* tokens,
+FISKTA_API int fiskta_program_requirements(i32 token_count, const String* tokens,
     const BuildOptions* options,
     RuntimeRequirements* out);
 
@@ -221,7 +257,7 @@ int fiskta_program_requirements(i32 token_count, const String* tokens,
 //   fiskta_build_program(tokens, &opts, &prog, arena, req.arena_bytes, &buffers);
 //   fiskta_runtime_execute(&prog, file, &buffers, &config);
 //   free(arena);
-int fiskta_build_program(i32 token_count, const String* tokens,
+FISKTA_API int fiskta_build_program(i32 token_count, const String* tokens,
     const BuildOptions* options,
     Program* prog_out,
     void* arena_block, size_t arena_size,
@@ -250,7 +286,7 @@ int fiskta_build_program(i32 token_count, const String* tokens,
 //   - FISKTA_EXIT_IO (10)           - File I/O error
 //   - FISKTA_EXIT_RESOURCE (11)     - Resource exhaustion (OOM)
 //   - FISKTA_EXIT_CAPACITY (9)      - Capacity exceeded
-int fiskta_runtime_execute(const Program* prog,
+FISKTA_API int fiskta_runtime_execute(const Program* prog,
     const char* file_path,
     RuntimeBuffers* buffers,
     const RuntimeConfig* config);
@@ -265,7 +301,7 @@ int fiskta_runtime_execute(const Program* prog,
 //   - config: Runtime configuration (loop mode, timeouts, callbacks)
 //
 // Returns same exit codes as fiskta_runtime_execute().
-int fiskta_runtime_execute_buffer(const Program* prog,
+FISKTA_API int fiskta_runtime_execute_buffer(const Program* prog,
     const unsigned char* data, size_t len,
     RuntimeBuffers* buffers,
     const RuntimeConfig* config);
@@ -283,16 +319,27 @@ int fiskta_runtime_execute_buffer(const Program* prog,
 //       fprintf(stderr, "Error: %s\n", msg);
 //   }
 //   fiskta_set_error_handler(my_handler, NULL);
-void fiskta_set_error_handler(FiskataErrorCallback callback, void* userdata);
+FISKTA_API void fiskta_set_error_handler(FiskataErrorCallback callback, void* userdata);
 
 // Get last error code (thread-local)
-enum Err fiskta_error_code(void);
+FISKTA_API enum Err fiskta_error_code(void);
 
 // Get last error message (thread-local, may be NULL)
-const char* fiskta_error_message(void);
+FISKTA_API const char* fiskta_error_message(void);
 
 // Get last error token position (thread-local, -1 if not set)
-i32 fiskta_error_position(void);
+FISKTA_API i32 fiskta_error_position(void);
 
 // Get human-readable string for error code
-const char* fiskta_err_str(enum Err e);
+FISKTA_API const char* fiskta_err_str(enum Err e);
+
+// Library version helpers
+FISKTA_API const char* fiskta_version(void);
+FISKTA_API void fiskta_abi_version(int* major, int* minor);
+
+// Internal error reporting hook (subject to change). Used by parser/engine.
+void error_set(enum Err err, i32 position, const char* fmt, ...);
+
+#ifdef __cplusplus
+} // extern "C"
+#endif

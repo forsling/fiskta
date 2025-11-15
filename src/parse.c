@@ -1,7 +1,6 @@
 #include "parse.h"
 #include "fileio.h"
 #include "fiskta.h"
-#include "fiskta_internal.h"
 #include "fiskta_types.h"
 #include "util.h"
 #include <ctype.h>
