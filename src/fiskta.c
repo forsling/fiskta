@@ -53,22 +53,22 @@ void error_set(enum Err err, i32 position, const char* fmt, ...)
     }
 }
 
-enum Err fiskta_error_code(void)
+FISKTA_API enum Err fiskta_error_code(void)
 {
     return tl_err;
 }
 
-i32 fiskta_error_position(void)
+FISKTA_API i32 fiskta_error_position(void)
 {
     return tl_position;
 }
 
-const char* fiskta_error_message(void)
+FISKTA_API const char* fiskta_error_message(void)
 {
     return tl_message[0] != '\0' ? tl_message : NULL;
 }
 
-void fiskta_set_error_handler(FiskataErrorCallback callback, void* userdata)
+FISKTA_API void fiskta_set_error_handler(FiskataErrorCallback callback, void* userdata)
 {
     tl_callback = callback;
     tl_userdata = userdata;
@@ -171,7 +171,7 @@ static int err_to_exit_code(enum Err e)
     }
 }
 
-const char* fiskta_err_str(enum Err e)
+FISKTA_API const char* fiskta_err_str(enum Err e)
 {
     switch (e) {
     case E_OK:
@@ -203,12 +203,12 @@ const char* fiskta_err_str(enum Err e)
     }
 }
 
-const char* fiskta_version(void)
+FISKTA_API const char* fiskta_version(void)
 {
     return FISKTA_VERSION;
 }
 
-void fiskta_abi_version(int* major, int* minor)
+FISKTA_API void fiskta_abi_version(int* major, int* minor)
 {
     if (major) {
         *major = FISKTA_ABI_MAJOR;
@@ -559,7 +559,7 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
 /***************************************************
  * RESOURCE REQUIREMENTS QUERY (PRE-FLIGHT SIZING) *
  ***************************************************/
-int fiskta_program_requirements(i32 token_count, const String* tokens,
+FISKTA_API int fiskta_program_requirements(i32 token_count, const String* tokens,
     const BuildOptions* options,
     RuntimeRequirements* out)
 {
@@ -696,7 +696,7 @@ int fiskta_program_requirements(i32 token_count, const String* tokens,
  * BUILD PROGRAM (COMPILE-TIME PHASE) *
  **************************************/
 // Build program using caller-provided arena
-int fiskta_build_program(i32 token_count, const String* tokens,
+FISKTA_API int fiskta_build_program(i32 token_count, const String* tokens,
     const BuildOptions* options,
     Program* prog_out,
     void* arena_block, size_t arena_size,
@@ -879,7 +879,7 @@ int fiskta_build_program(i32 token_count, const String* tokens,
 /***********************************
  * EXECUTE PROGRAM (RUNTIME PHASE) *
  ***********************************/
-int fiskta_runtime_execute(const Program* prog,
+FISKTA_API int fiskta_runtime_execute(const Program* prog,
     const char* file_path,
     RuntimeBuffers* buffers,
     const RuntimeConfig* config)
@@ -994,7 +994,7 @@ int fiskta_runtime_execute(const Program* prog,
     }
 }
 
-int fiskta_runtime_execute_buffer(const Program* prog,
+FISKTA_API int fiskta_runtime_execute_buffer(const Program* prog,
     const unsigned char* data, size_t len,
     RuntimeBuffers* buffers,
     const RuntimeConfig* config)

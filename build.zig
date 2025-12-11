@@ -18,6 +18,7 @@ const cli_extra_sources = [_][]const u8{
 pub fn build(b: *std.Build) !void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
+    const global_cache = b.pathJoin(&.{ b.pathFromRoot(".zig-cache"), "global" });
 
     const version = b.option([]const u8, "version", "FISKTA version string") orelse blk: {
         // Try git describe (shows commits since last tag + dirty state)
@@ -57,6 +58,7 @@ pub fn build(b: *std.Build) !void {
         false,
         version_parts,
     );
+    host_cmd.setEnvironmentVariable("ZIG_GLOBAL_CACHE_DIR", global_cache);
     host_step.dependOn(&host_cmd.step);
 
     if (host_os == .linux) {
@@ -74,6 +76,7 @@ pub fn build(b: *std.Build) !void {
             false,
             version_parts,
         );
+        musl_cmd.setEnvironmentVariable("ZIG_GLOBAL_CACHE_DIR", global_cache);
         host_step.dependOn(&musl_cmd.step);
     }
 
@@ -90,6 +93,7 @@ pub fn build(b: *std.Build) !void {
         "fiskta-asan",
         "",
     );
+    asan_cmd.setEnvironmentVariable("ZIG_GLOBAL_CACHE_DIR", global_cache);
     asan_step.dependOn(&asan_cmd.step);
 
     const wrapper_step = b.step("wrapper", "Build library wrapper for testing");
@@ -105,6 +109,7 @@ pub fn build(b: *std.Build) !void {
         "-o",
         "zig-out/bin/fiskta_library_wrapper",
     });
+    wrapper_cmd.setEnvironmentVariable("ZIG_GLOBAL_CACHE_DIR", global_cache);
     addLibrarySources(wrapper_cmd);
     wrapper_cmd.addArg(b.fmt("-DFISKTA_VERSION=\"{s}\"", .{version}));
     wrapper_cmd.addArgs(&.{ "-target", host_triple });
@@ -131,6 +136,7 @@ pub fn build(b: *std.Build) !void {
     const test_cli_cmd = b.addSystemCommand(&.{ "sh", "-c", "python3 tools/test.py --exe zig-out/bin/fiskta | grep -v '\\[PASS\\]'" });
     test_cli_cmd.setCwd(b.path("."));
     test_cli_cmd.setEnvironmentVariable("PATH", b.pathJoin(&.{ b.pathFromRoot(out_dir), ":", std.posix.getenv("PATH") orelse "" }));
+    test_cli_cmd.setEnvironmentVariable("ZIG_GLOBAL_CACHE_DIR", global_cache);
     test_cli_cmd.step.dependOn(host_step);
     test_step.dependOn(&test_cli_cmd.step);
 
@@ -138,6 +144,7 @@ pub fn build(b: *std.Build) !void {
     const test_lib_cmd = b.addSystemCommand(&.{ "sh", "-c", "python3 tools/test.py --exe zig-out/bin/fiskta_library_wrapper | grep -v '\\[PASS\\]'" });
     test_lib_cmd.setCwd(b.path("."));
     test_lib_cmd.setEnvironmentVariable("PATH", b.pathJoin(&.{ b.pathFromRoot(out_dir), ":", std.posix.getenv("PATH") orelse "" }));
+    test_lib_cmd.setEnvironmentVariable("ZIG_GLOBAL_CACHE_DIR", global_cache);
     test_lib_cmd.step.dependOn(wrapper_step);
     test_lib_step.dependOn(&test_lib_cmd.step);
 
@@ -156,7 +163,7 @@ pub fn build(b: *std.Build) !void {
         .{ .triple = "x86_64-linux-gnu", .os = .linux, .linkage = .dynamic, .name = "fiskta-linux-x86_64", .ext = "", .use_lto = true, .build_shared = true },
         .{ .triple = "x86_64-linux-musl", .os = .linux, .linkage = .static, .name = "fiskta-linux-x86_64-musl", .ext = "", .use_lto = true, .build_shared = false },
         .{ .triple = "aarch64-macos", .os = .macos, .linkage = .dynamic, .name = "fiskta-macos-arm64", .ext = "", .use_lto = false, .build_shared = true },
-        .{ .triple = "x86_64-windows", .os = .windows, .linkage = .dynamic, .name = "fiskta-x86_64", .ext = ".exe", .use_lto = false, .build_shared = true },
+        .{ .triple = "x86_64-windows", .os = .windows, .linkage = .dynamic, .name = "fiskta-windows-x86_64", .ext = ".exe", .use_lto = false, .build_shared = true },
     };
 
     for (release_targets) |entry| {
@@ -196,6 +203,7 @@ pub fn build(b: *std.Build) !void {
             entry.use_lto,
             version_parts,
         );
+        cli_cmd.setEnvironmentVariable("ZIG_GLOBAL_CACHE_DIR", global_cache);
         release_step.dependOn(&cli_cmd.step);
 
         const static_name = switch (entry.os) {
@@ -211,6 +219,7 @@ pub fn build(b: *std.Build) !void {
             lib_dir,
             static_name,
         );
+        static_cmd.setEnvironmentVariable("ZIG_GLOBAL_CACHE_DIR", global_cache);
         release_step.dependOn(&static_cmd.step);
 
         if (entry.build_shared) {
@@ -235,6 +244,7 @@ pub fn build(b: *std.Build) !void {
                 shared_name,
                 implib_name,
             );
+            shared_cmd.setEnvironmentVariable("ZIG_GLOBAL_CACHE_DIR", global_cache);
             release_step.dependOn(&shared_cmd.step);
         }
     }
@@ -300,7 +310,7 @@ fn createBuildStep(
         });
     }
 
-    if (optimize != .Debug) {
+    if (optimize != .Debug and target_os != .windows) {
         cmd.addArg("-s");
     }
 
@@ -308,6 +318,7 @@ fn createBuildStep(
         cmd.addArg("-Wl,-dead_strip");
     } else if (target_os == .windows) {
         // Windows linkers do not accept GNU-style --gc-sections
+        // Note: -s (strip) disabled for Windows cross-compile due to zig lld limitation
     } else {
         cmd.addArg("-Wl,--gc-sections");
     }
@@ -472,36 +483,67 @@ fn createSharedLibStep(
     file_name: []const u8,
     implib_name: ?[]const u8,
 ) *std.Build.Step.Run {
+    // For Windows, use zig build-lib which supports -femit-implib
+    if (target_os == .windows) {
+        const out_path = b.pathJoin(&.{ b.pathFromRoot(lib_dir), file_name });
+        const cmd = b.addSystemCommand(&.{
+            "zig",
+            "build-lib",
+            "-dynamic",
+            "-lc",
+            "-I",
+            "src",
+            b.fmt("-femit-bin={s}", .{out_path}),
+        });
+        if (implib_name) |libname| {
+            const implib_path = b.pathJoin(&.{ b.pathFromRoot(lib_dir), libname });
+            cmd.addArg(b.fmt("-femit-implib={s}", .{implib_path}));
+        }
+        addLibrarySources(cmd);
+        cmd.addArg(b.fmt("-DFISKTA_VERSION=\"{s}\"", .{version}));
+        cmd.addArg(b.fmt("-DFISKTA_ABI_MAJOR={d}", .{version_parts.major}));
+        cmd.addArg(b.fmt("-DFISKTA_ABI_MINOR={d}", .{version_parts.minor}));
+        cmd.addArg("-DFISKTA_BUILD");
+        cmd.addArgs(&.{ "-target", target_triple });
+        addOptimizeArgsForBuildLib(cmd, optimize);
+        return cmd;
+    }
+
+    // For Linux/macOS, use zig cc -shared
     const out_path = b.pathJoin(&.{ b.pathFromRoot(lib_dir), file_name });
     const cmd = b.addSystemCommand(&.{
         "zig",
-        "build-lib",
-        "-dynamic",
-        "-lc",
+        "cc",
+        "-shared",
+        "-std=c11",
         "-I",
         "src",
-        b.fmt("-femit-bin={s}", .{out_path}),
+        "-o",
+        out_path,
     });
-    if (target_os != .windows) {
-        cmd.addArg("-fPIC");
-    }
+
     addLibrarySources(cmd);
     cmd.addArg(b.fmt("-DFISKTA_VERSION=\"{s}\"", .{version}));
     cmd.addArg(b.fmt("-DFISKTA_ABI_MAJOR={d}", .{version_parts.major}));
     cmd.addArg(b.fmt("-DFISKTA_ABI_MINOR={d}", .{version_parts.minor}));
     cmd.addArg("-DFISKTA_BUILD");
     cmd.addArgs(&.{ "-target", target_triple });
+
+    // Optimization
+    addOptimizeArgs(cmd, optimize);
+
+    // Platform-specific flags
     if (target_os == .linux) {
-        cmd.addArg(b.fmt("-fsoname={s}", .{file_name}));
+        cmd.addArg("-fPIC");
+        cmd.addArg("-fvisibility=hidden");
+        cmd.addArg(b.fmt("-Wl,-soname,{s}", .{file_name}));
+        cmd.addArg(b.fmt("-Wl,--version-script={s}/fiskta.map", .{b.pathFromRoot(".")}));
     } else if (target_os == .macos) {
-        cmd.addArg("-install_name");
-        cmd.addArg(b.fmt("@rpath/{s}", .{file_name}));
-    } else if (target_os == .windows) {
-        if (implib_name) |libname| {
-            const implib_path = b.pathJoin(&.{ b.pathFromRoot(lib_dir), libname });
-            cmd.addArg(b.fmt("-femit-implib={s}", .{implib_path}));
-        }
+        cmd.addArg("-fPIC");
+        cmd.addArg("-fvisibility=hidden");
+        cmd.addArg(b.fmt("-Wl,-install_name,@rpath/{s}", .{file_name}));
+        // Note: -fvisibility=hidden + FISKTA_API attributes control symbol visibility
+        // zig lld doesn't support -exported_symbols_list in cross-compile mode
     }
-    addOptimizeArgsForBuildLib(cmd, optimize);
     return cmd;
 }

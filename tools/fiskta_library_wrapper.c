@@ -18,37 +18,13 @@ static void output_to_stdout(const void* data, size_t len, void* userdata)
     fwrite(data, 1, len, stdout);
 }
 
-// Map enum Err to string (must match fiskta.c:err_str)
-static const char* err_str(enum Err e)
-{
-    switch (e) {
-    case E_OK: return "ok";
-    case E_PARSE: return "parse error";
-    case E_BAD_NEEDLE: return "empty needle";
-    case E_BAD_HEX: return "invalid hex string";
-    case E_LOC_RESOLVE: return "location not resolvable";
-    case E_NO_MATCH: return "no match in window";
-    case E_FAIL_OP: return "fail operation";
-    case E_LABEL_FMT: return "bad label (A-Z0-9_-; first A-Z; <16)";
-    case E_IO: return "I/O error";
-    case E_CAPACITY: return "buffer capacity exceeded";
-    case E_OOM: return "out of memory";
-    default: return "unknown error";
-    }
-}
-
 // Error callback: write to stderr in fiskta format (match fiskta.c:print_err)
 static void error_to_stderr(enum Err err, const char* context,
     i32 position, const char* message, void* userdata)
 {
     (void)userdata;
 
-    fprintf(stderr, "fiskta: ");
-    if (context) {
-        fprintf(stderr, "%s (%s)", context, err_str(err));
-    } else {
-        fprintf(stderr, "%s", err_str(err));
-    }
+    fprintf(stderr, "fiskta: %s", fiskta_err_str(err));
 
     if (message && message[0]) {
         if (position >= 0) {
@@ -59,6 +35,24 @@ static void error_to_stderr(enum Err err, const char* context,
     }
 
     fprintf(stderr, "\n");
+}
+
+// Print last error in the same format as CLI (used when a call returns non-OK)
+static void print_last_error_cli_like(void)
+{
+    enum Err e = fiskta_error_code();
+    if (e == E_OK) return;
+    i32 position = fiskta_error_position();
+    const char* message = fiskta_error_message();
+    fprintf(stderr, "fiskta: %s", fiskta_err_str(e));
+    if (message && fiskta_error_code() == e) {
+        if (position >= 0) {
+            fprintf(stderr, ": %s (token %d)", message, position + 1);
+        } else {
+            fprintf(stderr, ": %s", message);
+        }
+    }
+    fputc('\n', stderr);
 }
 
 // Read entire file into memory
@@ -451,12 +445,12 @@ int main(int argc, char** argv)
         }
 
         for (int i = 0; i < token_count; i++) {
-            tokens[i].bytes = (const unsigned char*)argv[token_start_idx + i];
+            tokens[i].bytes = argv[token_start_idx + i];
             tokens[i].len = (i32)strlen(argv[token_start_idx + i]);
         }
     }
 
-    // Set up error callback
+    // Set up error callback (used by runtime path when engine reports errors)
     fiskta_set_error_handler(error_to_stderr, NULL);
 
     // Get program requirements
@@ -464,6 +458,7 @@ int main(int argc, char** argv)
     RuntimeRequirements reqs;
     int result = fiskta_program_requirements(token_count, tokens, &opts, &reqs);
     if (result != FISKTA_EXIT_OK) {
+        print_last_error_cli_like();
         return result;
     }
 
@@ -479,6 +474,7 @@ int main(int argc, char** argv)
     RuntimeBuffers buffers = {0};
     result = fiskta_build_program(token_count, tokens, &opts, &prog, arena, reqs.arena_bytes, &buffers);
     if (result != FISKTA_EXIT_OK) {
+        print_last_error_cli_like();
         free(arena);
         return result;
     }
@@ -507,6 +503,9 @@ int main(int argc, char** argv)
 
     // Execute on in-memory buffer
     result = fiskta_runtime_execute_buffer(&prog, input_data, input_len, &buffers, &config);
+    if (result != FISKTA_EXIT_OK && result != FISKTA_EXIT_PROGRAM_FAIL) {
+        print_last_error_cli_like();
+    }
 
     // Cleanup
     free(input_data);
