@@ -1735,7 +1735,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
          * VIEW OPERATIONS *
          *******************/
     } else if (is_keyword(cmd_tok, &kw_view)) {
-        op->kind = OP_VIEWSET;
+        op->kind = OP_VIEW;
 
         // Parse arguments
         TmpViewArgs args;
@@ -1745,8 +1745,8 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         }
 
         // Materialize: populate Op from parsed args
-        op->u.viewset.a = args.a;
-        op->u.viewset.b = args.b;
+        op->u.view.a = args.a;
+        op->u.view.b = args.b;
 
     } else if (is_keyword(cmd_tok, &kw_clear)) {
         // Parse arguments (parse_clear_args already consumed tokens)
@@ -1759,7 +1759,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         // Materialize based on what was cleared
         String target_tok = tokens[args_start];
         if (is_keyword(target_tok, &kw_view)) {
-            op->kind = OP_VIEWCLEAR;
+            op->kind = OP_VIEW_CLEAR;
         } else {
             // clear <LABEL_NAME>
             op->kind = OP_LABEL_CLEAR;

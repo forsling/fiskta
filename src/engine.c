@@ -446,11 +446,11 @@ static enum Err viewset_op(
 {
     i64 a;
     i64 b;
-    enum Err err = resolve_location(&op->u.viewset.a, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_VIEW, &a);
+    enum Err err = resolve_location(&op->u.view.a, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_VIEW, &a);
     if (err != E_OK) {
         return err;
     }
-    err = resolve_location(&op->u.viewset.b, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_VIEW, &b);
+    err = resolve_location(&op->u.view.b, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_VIEW, &b);
     if (err != E_OK) {
         return err;
     }
@@ -813,9 +813,9 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
         return label_op(op, vm, c_cursor, *label_writes, label_count, *label_cap);
     case OP_LABEL_CLEAR:
         return label_clear_op(op, *label_writes, label_count, *label_cap);
-    case OP_VIEWSET:
+    case OP_VIEW:
         return viewset_op(io, op, vm, c_cursor, c_last_match, *label_writes, *label_count, c_view);
-    case OP_VIEWCLEAR:
+    case OP_VIEW_CLEAR:
         return view_clear_op(io, c_view);
     case OP_PRINT:
         return print_literal_op(op, io, c_view, *c_cursor, *ranges, range_count, *range_cap, inline_ptr, inline_end);

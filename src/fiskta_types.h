@@ -47,8 +47,8 @@ enum {
     OP_TAKE_UNTIL_BIN,
     OP_LABEL,
     OP_LABEL_CLEAR,
-    OP_VIEWSET,
-    OP_VIEWCLEAR,
+    OP_VIEW,
+    OP_VIEW_CLEAR,
     OP_PRINT,
     OP_FAIL
 };
@@ -166,10 +166,10 @@ typedef struct {
         } label_clear;
         struct {
             LocExpr a, b;
-        } viewset;
+        } view;
         struct {
             int _; // Required for -pedantic (empty structs non-standard)
-        } viewclear;
+        } view_clear;
         struct {
             String string;
             i16* cursor_offsets;
