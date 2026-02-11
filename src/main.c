@@ -209,6 +209,7 @@ static bool parse_cli_args(int argc, char** argv,
             continue;
         }
         if (strcmp(arg, "-C") == 0 || strcmp(arg, "--continue-on-fail") == 0) {
+            cfg.loop_enabled = true;
             cfg.ignore_loop_failures = true;
             argi++;
             continue;

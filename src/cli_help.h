@@ -120,12 +120,12 @@ static inline void print_usage(void)
     printf("      --ops-file <path>       Operations from file\n");
     printf("      --                      Treat subsequent arguments as operations\n");
     printf("      --for <time>            Halt execution after set duration\n");
-    printf("  -C, --continue-on-fail      Suppress exit code 1 when clauses fail (useful with looping)\n");
     printf("  -h, --help                  Show this help message\n");
     printf("  -v, --version               Show version information\n");
     printf("\n");
     printf("LOOPING (CONTINUE MODE):\n");
-    printf("      --continue [delay]       Enable looping; optional delay between iterations (ms|s|m|h). Default: 0 (tight loop)\n");
+    printf("  -c, --continue [delay]       Enable looping; optional delay between iterations (ms|s|m|h). Default: 0 (tight loop)\n");
+    printf("  -C, --continue-on-fail       Like -c, but suppress exit code 1 on clause failure\n");
     printf("      -u, --until-idle <time>  Stop when input window is empty for specified duration\n");
     printf("\n");
     printf("  Continue loop resumes from saved cursor position each iteration.\n");
