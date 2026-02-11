@@ -2,7 +2,7 @@
 //
 // This is the primary header for library users. It provides:
 //   - Core types and constants (via fiskta_types.h)
-//   - Program building and execution API
+//   - FisktaProgram building and execution API
 //   - Memory requirement queries
 //   - Runtime configuration
 //
@@ -77,7 +77,7 @@ typedef void (*FisktaOutputCallback)(const void* data, size_t len, void* userdat
 // Memory usage is predictable and independent of runtime complexity. Patterns
 // that exceed the budget fail gracefully with FISKTA_E_CAPACITY.
 //
-// These defaults can be overridden via BuildOptions (see fiskta_types.h).
+// These defaults can be overridden via FisktaBuildOptions (see fiskta_types.h).
 //
 #ifndef FISKTA_REGEX_BUDGET_DEFAULT
 #define FISKTA_REGEX_BUDGET_DEFAULT (2 * 1024 * 1024) // 2 MiB total
@@ -107,12 +107,12 @@ typedef struct {
     void* error_userdata;
     FisktaOutputCallback output_callback; // Optional output handler (NULL = use stdout)
     void* output_userdata;
-} RuntimeConfig;
+} FisktaRuntimeConfig;
 
 /***************************
  * TWO-PHASE EXECUTION API *
  ***************************/
-// RuntimeBuffers: All execution-time working memory for one Program.
+// FisktaRuntimeBuffers: All execution-time working memory for one FisktaProgram.
 //
 // Lifetime:
 //   - Initialized by build_program() with pointers into caller's arena
@@ -120,9 +120,9 @@ typedef struct {
 //   - Valid as long as arena is not freed
 //
 // Reusability:
-//   - The same RuntimeBuffers may be reused across multiple calls to
+//   - The same FisktaRuntimeBuffers may be reused across multiple calls to
 //     runtime_execute() as long as those calls are NOT concurrent.
-//   - Thread-safety: NOT thread-safe. One RuntimeBuffers per thread.
+//   - Thread-safety: NOT thread-safe. One FisktaRuntimeBuffers per thread.
 //
 // Ownership:
 //   - All pointers point into arena_block
@@ -142,7 +142,7 @@ typedef struct {
     size_t seen_bytes;
 
     // Staging buffers for clause execution (mutated per clause)
-    Range* clause_ranges;
+    FisktaRange* clause_ranges;
     struct LabelWrite* clause_labels;
     char* clause_inline;
     i32 sum_inline_lits;
@@ -150,9 +150,9 @@ typedef struct {
     // Arena metadata (caller owns and must free arena_block)
     void* arena_block;
     size_t arena_size;
-} RuntimeBuffers;
+} FisktaRuntimeBuffers;
 
-// Runtime memory requirements for executing a Program
+// Runtime memory requirements for executing a FisktaProgram
 //
 // Returned by program_requirements() to expose all memory needs BEFORE allocation.
 // Enables:
@@ -175,9 +175,9 @@ typedef struct {
     //
     // Staging semantics:
     //   - Each clause execution accumulates operations (output ranges, label writes)
-    //     in temporary buffers WITHOUT committing them to VM or stdout.
+    //     in temporary buffers WITHOUT committing them to FisktaVM or stdout.
     //   - On clause success: staged changes commit atomically (emit output, update labels)
-    //   - On clause failure: staged changes discard, VM rolls back to pre-clause state
+    //   - On clause failure: staged changes discard, FisktaVM rolls back to pre-clause state
     //   - This enables atomic clause semantics (all-or-nothing execution)
     size_t staging_bytes;
 
@@ -186,17 +186,17 @@ typedef struct {
     size_t arena_bytes;
 
     // Arena breakdown (informational, for debugging/monitoring)
-    size_t ops_bytes; // Op array
-    size_t clauses_bytes; // Clause array
-    size_t regex_prog_bytes; // ReProg structs
+    size_t ops_bytes; // FisktaOp array
+    size_t clauses_bytes; // FisktaClause array
+    size_t regex_prog_bytes; // FisktaReProg structs
     size_t regex_ins_bytes; // ReInst instruction pool
     size_t regex_cls_bytes; // ReClass character class pool
     size_t str_pool_bytes; // String literal pool
 
-    // Program-level regex characteristics (fast-path selection hints)
+    // FisktaProgram-level regex characteristics (fast-path selection hints)
     bool any_lazy_quantifiers; // True if any regex has lazy quantifiers
     bool any_counters; // True if any regex has {n,m} quantifiers
-} RuntimeRequirements;
+} FisktaRuntimeRequirements;
 
 // Analyze program and compute memory requirements WITHOUT allocating
 //
@@ -217,9 +217,9 @@ typedef struct {
 //   - Returns FISKTA_EXIT_PARSE if tokens or pattern invalid
 //   - Returns FISKTA_EXIT_CAPACITY if capacity exceeded
 //   - Errors reported via fiskta_set_error_handler() or stderr
-FISKTA_API int fiskta_program_requirements(i32 token_count, const String* tokens,
-    const BuildOptions* options,
-    RuntimeRequirements* out);
+FISKTA_API int fiskta_program_requirements(i32 token_count, const FisktaString* tokens,
+    const FisktaBuildOptions* options,
+    FisktaRuntimeRequirements* out);
 
 // Build program from tokens (compile-time phase)
 //
@@ -244,32 +244,32 @@ FISKTA_API int fiskta_program_requirements(i32 token_count, const String* tokens
 //
 // Memory ownership:
 //   - Caller owns arena_block and must free it when done
-//   - Program and buffers are invalidated when arena is freed
+//   - FisktaProgram and buffers are invalidated when arena is freed
 //
 // Example usage:
-//   BuildOptions opts = {0};  // Use defaults
-//   RuntimeRequirements req;
+//   FisktaBuildOptions opts = {0};  // Use defaults
+//   FisktaRuntimeRequirements req;
 //   fiskta_program_requirements(tokens, &opts, &req);
 //   void* arena = malloc(req.arena_bytes);
 //   fiskta_build_program(tokens, &opts, &prog, arena, req.arena_bytes, &buffers);
 //   fiskta_runtime_execute(&prog, file, &buffers, &config);
 //   free(arena);
-FISKTA_API int fiskta_build_program(i32 token_count, const String* tokens,
-    const BuildOptions* options,
-    Program* prog_out,
+FISKTA_API int fiskta_build_program(i32 token_count, const FisktaString* tokens,
+    const FisktaBuildOptions* options,
+    FisktaProgram* prog_out,
     void* arena_block, size_t arena_size,
-    RuntimeBuffers* buffers_out);
+    FisktaRuntimeBuffers* buffers_out);
 
 // Execute program against file (runtime phase)
 //
-// Execute a previously-built Program against the given file.
+// Execute a previously-built FisktaProgram against the given file.
 //
-// This is the "runtime" phase: file I/O, VM execution, continue loop.
+// This is the "runtime" phase: file I/O, FisktaVM execution, continue loop.
 //
 // Uses and mutates buffers:
 //   - Regex thread lists
 //   - Staging buffers (ranges, labels, inline literals)
-//   - VM state (cursor, view, label positions)
+//   - FisktaVM state (cursor, view, label positions)
 //
 // Blocking behavior (per config):
 //   - Continue loop: resumes from saved cursor position each iteration
@@ -278,15 +278,15 @@ FISKTA_API int fiskta_build_program(i32 token_count, const String* tokens,
 //
 // Returns FISKTA_EXIT_* code:
 //   - FISKTA_EXIT_OK (0)            - Success
-//   - FISKTA_EXIT_PROGRAM_FAIL (1)  - Program failed
+//   - FISKTA_EXIT_PROGRAM_FAIL (1)  - FisktaProgram failed
 //   - FISKTA_EXIT_TIMEOUT (2)       - Timeout reached
 //   - FISKTA_EXIT_IO (10)           - File I/O error
 //   - FISKTA_EXIT_RESOURCE (11)     - Resource exhaustion (OOM)
 //   - FISKTA_EXIT_CAPACITY (9)      - Capacity exceeded
-FISKTA_API int fiskta_runtime_execute(const Program* prog,
+FISKTA_API int fiskta_runtime_execute(const FisktaProgram* prog,
     const char* file_path,
-    RuntimeBuffers* buffers,
-    const RuntimeConfig* config);
+    FisktaRuntimeBuffers* buffers,
+    const FisktaRuntimeConfig* config);
 
 // Execute a compiled program on an in-memory buffer.
 //
@@ -298,10 +298,10 @@ FISKTA_API int fiskta_runtime_execute(const Program* prog,
 //   - config: Runtime configuration (loop mode, timeouts, callbacks)
 //
 // Returns same exit codes as fiskta_runtime_execute().
-FISKTA_API int fiskta_runtime_execute_buffer(const Program* prog,
+FISKTA_API int fiskta_runtime_execute_buffer(const FisktaProgram* prog,
     const unsigned char* data, size_t len,
-    RuntimeBuffers* buffers,
-    const RuntimeConfig* config);
+    FisktaRuntimeBuffers* buffers,
+    const FisktaRuntimeConfig* config);
 
 // Set error handler for this thread (optional)
 //

@@ -14,55 +14,55 @@ typedef uint16_t u16;
 
 // Constants
 enum {
-    MAX_LABELS = 128,
-    MAX_LABEL_LEN = 15,
-    MAX_ALTS = 256, // Maximum alternations in regex (a|b|c|...)
-    MAX_INLINE_LIT = 24 // Per-\c expansion buffer budget (bytes) reserved
+    FISKTA_MAX_LABELS = 128,
+    FISKTA_MAX_LABEL_LEN = 15,
+    FISKTA_MAX_ALTS = 256, // Maximum alternations in regex (a|b|c|...)
+    FISKTA_MAX_INLINE_LIT = 24 // Per-\c expansion buffer budget (bytes) reserved
                         // for inline cursor injection during print staging
 };
 
 typedef struct {
     const char* bytes;
     size_t len;
-} String;
+} FisktaString;
 
 // Unit type: bytes, lines, chars
-typedef uint8_t Unit;
+typedef uint8_t FisktaUnit;
 enum {
-    UNIT_BYTES,
-    UNIT_LINES,
-    UNIT_CHARS // UTF-8 code points
+    FISKTA_UNIT_BYTES,
+    FISKTA_UNIT_LINES,
+    FISKTA_UNIT_CHARS // UTF-8 code points
 };
 
-typedef uint8_t OpKind;
+typedef uint8_t FisktaOpKind;
 enum {
-    OP_FIND,
-    OP_FIND_RE,
-    OP_FIND_BIN,
-    OP_SKIP,
-    OP_TAKE_LEN,
-    OP_TAKE_TO,
-    OP_TAKE_UNTIL,
-    OP_TAKE_UNTIL_RE,
-    OP_TAKE_UNTIL_BIN,
-    OP_LABEL,
-    OP_LABEL_CLEAR,
-    OP_VIEW,
-    OP_VIEW_CLEAR,
-    OP_PRINT,
-    OP_FAIL
+    FISKTA_OP_FIND,
+    FISKTA_OP_FIND_RE,
+    FISKTA_OP_FIND_BIN,
+    FISKTA_OP_SKIP,
+    FISKTA_OP_TAKE_LEN,
+    FISKTA_OP_TAKE_TO,
+    FISKTA_OP_TAKE_UNTIL,
+    FISKTA_OP_TAKE_UNTIL_RE,
+    FISKTA_OP_TAKE_UNTIL_BIN,
+    FISKTA_OP_LABEL,
+    FISKTA_OP_LABEL_CLEAR,
+    FISKTA_OP_VIEW,
+    FISKTA_OP_VIEW_CLEAR,
+    FISKTA_OP_PRINT,
+    FISKTA_OP_FAIL
 };
 
-typedef uint8_t LocBase;
+typedef uint8_t FisktaLocBase;
 enum {
-    LOC_CURSOR,
-    LOC_BOF,
-    LOC_EOF,
-    LOC_NAME,
-    LOC_MATCH_START,
-    LOC_MATCH_END,
-    LOC_LINE_START,
-    LOC_LINE_END
+    FISKTA_LOC_CURSOR,
+    FISKTA_LOC_BOF,
+    FISKTA_LOC_EOF,
+    FISKTA_LOC_NAME,
+    FISKTA_LOC_MATCH_START,
+    FISKTA_LOC_MATCH_END,
+    FISKTA_LOC_LINE_START,
+    FISKTA_LOC_LINE_END
 };
 
 enum FisktaErr {
@@ -96,67 +96,67 @@ enum FisktaExitCode {
 typedef struct {
     i64 offset;
     i32 name_idx; // index into label table assigned at parse time (-1 otherwise)
-    LocBase base;
-    Unit unit;
-} LocExpr;
+    FisktaLocBase base;
+    FisktaUnit unit;
+} FisktaLocExpr;
 
-typedef struct ReProg ReProg;
+typedef struct FisktaReProg FisktaReProg;
 
 typedef struct {
     i64 lo, hi; // half-open [lo, hi)
     bool active;
-} View;
+} FisktaView;
 
 typedef struct {
-    OpKind kind;
+    FisktaOpKind kind;
     union {
         struct {
-            LocExpr to;
-            String needle;
+            FisktaLocExpr to;
+            FisktaString needle;
         } find;
         struct {
-            LocExpr to;
-            String pattern;
-            struct ReProg* prog;
+            FisktaLocExpr to;
+            FisktaString pattern;
+            struct FisktaReProg* prog;
         } find_re;
         struct {
-            LocExpr to;
-            String needle; // parsed hex bytes
+            FisktaLocExpr to;
+            FisktaString needle; // parsed hex bytes
         } find_bin;
         struct {
             bool is_location; // true for "skip to <loc>", false for "skip <offset><unit>"
             union {
                 struct {
                     i64 offset;
-                    Unit unit;
+                    FisktaUnit unit;
                 } by_offset;
                 struct {
-                    LocExpr to;
+                    FisktaLocExpr to;
                 } to_location;
             };
         } skip;
         struct {
             i64 offset;
-            Unit unit;
+            FisktaUnit unit;
         } take_len;
         struct {
-            LocExpr to;
+            FisktaLocExpr to;
         } take_to;
         struct {
-            String needle;
+            FisktaString needle;
             bool has_at;
-            LocExpr at;
+            FisktaLocExpr at;
         } take_until;
         struct {
-            String pattern;
+            FisktaString pattern;
             bool has_at;
-            LocExpr at;
-            struct ReProg* prog;
+            FisktaLocExpr at;
+            struct FisktaReProg* prog;
         } take_until_re;
         struct {
-            String needle; // parsed hex bytes
+            FisktaString needle; // parsed hex bytes
             bool has_at;
-            LocExpr at;
+            FisktaLocExpr at;
         } take_until_bin;
         struct {
             i32 name_idx;
@@ -165,58 +165,58 @@ typedef struct {
             i32 name_idx;
         } label_clear;
         struct {
-            LocExpr a, b;
+            FisktaLocExpr a, b;
         } view;
         struct {
             int _; // Required for -pedantic (empty structs non-standard)
         } view_clear;
         struct {
-            String string;
+            FisktaString string;
             i16* cursor_offsets;
             i32 cursor_marks;
             i32 literal_segments;
         } print;
         struct {
-            String message;
+            FisktaString message;
         } fail;
     } u;
-} Op;
+} FisktaOp;
 
 // How clauses are linked together
 typedef enum {
-    LINK_NONE, // No link (last clause)
-    LINK_THEN, // Sequential
-    LINK_OR // First success wins
-} ClauseLink;
+    FISKTA_LINK_NONE, // No link (last clause)
+    FISKTA_LINK_THEN, // Sequential
+    FISKTA_LINK_OR // First success wins
+} FisktaClauseLink;
 
 typedef struct {
-    Op* ops;
+    FisktaOp* ops;
     i32 op_count;
-    ClauseLink link;
-} Clause;
+    FisktaClauseLink link;
+} FisktaClause;
 
 typedef struct {
-    Clause* clauses;
+    FisktaClause* clauses;
     i32 clause_count;
     i32 name_count;
-} Program;
+} FisktaProgram;
 
 typedef struct {
     i64 start, end;
     bool valid;
-} Match;
+} FisktaMatch;
 
-// VM state is snapshotted per clause execution.
+// FisktaVM state is snapshotted per clause execution.
 // - cursor, last_match, view, and label_pos[] are staged in StagedResult
 //   and only committed on clause success.
-// - On clause failure, VM must be restored exactly to its prior state.
+// - On clause failure, FisktaVM must be restored exactly to its prior state.
 typedef struct {
     i64 cursor;
-    Match last_match;
-    View view;
+    FisktaMatch last_match;
+    FisktaView view;
 
-    i64 label_pos[MAX_LABELS]; // name_idx -> position mapping (-1 = not set)
-} VM;
+    i64 label_pos[FISKTA_MAX_LABELS]; // name_idx -> position mapping (-1 = not set)
+} FisktaVM;
 
 // Build-time options for program compilation
 //
@@ -236,17 +236,17 @@ typedef struct {
 typedef struct {
     size_t regex_budget_bytes; // Total regex VM memory budget (0 = 2 MiB default)
     u64 regex_work_budget;     // Max thread enqueues per search (0 = 50M default)
-} BuildOptions;
+} FisktaBuildOptions;
 
 // Staged capture range or literal string
-typedef enum { RANGE_FILE,
-    RANGE_LIT } RangeKind;
+typedef enum { FISKTA_RANGE_FILE,
+    FISKTA_RANGE_LIT } FisktaRangeKind;
 typedef struct {
-    RangeKind kind;
+    FisktaRangeKind kind;
     union {
         struct {
-            i64 start, end; // used when kind == RANGE_FILE
+            i64 start, end; // used when kind == FISKTA_RANGE_FILE
         } file;
-        String lit; // used when kind == RANGE_LIT
+        FisktaString lit; // used when kind == FISKTA_RANGE_LIT
     };
-} Range;
+} FisktaRange;

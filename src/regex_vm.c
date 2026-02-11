@@ -106,7 +106,7 @@ static inline int re_seen_hit_or_set(unsigned char* seen, int pc, u32 sig)
 // Ordered epsilon-closure push. Sets *match_found if RI_MATCH reachable for current pos and min_start.
 // Returns FISKTA_E_OOM if thread list capacity is exceeded.
 // Returns FISKTA_E_CAPACITY if recursion depth exceeds limit.
-static enum FisktaErr add_thread_ordered(const ReProg* p, ReList* l, int pc, i64 start,
+static enum FisktaErr add_thread_ordered(const FisktaReProg* p, ReList* l, int pc, i64 start,
     i64 pos, i64 win_lo, i64 win_hi, i64 file_size,
     unsigned char* seen, int* match_found, i64 min_start,
     unsigned char curr_char, unsigned char prev_char,
@@ -282,7 +282,7 @@ static enum FisktaErr add_thread_ordered(const ReProg* p, ReList* l, int pc, i64
 }
 
 enum FisktaErr regex_search_window(File* io, i64 win_lo, i64 win_hi,
-    const ReProg* re, enum Dir dir, i64* ms, i64* me)
+    const FisktaReProg* re, enum Dir dir, i64* ms, i64* me)
 {
     if (!re || re->nins <= 0) {
         return FISKTA_E_PARSE;

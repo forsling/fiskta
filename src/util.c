@@ -110,7 +110,7 @@ void sleep_msec(int msec)
 #endif
 }
 
-bool string_eq(String a, String b)
+bool string_eq(FisktaString a, FisktaString b)
 {
     if (a.len != b.len) {
         return false;
@@ -124,7 +124,7 @@ bool string_eq(String a, String b)
     return memcmp(a.bytes, b.bytes, (size_t)a.len) == 0;
 }
 
-bool string_eq_cstr(String s, const char* literal)
+bool string_eq_cstr(FisktaString s, const char* literal)
 {
     if (!literal) {
         return s.len == 0;
@@ -132,7 +132,7 @@ bool string_eq_cstr(String s, const char* literal)
     return string_eq(s, string_from_cstr(literal));
 }
 
-char string_first(String s)
+char string_first(FisktaString s)
 {
     if (!s.bytes || s.len <= 0) {
         return '\0';
@@ -140,12 +140,12 @@ char string_first(String s)
     return s.bytes[0];
 }
 
-String string_from_cstr(const char* s)
+FisktaString string_from_cstr(const char* s)
 {
     if (!s) {
-        return (String) { NULL, 0 };
+        return (FisktaString) { NULL, 0 };
     }
-    return (String) { s, strlen(s) };
+    return (FisktaString) { s, strlen(s) };
 }
 
 static int hex_value(char c)
@@ -162,9 +162,9 @@ static int hex_value(char c)
     return -1;
 }
 
-String parse_hex_to_bytes(String hex_str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum FisktaErr* err_out)
+FisktaString parse_hex_to_bytes(FisktaString hex_str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum FisktaErr* err_out)
 {
-    String out = { 0 };
+    FisktaString out = { 0 };
     if (err_out) {
         *err_out = FISKTA_E_OK;
     }
@@ -231,7 +231,7 @@ bad_hex:
 
 // Calculate the length of a string after escape sequence processing
 // without actually allocating or processing it
-size_t calculate_escaped_string_length(String str)
+size_t calculate_escaped_string_length(FisktaString str)
 {
     size_t src_len = str.len;
     size_t dst_len = 0;
@@ -266,9 +266,9 @@ size_t calculate_escaped_string_length(String str)
     return dst_len;
 }
 
-String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum FisktaErr* err_out, i32* cursor_marks_out, i16* cursor_offsets_out)
+FisktaString parse_string_to_bytes(FisktaString str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum FisktaErr* err_out, i32* cursor_marks_out, i16* cursor_offsets_out)
 {
-    String out = { 0 };
+    FisktaString out = { 0 };
     if (err_out) {
         *err_out = FISKTA_E_OK;
     }
@@ -387,10 +387,10 @@ parse_err:
     if (err_out) {
         *err_out = FISKTA_E_PARSE;
     }
-    return (String) { 0 };
+    return (FisktaString) { 0 };
 }
 
-// Parser-specific String helpers
+// Parser-specific string helpers
 
 bool string_char_in_set(char c, const char* set)
 {
@@ -405,9 +405,9 @@ bool string_char_in_set(char c, const char* set)
     return false;
 }
 
-bool string_is_valid_label(String s)
+bool string_is_valid_label(FisktaString s)
 {
-    if (s.len <= 0 || s.len > MAX_LABEL_LEN || !s.bytes) {
+    if (s.len <= 0 || s.len > FISKTA_MAX_LABEL_LEN || !s.bytes) {
         return false;
     }
 
@@ -427,7 +427,7 @@ bool string_is_valid_label(String s)
     return true;
 }
 
-bool string_copy_to_buffer(String src, char* dst, size_t dst_cap)
+bool string_copy_to_buffer(FisktaString src, char* dst, size_t dst_cap)
 {
     if (!dst || dst_cap == 0 || !src.bytes) {
         return false;
@@ -443,7 +443,7 @@ bool string_copy_to_buffer(String src, char* dst, size_t dst_cap)
     return true;
 }
 
-static bool parse_unit_suffix(String s, size_t* unit_start, Unit* unit)
+static bool parse_unit_suffix(FisktaString s, size_t* unit_start, FisktaUnit* unit)
 {
     if (s.len == 0) {
         return false;
@@ -452,13 +452,13 @@ static bool parse_unit_suffix(String s, size_t* unit_start, Unit* unit)
     char last = s.bytes[s.len - 1];
     switch (last) {
     case 'b':
-        *unit = UNIT_BYTES;
+        *unit = FISKTA_UNIT_BYTES;
         break;
     case 'l':
-        *unit = UNIT_LINES;
+        *unit = FISKTA_UNIT_LINES;
         break;
     case 'c':
-        *unit = UNIT_CHARS;
+        *unit = FISKTA_UNIT_CHARS;
         break;
     default:
         return false;
@@ -468,7 +468,7 @@ static bool parse_unit_suffix(String s, size_t* unit_start, Unit* unit)
     return true;
 }
 
-static bool parse_number_part(String s, size_t unit_start, u64* out)
+static bool parse_number_part(FisktaString s, size_t unit_start, u64* out)
 {
     if (unit_start == 0) {
         return false;
@@ -493,7 +493,7 @@ static bool parse_number_part(String s, size_t unit_start, u64* out)
     return true;
 }
 
-bool string_try_parse_unsigned(String s, u64* out, Unit* unit)
+bool string_try_parse_unsigned(FisktaString s, u64* out, FisktaUnit* unit)
 {
     if (!s.bytes || s.len <= 0 || !out || !unit) {
         return false;
@@ -507,7 +507,7 @@ bool string_try_parse_unsigned(String s, u64* out, Unit* unit)
     return parse_number_part(s, unit_start, out);
 }
 
-bool string_try_parse_signed(String s, i64* out, Unit* unit)
+bool string_try_parse_signed(FisktaString s, i64* out, FisktaUnit* unit)
 {
     if (!s.bytes || s.len == 0 || !out || !unit) {
         return false;
@@ -529,7 +529,7 @@ bool string_try_parse_signed(String s, i64* out, Unit* unit)
     }
 
     // Create substring without sign
-    String unsigned_part = { s.bytes + start, s.len - start };
+    FisktaString unsigned_part = { s.bytes + start, s.len - start };
 
     u64 unsigned_val;
     if (!string_try_parse_unsigned(unsigned_part, &unsigned_val, unit)) {
@@ -556,14 +556,14 @@ bool string_try_parse_signed(String s, i64* out, Unit* unit)
     return true;
 }
 
-void convert_tokens_to_strings(char** tokens, i32 token_count, String* out)
+void convert_tokens_to_strings(char** tokens, i32 token_count, FisktaString* out)
 {
     for (i32 i = 0; i < token_count; i++) {
         out[i] = string_from_cstr(tokens[i]);
     }
 }
 
-i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens, char* scratch_buf, size_t scratch_cap)
+i32 tokenize_ops_string(const char* s, FisktaString* out, i32 max_tokens, char* scratch_buf, size_t scratch_cap)
 {
     size_t boff = 0;
     i32 ntok = 0;

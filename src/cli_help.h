@@ -106,7 +106,7 @@ static inline void print_usage(void)
     printf("\n");
     printf("EXIT CODES:\n");
     printf("  0               Success (includes normal --until-idle stop)\n");
-    printf("  1               Program failure (no clause succeeded in only/final iteration)\n");
+    printf("  1               FisktaProgram failure (no clause succeeded in only/final iteration)\n");
     printf("  2               Execution timeout (--for elapsed)\n");
     printf("  7               Usage error (unknown flags, invalid flag combinations, missing values)\n");
     printf("  8               Parse error (program grammar or regex syntax)\n");

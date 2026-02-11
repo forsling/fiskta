@@ -75,7 +75,7 @@ FISKTA_API void fiskta_set_error_handler(FisktaErrorCallback callback, void* use
     tl_userdata = userdata;
 }
 
-// Sentinel: means "no saved VM yet"
+// Sentinel: means "no saved FisktaVM yet"
 #define VM_CURSOR_UNSET ((i64) - 1)
 
 /****************************
@@ -136,7 +136,7 @@ typedef struct {
     i32 loop_ms, idle_timeout_ms, exec_timeout_ms;
     u64 t0_ms, last_activity_ms;
     i64 last_size; // last observed file size
-    VM vm; // Continue loop state (vm.cursor == VM_CURSOR_UNSET => none)
+    FisktaVM vm; // Continue loop state (vm.cursor == VM_CURSOR_UNSET => none)
     IterResult last_result;
     int exit_code;
     int exit_reason; // 0 normal, 2 exec timeout
@@ -219,7 +219,7 @@ FISKTA_API void fiskta_abi_version(int* major, int* minor)
     }
 }
 
-static enum FisktaErr emit_output(const void* data, size_t len, const RuntimeConfig* cfg)
+static enum FisktaErr emit_output(const void* data, size_t len, const FisktaRuntimeConfig* cfg)
 {
     if (cfg && cfg->output_callback) {
         cfg->output_callback(data, len, cfg->output_userdata);
@@ -284,7 +284,7 @@ static void refresh_file_size(File* io)
 /******************************
  * LOOP ORCHESTRATION HELPERS *
  ******************************/
-static void loop_init(LoopState* state, const RuntimeConfig* config)
+static void loop_init(LoopState* state, const FisktaRuntimeConfig* config)
 {
     if (!state || !config) {
         return;
@@ -308,7 +308,7 @@ static void loop_init(LoopState* state, const RuntimeConfig* config)
     state->last_size = -1;
 
     state->vm.cursor = VM_CURSOR_UNSET;
-    for (i32 i = 0; i < MAX_LABELS; i++) {
+    for (i32 i = 0; i < FISKTA_MAX_LABELS; i++) {
         state->vm.label_pos[i] = -1;
     }
 }
@@ -401,18 +401,18 @@ static void loop_commit(LoopState* state, i64 data_hi, IterResult result, bool i
 /*********************
  * PROGRAM ITERATION *
  *********************/
-static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm,
-    Range* clause_ranges, LabelWrite* clause_labels,
+static IterResult execute_program_iteration(const FisktaProgram* prg, File* io, FisktaVM* vm,
+    FisktaRange* clause_ranges, LabelWrite* clause_labels,
     char* clause_inline, i32 inline_slots_total,
-    i64 data_lo, i64 data_hi, const RuntimeConfig* cfg)
+    i64 data_lo, i64 data_hi, const FisktaRuntimeConfig* cfg)
 {
     io_reset_full(io);
 
-    VM local_vm;
-    VM* vm_exec = vm ? vm : &local_vm;
+    FisktaVM local_vm;
+    FisktaVM* vm_exec = vm ? vm : &local_vm;
     if (!vm) {
         memset(vm_exec, 0, sizeof(*vm_exec));
-        for (i32 i = 0; i < MAX_LABELS; i++) {
+        for (i32 i = 0; i < FISKTA_MAX_LABELS; i++) {
             vm_exec->label_pos[i] = -1;
         }
     }
@@ -442,7 +442,7 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
     char* inline_cursor = clause_inline;
     char* inline_end = NULL;
     if (clause_inline && inline_slots_total > 0) {
-        inline_end = clause_inline + (size_t)inline_slots_total * MAX_INLINE_LIT;
+        inline_end = clause_inline + (size_t)inline_slots_total * FISKTA_MAX_INLINE_LIT;
     }
 
     for (i32 ci = 0; ci < prg->clause_count; ++ci) {
@@ -450,17 +450,17 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
         i32 lc = 0;
         i32 ic = 0;
         clause_caps(&prg->clauses[ci], &rc, &lc, &ic);
-        Range* r_tmp = (rc > 0) ? clause_ranges : NULL;
+        FisktaRange* r_tmp = (rc > 0) ? clause_ranges : NULL;
         LabelWrite* lw_tmp = (lc > 0) ? clause_labels : NULL;
         char* inline_tmp = NULL;
         if (ic > 0) {
-            if (!inline_cursor || !inline_end || inline_cursor + (size_t)ic * MAX_INLINE_LIT > inline_end) {
+            if (!inline_cursor || !inline_end || inline_cursor + (size_t)ic * FISKTA_MAX_INLINE_LIT > inline_end) {
                 iter_result.status = ITER_CAPACITY_ERROR;
                 iter_result.last_err = FISKTA_E_CAPACITY;
                 return iter_result;
             }
             inline_tmp = inline_cursor;
-            inline_cursor += (size_t)ic * MAX_INLINE_LIT;
+            inline_cursor += (size_t)ic * FISKTA_MAX_INLINE_LIT;
         }
 
         enum FisktaErr e = stage_clause(&prg->clauses[ci], io, vm_exec,
@@ -470,8 +470,8 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
         if (e == FISKTA_E_OK) {
             // Commit staged ranges to stdout / file as appropriate
             for (i32 i = 0; i < result.range_count; i++) {
-                const Range* range = &result.ranges[i];
-                if (range->kind == RANGE_FILE) {
+                const FisktaRange* range = &result.ranges[i];
+                if (range->kind == FISKTA_RANGE_FILE) {
                     i64 start = range->file.start;
                     i64 end = range->file.end;
                     if (start < end) {
@@ -508,7 +508,7 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
                 iter_result.emitted_ranges++;
             }
             if (e == FISKTA_E_OK) {
-                // Commit staged VM state now that I/O succeeded
+                // Commit staged FisktaVM state now that I/O succeeded
                 commit_labels(vm_exec, result.label_writes, result.label_count);
                 vm_exec->cursor = result.staged_vm.cursor;
                 vm_exec->last_match = result.staged_vm.last_match;
@@ -518,9 +518,9 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
         }
 
         if (e == FISKTA_E_OK) {
-            if (prg->clauses[ci].link == LINK_OR) {
+            if (prg->clauses[ci].link == FISKTA_LINK_OR) {
                 // Skip remaining alternatives in this OR-chain once one succeeds
-                while (ci + 1 < prg->clause_count && prg->clauses[ci].link == LINK_OR) {
+                while (ci + 1 < prg->clause_count && prg->clauses[ci].link == FISKTA_LINK_OR) {
                     ci++;
                 }
             }
@@ -560,9 +560,9 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
 /***************************************************
  * RESOURCE REQUIREMENTS QUERY (PRE-FLIGHT SIZING) *
  ***************************************************/
-FISKTA_API int fiskta_program_requirements(i32 token_count, const String* tokens,
-    const BuildOptions* options,
-    RuntimeRequirements* out)
+FISKTA_API int fiskta_program_requirements(i32 token_count, const FisktaString* tokens,
+    const FisktaBuildOptions* options,
+    FisktaRuntimeRequirements* out)
 {
     if (!tokens || !out) {
         return FISKTA_EXIT_PARSE;
@@ -597,13 +597,13 @@ FISKTA_API int fiskta_program_requirements(i32 token_count, const String* tokens
     const size_t search_buf_cap = (FW_WIN > (BK_BLK + OVERLAP_MAX)) ? (size_t)FW_WIN : (size_t)(BK_BLK + OVERLAP_MAX);
     out->search_buf_cap = search_buf_cap;
 
-    // Program structure sizes
-    const size_t ops_bytes = (size_t)plan.total_ops * sizeof(Op);
-    const size_t clauses_bytes = (size_t)plan.clause_count * sizeof(Clause);
+    // FisktaProgram structure sizes
+    const size_t ops_bytes = (size_t)plan.total_ops * sizeof(FisktaOp);
+    const size_t clauses_bytes = (size_t)plan.clause_count * sizeof(FisktaClause);
     const size_t str_pool_bytes = plan.needle_bytes;
 
     // Regex compilation sizes
-    const size_t re_prog_bytes = (size_t)plan.sum_findr_ops * sizeof(ReProg);
+    const size_t re_prog_bytes = (size_t)plan.sum_findr_ops * sizeof(FisktaReProg);
     const size_t re_ins_bytes = (size_t)plan.re_ins_estimate * sizeof(ReInst);
     const size_t re_cls_bytes = (size_t)plan.re_classes_estimate * sizeof(ReClass);
 
@@ -615,9 +615,9 @@ FISKTA_API int fiskta_program_requirements(i32 token_count, const String* tokens
     out->regex_seen_bytes_max = regex_budget / 2;
 
     // Staging buffers
-    size_t ranges_bytes = (plan.sum_take_ops > 0) ? (size_t)plan.sum_take_ops * sizeof(Range) : 0;
+    size_t ranges_bytes = (plan.sum_take_ops > 0) ? (size_t)plan.sum_take_ops * sizeof(FisktaRange) : 0;
     size_t labels_bytes = (plan.sum_label_ops > 0) ? (size_t)plan.sum_label_ops * sizeof(LabelWrite) : 0;
-    size_t inline_bytes = (plan.sum_inline_lits > 0) ? (size_t)plan.sum_inline_lits * MAX_INLINE_LIT : 0;
+    size_t inline_bytes = (plan.sum_inline_lits > 0) ? (size_t)plan.sum_inline_lits * FISKTA_MAX_INLINE_LIT : 0;
     out->staging_bytes = ranges_bytes + labels_bytes + inline_bytes;
 
     // Fill breakdown fields
@@ -638,9 +638,9 @@ FISKTA_API int fiskta_program_requirements(i32 token_count, const String* tokens
      ****************************************************/
     size_t search_buf_size = 0, clauses_size = 0, ops_size = 0, re_prog_size = 0, re_ins_size = 0, re_cls_size = 0, str_pool_size = 0;
     if (align_or_fail(search_buf_cap, alignof(unsigned char), &search_buf_size) != 0
-        || align_or_fail(clauses_bytes, alignof(Clause), &clauses_size) != 0
-        || align_or_fail(ops_bytes, alignof(Op), &ops_size) != 0
-        || align_or_fail(re_prog_bytes, alignof(ReProg), &re_prog_size) != 0
+        || align_or_fail(clauses_bytes, alignof(FisktaClause), &clauses_size) != 0
+        || align_or_fail(ops_bytes, alignof(FisktaOp), &ops_size) != 0
+        || align_or_fail(re_prog_bytes, alignof(FisktaReProg), &re_prog_size) != 0
         || align_or_fail(re_ins_bytes, alignof(ReInst), &re_ins_size) != 0
         || align_or_fail(re_cls_bytes, alignof(ReClass), &re_cls_size) != 0
         || align_or_fail(str_pool_bytes, alignof(char), &str_pool_size) != 0) {
@@ -667,7 +667,7 @@ FISKTA_API int fiskta_program_requirements(i32 token_count, const String* tokens
     // Staging buffers (already computed above, but need alignment)
     size_t ranges_size = 0, labels_size = 0, inline_size = 0;
     if (plan.sum_take_ops > 0) {
-        if (align_or_fail(ranges_bytes, alignof(Range), &ranges_size) != 0) {
+        if (align_or_fail(ranges_bytes, alignof(FisktaRange), &ranges_size) != 0) {
             return FISKTA_EXIT_RESOURCE;
         }
     }
@@ -697,11 +697,11 @@ FISKTA_API int fiskta_program_requirements(i32 token_count, const String* tokens
  * BUILD PROGRAM (COMPILE-TIME PHASE) *
  **************************************/
 // Build program using caller-provided arena
-FISKTA_API int fiskta_build_program(i32 token_count, const String* tokens,
-    const BuildOptions* options,
-    Program* prog_out,
+FISKTA_API int fiskta_build_program(i32 token_count, const FisktaString* tokens,
+    const FisktaBuildOptions* options,
+    FisktaProgram* prog_out,
     void* arena_block, size_t arena_size,
-    RuntimeBuffers* buffers_out)
+    FisktaRuntimeBuffers* buffers_out)
 {
     if (!tokens || !prog_out || !buffers_out || !arena_block) {
         return FISKTA_EXIT_PARSE;
@@ -740,10 +740,10 @@ FISKTA_API int fiskta_build_program(i32 token_count, const String* tokens,
      * PHASE 2: COMPUTE SIZES (TO VERIFY ARENA IS LARGE ENOUGH) *
      ************************************************************/
     const size_t search_buf_cap = (FW_WIN > (BK_BLK + OVERLAP_MAX)) ? (size_t)FW_WIN : (size_t)(BK_BLK + OVERLAP_MAX);
-    const size_t ops_bytes = (size_t)plan.total_ops * sizeof(Op);
-    const size_t clauses_bytes = (size_t)plan.clause_count * sizeof(Clause);
+    const size_t ops_bytes = (size_t)plan.total_ops * sizeof(FisktaOp);
+    const size_t clauses_bytes = (size_t)plan.clause_count * sizeof(FisktaClause);
     const size_t str_pool_bytes = plan.needle_bytes;
-    const size_t re_prog_bytes = (size_t)plan.sum_findr_ops * sizeof(ReProg);
+    const size_t re_prog_bytes = (size_t)plan.sum_findr_ops * sizeof(FisktaReProg);
     const size_t re_ins_bytes = (size_t)plan.re_ins_estimate * sizeof(ReInst);
     const size_t re_cls_bytes = (size_t)plan.re_classes_estimate * sizeof(ReClass);
 
@@ -765,20 +765,20 @@ FISKTA_API int fiskta_build_program(i32 token_count, const String* tokens,
      * PHASE 4: CARVE ARENA SLICES (SAME AS BUILD_PROGRAM) *
      *******************************************************/
     unsigned char* search_buf = arena_alloc(&arena, search_buf_cap, alignof(unsigned char));
-    Clause* clauses_buf = arena_alloc(&arena, clauses_bytes, alignof(Clause));
-    Op* ops_buf = arena_alloc(&arena, ops_bytes, alignof(Op));
+    FisktaClause* clauses_buf = arena_alloc(&arena, clauses_bytes, alignof(FisktaClause));
+    FisktaOp* ops_buf = arena_alloc(&arena, ops_bytes, alignof(FisktaOp));
     ReThread* re_curr_thr = arena_alloc(&arena, re_threads_bytes, alignof(ReThread));
     ReThread* re_next_thr = arena_alloc(&arena, re_threads_bytes, alignof(ReThread));
     unsigned char* seen_curr = arena_alloc(&arena, re_seen_bytes_each, alignof(u32));
     unsigned char* seen_next = arena_alloc(&arena, re_seen_bytes_each, alignof(u32));
-    ReProg* re_progs = arena_alloc(&arena, re_prog_bytes, alignof(ReProg));
+    FisktaReProg* re_progs = arena_alloc(&arena, re_prog_bytes, alignof(FisktaReProg));
     ReInst* re_ins = arena_alloc(&arena, re_ins_bytes, alignof(ReInst));
     ReClass* re_cls = arena_alloc(&arena, re_cls_bytes, alignof(ReClass));
     char* str_pool = arena_alloc(&arena, str_pool_bytes, alignof(char));
     i16* offset_pool = (plan.sum_inline_lits > 0) ? arena_alloc(&arena, (size_t)plan.sum_inline_lits * sizeof(i16), alignof(i16)) : NULL;
-    Range* clause_ranges = (plan.sum_take_ops > 0) ? arena_alloc(&arena, (size_t)plan.sum_take_ops * sizeof(Range), alignof(Range)) : NULL;
+    FisktaRange* clause_ranges = (plan.sum_take_ops > 0) ? arena_alloc(&arena, (size_t)plan.sum_take_ops * sizeof(FisktaRange), alignof(FisktaRange)) : NULL;
     LabelWrite* clause_labels = (plan.sum_label_ops > 0) ? arena_alloc(&arena, (size_t)plan.sum_label_ops * sizeof(LabelWrite), alignof(LabelWrite)) : NULL;
-    char* clause_inline = (plan.sum_inline_lits > 0) ? arena_alloc(&arena, (size_t)plan.sum_inline_lits * MAX_INLINE_LIT, alignof(char)) : NULL;
+    char* clause_inline = (plan.sum_inline_lits > 0) ? arena_alloc(&arena, (size_t)plan.sum_inline_lits * FISKTA_MAX_INLINE_LIT, alignof(char)) : NULL;
 
     if (!search_buf || !clauses_buf || !ops_buf
         || !re_curr_thr || !re_next_thr || !seen_curr || !seen_next
@@ -809,11 +809,11 @@ FISKTA_API int fiskta_build_program(i32 token_count, const String* tokens,
     i32 re_ins_idx = 0;
     i32 re_cls_idx = 0;
     for (i32 ci = 0; ci < prog_out->clause_count; ++ci) {
-        Clause* clause = &prog_out->clauses[ci];
+        FisktaClause* clause = &prog_out->clauses[ci];
         for (i32 i = 0; i < clause->op_count; ++i) {
-            Op* op = &clause->ops[i];
-            if (op->kind == OP_FIND_RE) {
-                ReProg* prog = &re_progs[re_prog_idx++];
+            FisktaOp* op = &clause->ops[i];
+            if (op->kind == FISKTA_OP_FIND_RE) {
+                FisktaReProg* prog = &re_progs[re_prog_idx++];
                 enum FisktaErr err = re_compile_into(op->u.find_re.pattern, prog,
                     re_ins, (i32)(re_ins_bytes / sizeof(ReInst)), &re_ins_idx,
                     re_cls, (i32)(re_cls_bytes / sizeof(ReClass)), &re_cls_idx);
@@ -821,8 +821,8 @@ FISKTA_API int fiskta_build_program(i32 token_count, const String* tokens,
                     return err_to_exit_code(err);
                 }
                 op->u.find_re.prog = prog;
-            } else if (op->kind == OP_TAKE_UNTIL_RE) {
-                ReProg* prog = &re_progs[re_prog_idx++];
+            } else if (op->kind == FISKTA_OP_TAKE_UNTIL_RE) {
+                FisktaReProg* prog = &re_progs[re_prog_idx++];
                 enum FisktaErr err = re_compile_into(op->u.take_until_re.pattern, prog,
                     re_ins, (i32)(re_ins_bytes / sizeof(ReInst)), &re_ins_idx,
                     re_cls, (i32)(re_cls_bytes / sizeof(ReClass)), &re_cls_idx);
@@ -857,7 +857,7 @@ FISKTA_API int fiskta_build_program(i32 token_count, const String* tokens,
     }
     const size_t actual_seen_bytes = max_seen_bytes;
 
-    // Fill RuntimeBuffers with buffers from PROVIDED arena
+    // Fill FisktaRuntimeBuffers with buffers from PROVIDED arena
     buffers_out->search_buf = search_buf;
     buffers_out->search_buf_cap = search_buf_cap;
     buffers_out->re_curr = re_curr_thr;
@@ -880,10 +880,10 @@ FISKTA_API int fiskta_build_program(i32 token_count, const String* tokens,
 /***********************************
  * EXECUTE PROGRAM (RUNTIME PHASE) *
  ***********************************/
-FISKTA_API int fiskta_runtime_execute(const Program* prog,
+FISKTA_API int fiskta_runtime_execute(const FisktaProgram* prog,
     const char* file_path,
-    RuntimeBuffers* buffers,
-    const RuntimeConfig* config)
+    FisktaRuntimeBuffers* buffers,
+    const FisktaRuntimeConfig* config)
 {
     if (!prog || !file_path || !buffers || !config) {
         return FISKTA_EXIT_PARSE;
@@ -944,7 +944,7 @@ FISKTA_API int fiskta_runtime_execute(const Program* prog,
             }
         }
 
-        // Continue mode: pass saved VM to preserve cursor and labels
+        // Continue mode: pass saved FisktaVM to preserve cursor and labels
         IterResult iteration = execute_program_iteration(prog, &io, &loop_state.vm,
             buffers->clause_ranges, buffers->clause_labels,
             buffers->clause_inline, buffers->sum_inline_lits,
@@ -995,10 +995,10 @@ FISKTA_API int fiskta_runtime_execute(const Program* prog,
     }
 }
 
-FISKTA_API int fiskta_runtime_execute_buffer(const Program* prog,
+FISKTA_API int fiskta_runtime_execute_buffer(const FisktaProgram* prog,
     const unsigned char* data, size_t len,
-    RuntimeBuffers* buffers,
-    const RuntimeConfig* config)
+    FisktaRuntimeBuffers* buffers,
+    const FisktaRuntimeConfig* config)
 {
     if (!prog || !data || !buffers || !config) {
         return FISKTA_EXIT_PARSE;

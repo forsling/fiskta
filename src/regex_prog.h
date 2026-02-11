@@ -56,19 +56,19 @@ typedef struct {
 //   nins:          Number of compiled instructions
 //   counter_count: Number of {n,m} quantifiers (affects thread state size)
 //   has_lazy:      If 1, lazy quantifiers are present (affects priority tracking)
-typedef struct ReProg {
+typedef struct FisktaReProg {
     ReInst* ins;
     int nins;
     ReClass* classes;
     int nclasses;
     int counter_count; // Number of counters used (0 if none)
     unsigned char has_lazy; // 1 if pattern contains lazy quantifiers
-} ReProg;
+} FisktaReProg;
 
 // Compile pattern into preallocated pools; appends instructions/classes to the pools.
 // Starts at offsets *ins_used / *cls_used and ADVANCES them on success.
-enum FisktaErr re_compile_into(String pattern,
-    ReProg* out,
+enum FisktaErr re_compile_into(FisktaString pattern,
+    FisktaReProg* out,
     ReInst* ins_base, int ins_cap, int* ins_used,
     ReClass* cls_base, int cls_cap, int* cls_used);
 
@@ -89,9 +89,9 @@ typedef struct {
 // All sizes are pre-aligned and ready for allocation.
 //
 // Usage:
-//   ReProg prog = ...;
+//   FisktaReProg prog = ...;
 //   ReProgRequirements req;
 //   regex_prog_requirements(&prog, &req);
 //
 //   // Allocate scratch buffers using req.seen_bytes, req.counter_count, etc.
-void regex_prog_requirements(const ReProg* prog, ReProgRequirements* out);
+void regex_prog_requirements(const FisktaReProg* prog, ReProgRequirements* out);

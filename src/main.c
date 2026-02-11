@@ -41,7 +41,7 @@ static void print_err(enum FisktaErr e)
 }
 
 typedef struct {
-    String* tokens;
+    FisktaString* tokens;
     i32 token_count;
 } Operations;
 
@@ -51,7 +51,7 @@ static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, 
 static int parse_until_idle_option(const char* value, i32* out);
 
 static bool parse_cli_args(int argc, char** argv,
-    RuntimeConfig* config_out,
+    FisktaRuntimeConfig* config_out,
     const char** input_path_out,
     const char** ops_arg_out,
     const char** ops_file_out,
@@ -62,7 +62,7 @@ static bool parse_cli_args(int argc, char** argv,
         return false;
     }
 
-    RuntimeConfig cfg = {
+    FisktaRuntimeConfig cfg = {
         .loop_ms = 0,
         .loop_enabled = false,
         .ignore_loop_failures = false,
@@ -388,7 +388,7 @@ static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, 
 
     // Static buffers for operations loading
     static char file_content_buf[MAX_NEEDLE_BYTES];
-    static String tokens_view[MAX_TOKENS];
+    static FisktaString tokens_view[MAX_TOKENS];
     static char tokenize_scratch[4096];
 
     if (ops_file) {
@@ -507,7 +507,7 @@ int main(int argc, char** argv)
     /************************
      * CLI ARGUMENT PARSING *
      ************************/
-    RuntimeConfig config;
+    FisktaRuntimeConfig config;
     const char* input_path = NULL;
     const char* ops_arg = NULL;
     const char* ops_file = NULL;
@@ -529,8 +529,8 @@ int main(int argc, char** argv)
     /*******************************
      * PROGRAM MEMORY REQUIREMENTS *
      *******************************/
-    BuildOptions build_opts = {0};  // Use defaults
-    RuntimeRequirements req;
+    FisktaBuildOptions build_opts = {0};  // Use defaults
+    FisktaRuntimeRequirements req;
     int ret = fiskta_program_requirements(ops.token_count, ops.tokens, &build_opts, &req);
     if (ret != FISKTA_EXIT_OK) {
         if (fiskta_error_code() != FISKTA_E_OK) {
@@ -551,8 +551,8 @@ int main(int argc, char** argv)
     /***************************
      * BUILD PROGRAM (COMPILE) *
      ***************************/
-    Program prog;
-    RuntimeBuffers buffers;
+    FisktaProgram prog;
+    FisktaRuntimeBuffers buffers;
     ret = fiskta_build_program(ops.token_count, ops.tokens, &build_opts, &prog, arena, req.arena_bytes, &buffers);
     if (ret != FISKTA_EXIT_OK) {
         if (fiskta_error_code() != FISKTA_E_OK) {

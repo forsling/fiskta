@@ -51,14 +51,14 @@ static inline void cls_set_word(ReClass* c)
  ***********************/
 
 typedef struct {
-    ReProg* out;
+    FisktaReProg* out;
     ReInst* ins;
     int nins, ins_cap;
     ReClass* cls;
     int ncls, cls_cap;
     int next_counter_id; // For allocating counter IDs to quantified groups
     unsigned char has_lazy; // 1 if any lazy quantifier seen
-    String pattern; // Pattern being compiled (for error messages)
+    FisktaString pattern; // Pattern being compiled (for error messages)
 } ReB;
 
 static enum FisktaErr emit_inst(ReB* b, ReOp op, int x, int y, unsigned char ch, int cls_idx, int* out_idx)
@@ -99,7 +99,7 @@ static enum FisktaErr emit_class(ReB* b, const ReClass* src, int* idx_out)
  **************************/
 
 // Parse a character class: pattern points at first char AFTER '['; returns index AFTER ']'
-static enum FisktaErr parse_char_class(ReB* b, String pat, size_t* i_inout, int* out_cls_idx)
+static enum FisktaErr parse_char_class(ReB* b, FisktaString pat, size_t* i_inout, int* out_cls_idx)
 {
     size_t i = *i_inout;
     ReClass cls;
@@ -223,16 +223,16 @@ static enum FisktaErr parse_char_class(ReB* b, String pat, size_t* i_inout, int*
  * PATTERN COMPILATION *
  ***********************/
 
-static enum FisktaErr compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_nullable);
+static enum FisktaErr compile_atom(ReB* b, FisktaString pat, size_t* i_inout, bool* out_nullable);
 
 // Syntactic nullability analysis - determines if pattern can match empty string
 // without actually compiling it. Returns true if pattern is nullable.
 // This is used to reject pathological patterns like (a*)* before compilation.
-static bool is_pattern_nullable(String pat, size_t len);
+static bool is_pattern_nullable(FisktaString pat, size_t len);
 
 // Syntactic nullability check implementation
 // Add recursion depth guard to prevent stack overflow
-static bool is_pattern_nullable_impl(String pat, size_t len, int depth)
+static bool is_pattern_nullable_impl(FisktaString pat, size_t len, int depth)
 {
     // Guard against stack overflow from deeply nested patterns
     if (depth > 100) {
@@ -259,7 +259,7 @@ static bool is_pattern_nullable_impl(String pat, size_t len, int depth)
         } else if (pat.bytes[j] == '|' && paren_depth == 0) {
             has_alt = true;
             // Check this alternative
-            String alt = (String) { pat.bytes + alt_start, j - alt_start };
+            FisktaString alt = (FisktaString) { pat.bytes + alt_start, j - alt_start };
             if (is_pattern_nullable_impl(alt, j - alt_start, depth + 1)) {
                 return true; // At least one alt is nullable
             }
@@ -269,7 +269,7 @@ static bool is_pattern_nullable_impl(String pat, size_t len, int depth)
 
     // If we found alternation, check final alternative and return
     if (has_alt) {
-        String alt = (String) { pat.bytes + alt_start, len - alt_start };
+        FisktaString alt = (FisktaString) { pat.bytes + alt_start, len - alt_start };
         return is_pattern_nullable_impl(alt, len - alt_start, depth + 1);
     }
 
@@ -398,7 +398,7 @@ static bool is_pattern_nullable_impl(String pat, size_t len, int depth)
             size_t inner_len = j - i - 2;
             bool group_nullable = false;
             if (j > i + 2) {
-                String inner = (String) { pat.bytes + i + 1, inner_len };
+                FisktaString inner = (FisktaString) { pat.bytes + i + 1, inner_len };
                 group_nullable = is_pattern_nullable_impl(inner, inner_len, depth + 1);
             }
 
@@ -486,7 +486,7 @@ static bool is_pattern_nullable_impl(String pat, size_t len, int depth)
 }
 
 // Wrapper for is_pattern_nullable_impl with initial depth=0
-static bool is_pattern_nullable(String pat, size_t len)
+static bool is_pattern_nullable(FisktaString pat, size_t len)
 {
     return is_pattern_nullable_impl(pat, len, 0);
 }
@@ -494,7 +494,7 @@ static bool is_pattern_nullable(String pat, size_t len)
 // Compiles pat[0..len) into `b` without emitting RI_MATCH.
 // Uses N-1 splits so there is no epsilon path that skips all alts.
 // If out_nullable is non-NULL, sets *out_nullable to true if pattern can match empty string.
-static enum FisktaErr compile_alt_sequence(ReB* b, String pat, size_t len, bool* out_nullable)
+static enum FisktaErr compile_alt_sequence(ReB* b, FisktaString pat, size_t len, bool* out_nullable)
 {
     // 1) Collect top-level alternatives (respect escapes/parentheses)
     int depth = 0;
@@ -518,7 +518,7 @@ static enum FisktaErr compile_alt_sequence(ReB* b, String pat, size_t len, bool*
     // Single alt: compile linearly and return
     if (nalt == 1) {
         size_t i = 0;
-        String tmp_bytes = { pat.bytes, len };
+        FisktaString tmp_bytes = { pat.bytes, len };
         // Concatenation is nullable only if ALL atoms are nullable
         bool sequence_nullable = true;
         while (i < len) {
@@ -538,16 +538,16 @@ static enum FisktaErr compile_alt_sequence(ReB* b, String pat, size_t len, bool*
     }
 
     // Prevent stack overflow with too many alternatives
-    if (nalt > MAX_ALTS) {
+    if (nalt > FISKTA_MAX_ALTS) {
         return FISKTA_E_CAPACITY; // Too many alternations
     }
 
     // 2) Record (lo,len) for each alt using fixed-size arrays
-    size_t lo_arr[MAX_ALTS];
-    size_t alen_arr[MAX_ALTS];
-    int split_pc_arr[MAX_ALTS];
-    int alt_start_pc_arr[MAX_ALTS];
-    int jmp_pc_arr[MAX_ALTS];
+    size_t lo_arr[FISKTA_MAX_ALTS];
+    size_t alen_arr[FISKTA_MAX_ALTS];
+    int split_pc_arr[FISKTA_MAX_ALTS];
+    int alt_start_pc_arr[FISKTA_MAX_ALTS];
+    int jmp_pc_arr[FISKTA_MAX_ALTS];
 
     size_t* lo = lo_arr;
     size_t* alen = alen_arr;
@@ -596,7 +596,7 @@ static enum FisktaErr compile_alt_sequence(ReB* b, String pat, size_t len, bool*
         alt_start_pc[i] = b->nins;
         // compile alt i - each alt is a sequence, nullable only if all atoms nullable
         size_t pi = 0;
-        String frag_bytes = { pat.bytes + lo[i], alen[i] };
+        FisktaString frag_bytes = { pat.bytes + lo[i], alen[i] };
         bool this_alt_nullable = true;
         while (pi < alen[i]) {
             bool atom_nullable = false;
@@ -623,7 +623,7 @@ static enum FisktaErr compile_alt_sequence(ReB* b, String pat, size_t len, bool*
     // Last alternative (no leading split)
     alt_start_pc[nalt - 1] = b->nins;
     size_t pi = 0;
-    String last_bytes = { pat.bytes + lo[nalt - 1], alen[nalt - 1] };
+    FisktaString last_bytes = { pat.bytes + lo[nalt - 1], alen[nalt - 1] };
     bool last_alt_nullable = true;
     while (pi < alen[nalt - 1]) {
         bool atom_nullable = false;
@@ -669,7 +669,7 @@ cleanup:
 
 // Parse quantifier at position i, updating i_inout to position after quantifier
 // Returns parsed min/max counts, whether a quantifier was found, and if it's lazy
-static enum FisktaErr parse_quantifier(String pat, size_t* i_inout, int* min_count, int* max_count, bool* is_quantified, bool* is_lazy)
+static enum FisktaErr parse_quantifier(FisktaString pat, size_t* i_inout, int* min_count, int* max_count, bool* is_quantified, bool* is_lazy)
 {
     size_t i = *i_inout;
     *is_quantified = false;
@@ -784,7 +784,7 @@ static enum FisktaErr parse_quantifier(String pat, size_t* i_inout, int* min_cou
 
 // Compile a single regex atom (+ optional quantifier)
 // If out_nullable is non-NULL, sets *out_nullable to true if atom can match empty string.
-static enum FisktaErr compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_nullable)
+static enum FisktaErr compile_atom(ReB* b, FisktaString pat, size_t* i_inout, bool* out_nullable)
 {
     size_t i = *i_inout;
     if (i >= pat.len) {
@@ -861,7 +861,7 @@ static enum FisktaErr compile_atom(ReB* b, String pat, size_t* i_inout, bool* ou
             b->has_lazy = 1;
         }
 
-        String inner = (String) { pat.bytes + inner_lo, inner_len };
+        FisktaString inner = (FisktaString) { pat.bytes + inner_lo, inner_len };
 
         if (!is_quantified) {
             // No quantifier - just compile the group and propagate its nullability
@@ -1690,8 +1690,8 @@ static enum FisktaErr compile_atom(ReB* b, String pat, size_t* i_inout, bool* ou
  * PUBLIC API *
  **************/
 
-enum FisktaErr re_compile_into(String pattern,
-    ReProg* out,
+enum FisktaErr re_compile_into(FisktaString pattern,
+    FisktaReProg* out,
     ReInst* ins_base, int ins_cap, int* ins_used,
     ReClass* cls_base, int cls_cap, int* cls_used)
 {
@@ -1782,7 +1782,7 @@ enum FisktaErr re_compile_into(String pattern,
 /*****************************
  * RESOURCE REQUIREMENTS API *
  *****************************/
-void regex_prog_requirements(const ReProg* prog, ReProgRequirements* out)
+void regex_prog_requirements(const FisktaReProg* prog, ReProgRequirements* out)
 {
     if (!prog || !out) {
         return;

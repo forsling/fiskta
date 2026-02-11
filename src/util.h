@@ -30,30 +30,30 @@ static inline i64 clamp64(i64 x, i64 lo, i64 hi)
     return x;
 }
 
-bool string_eq(String a, String b);
-bool string_eq_cstr(String s, const char* literal);
-char string_first(String s);
-String string_from_cstr(const char* s);
+bool string_eq(FisktaString a, FisktaString b);
+bool string_eq_cstr(FisktaString s, const char* literal);
+char string_first(FisktaString s);
+FisktaString string_from_cstr(const char* s);
 
-String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum FisktaErr* err_out, i32* cursor_marks_out, i16* cursor_offsets_out);
-String parse_hex_to_bytes(String hex_str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum FisktaErr* err_out);
+FisktaString parse_string_to_bytes(FisktaString str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum FisktaErr* err_out, i32* cursor_marks_out, i16* cursor_offsets_out);
+FisktaString parse_hex_to_bytes(FisktaString hex_str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum FisktaErr* err_out);
 
-// Parser-specific String helpers
-bool string_try_parse_unsigned(String s, u64* out, Unit* unit);
-bool string_try_parse_signed(String s, i64* out, Unit* unit);
-bool string_copy_to_buffer(String src, char* dst, size_t dst_cap);
-bool string_is_valid_label(String s);
+// Parser-specific string helpers
+bool string_try_parse_unsigned(FisktaString s, u64* out, FisktaUnit* unit);
+bool string_try_parse_signed(FisktaString s, i64* out, FisktaUnit* unit);
+bool string_copy_to_buffer(FisktaString src, char* dst, size_t dst_cap);
+bool string_is_valid_label(FisktaString s);
 bool string_char_in_set(char c, const char* set);
 
 // String escape processing
-size_t calculate_escaped_string_length(String str);
+size_t calculate_escaped_string_length(FisktaString str);
 
 // Token handling optimizations
-void convert_tokens_to_strings(char** tokens, i32 token_count, String* out);
+void convert_tokens_to_strings(char** tokens, i32 token_count, FisktaString* out);
 
-// Tokenize whitespace-separated operations string into String array
+// Tokenize whitespace-separated operations string into FisktaString array
 //
 // Caller provides scratch buffer. Returned Strings point into that buffer.
 //
 // Returns: Number of tokens parsed, or -1 if buffer capacity exceeded
-i32 tokenize_ops_string(const char* s, String* out, i32 max_tokens, char* scratch_buf, size_t scratch_cap);
+i32 tokenize_ops_string(const char* s, FisktaString* out, i32 max_tokens, char* scratch_buf, size_t scratch_cap);

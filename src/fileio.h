@@ -43,7 +43,7 @@ typedef struct ReThread {
 // These macros control chunked file scanning behavior in literal_search_window()
 // and regex_search_window().
 // They are part of the capacity model and must match the expectations in
-// RuntimeRequirements.search_buf_cap.
+// FisktaRuntimeRequirements.search_buf_cap.
 //
 // Embedders may override via -DFISKTA_FW_WIN=... etc, but must ensure
 // program_requirements() is called after any changes.

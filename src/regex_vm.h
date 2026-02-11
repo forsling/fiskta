@@ -1,7 +1,7 @@
 // regex_vm.h
 //
 // Streaming ordered Thompson NFA executor for regex matching.
-// Given a compiled ReProg and a File (byte-accessible range),
+// Given a compiled FisktaReProg and a File (byte-accessible range),
 // finds the best match in [win_lo, win_hi) using leftmost-start semantics.
 //
 // Match tie-breaking rules:
@@ -44,6 +44,6 @@
 // Guarantees:
 //   - No heap allocation during search
 //   - File position unchanged on return
-//   - Thread/seen buffers must be sized per ReProg requirements (see regex_prog.h)
+//   - Thread/seen buffers must be sized per FisktaReProg requirements (see regex_prog.h)
 enum FisktaErr regex_search_window(File* io, i64 win_lo, i64 win_hi,
-    const ReProg* re, enum Dir dir, i64* ms, i64* me);
+    const FisktaReProg* re, enum Dir dir, i64* ms, i64* me);
