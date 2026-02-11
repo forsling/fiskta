@@ -1,4 +1,5 @@
 #include "regex_prog.h"
+#include "error.h"
 #include "fileio.h"
 #include "fiskta.h"
 #include <ctype.h>

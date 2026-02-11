@@ -4,6 +4,7 @@
 
 #include "fiskta.h"
 #include "engine.h"
+#include "error.h"
 #include "fileio.h"
 #include "fiskta_types.h"
 #include "parse.h"

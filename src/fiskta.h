@@ -337,9 +337,6 @@ FISKTA_API const char* fiskta_err_str(enum Err e);
 FISKTA_API const char* fiskta_version(void);
 FISKTA_API void fiskta_abi_version(int* major, int* minor);
 
-// Internal error reporting hook (subject to change). Used by parser/engine.
-void error_set(enum Err err, i32 position, const char* fmt, ...);
-
 #ifdef __cplusplus
 } // extern "C"
 #endif

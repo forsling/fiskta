@@ -3,6 +3,7 @@
 #endif
 
 #include "regex_vm.h"
+#include "error.h"
 #include "fiskta.h"
 #include "util.h"
 #include <stdlib.h>
