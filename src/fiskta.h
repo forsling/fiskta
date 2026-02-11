@@ -56,9 +56,6 @@
 extern "C" {
 #endif
 
-typedef struct ReThread ReThread;
-typedef struct LabelWrite LabelWrite;
-
 // Callback types
 typedef void (*FisktaErrorCallback)(enum Err err, const char* context,
     i32 position, const char* message, void* userdata);
@@ -136,8 +133,8 @@ typedef struct {
     size_t search_buf_cap;
 
     // Regex VM scratch (mutated during pattern matching)
-    ReThread* re_curr;
-    ReThread* re_next;
+    struct ReThread* re_curr;
+    struct ReThread* re_next;
     int re_thread_cap;
     u64 regex_work_budget; // Max thread enqueues per search (prevents step-count explosion)
     unsigned char* seen_curr;
@@ -146,7 +143,7 @@ typedef struct {
 
     // Staging buffers for clause execution (mutated per clause)
     Range* clause_ranges;
-    LabelWrite* clause_labels;
+    struct LabelWrite* clause_labels;
     char* clause_inline;
     i32 sum_inline_lits;
 
