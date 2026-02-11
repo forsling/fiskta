@@ -245,6 +245,9 @@ static i32 count_counter_quantifiers_in_pattern(FisktaString pattern)
 
             // Parse minimum value
             while (j < pattern.len && pattern.bytes[j] >= '0' && pattern.bytes[j] <= '9') {
+                if (min_val > (INT32_MAX - 9) / 10) {
+                    return -1;
+                }
                 min_val = min_val * 10 + (pattern.bytes[j] - '0');
                 has_min = true;
                 j++;
@@ -254,6 +257,9 @@ static i32 count_counter_quantifiers_in_pattern(FisktaString pattern)
                 j++; // skip comma
                 // Parse maximum value if present
                 while (j < pattern.len && pattern.bytes[j] >= '0' && pattern.bytes[j] <= '9') {
+                    if (max_val > (INT32_MAX - 9) / 10) {
+                        return -1;
+                    }
                     max_val = max_val * 10 + (pattern.bytes[j] - '0');
                     has_max = true;
                     j++;
@@ -661,7 +667,7 @@ enum FisktaErr parse_preflight(i32 token_count, const FisktaString* tokens, cons
 
                             // Validate counter quantifier usage before compilation
                             i32 counter_count = count_counter_quantifiers_in_pattern(pat_tok);
-                            if (counter_count > MAX_RE_COUNTERS) {
+                            if (counter_count < 0 || counter_count > MAX_RE_COUNTERS) {
                                 error_set(FISKTA_E_CAPACITY, idx,
                                     "regex: too many quantified groups in pattern (found %d, max %d); reduce nesting or use simpler quantifiers",
                                     counter_count, MAX_RE_COUNTERS);
