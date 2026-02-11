@@ -442,7 +442,7 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
     char* inline_cursor = clause_inline;
     char* inline_end = NULL;
     if (clause_inline && inline_slots_total > 0) {
-        inline_end = clause_inline + (size_t)inline_slots_total * INLINE_LIT_CAP;
+        inline_end = clause_inline + (size_t)inline_slots_total * MAX_INLINE_LIT;
     }
 
     for (i32 ci = 0; ci < prg->clause_count; ++ci) {
@@ -454,13 +454,13 @@ static IterResult execute_program_iteration(const Program* prg, File* io, VM* vm
         LabelWrite* lw_tmp = (lc > 0) ? clause_labels : NULL;
         char* inline_tmp = NULL;
         if (ic > 0) {
-            if (!inline_cursor || !inline_end || inline_cursor + (size_t)ic * INLINE_LIT_CAP > inline_end) {
+            if (!inline_cursor || !inline_end || inline_cursor + (size_t)ic * MAX_INLINE_LIT > inline_end) {
                 iter_result.status = ITER_CAPACITY_ERROR;
                 iter_result.last_err = E_CAPACITY;
                 return iter_result;
             }
             inline_tmp = inline_cursor;
-            inline_cursor += (size_t)ic * INLINE_LIT_CAP;
+            inline_cursor += (size_t)ic * MAX_INLINE_LIT;
         }
 
         enum Err e = stage_clause(&prg->clauses[ci], io, vm_exec,
@@ -617,7 +617,7 @@ FISKTA_API int fiskta_program_requirements(i32 token_count, const String* tokens
     // Staging buffers
     size_t ranges_bytes = (plan.sum_take_ops > 0) ? (size_t)plan.sum_take_ops * sizeof(Range) : 0;
     size_t labels_bytes = (plan.sum_label_ops > 0) ? (size_t)plan.sum_label_ops * sizeof(LabelWrite) : 0;
-    size_t inline_bytes = (plan.sum_inline_lits > 0) ? (size_t)plan.sum_inline_lits * INLINE_LIT_CAP : 0;
+    size_t inline_bytes = (plan.sum_inline_lits > 0) ? (size_t)plan.sum_inline_lits * MAX_INLINE_LIT : 0;
     out->staging_bytes = ranges_bytes + labels_bytes + inline_bytes;
 
     // Fill breakdown fields
@@ -778,7 +778,7 @@ FISKTA_API int fiskta_build_program(i32 token_count, const String* tokens,
     i16* offset_pool = (plan.sum_inline_lits > 0) ? arena_alloc(&arena, (size_t)plan.sum_inline_lits * sizeof(i16), alignof(i16)) : NULL;
     Range* clause_ranges = (plan.sum_take_ops > 0) ? arena_alloc(&arena, (size_t)plan.sum_take_ops * sizeof(Range), alignof(Range)) : NULL;
     LabelWrite* clause_labels = (plan.sum_label_ops > 0) ? arena_alloc(&arena, (size_t)plan.sum_label_ops * sizeof(LabelWrite), alignof(LabelWrite)) : NULL;
-    char* clause_inline = (plan.sum_inline_lits > 0) ? arena_alloc(&arena, (size_t)plan.sum_inline_lits * INLINE_LIT_CAP, alignof(char)) : NULL;
+    char* clause_inline = (plan.sum_inline_lits > 0) ? arena_alloc(&arena, (size_t)plan.sum_inline_lits * MAX_INLINE_LIT, alignof(char)) : NULL;
 
     if (!search_buf || !clauses_buf || !ops_buf
         || !re_curr_thr || !re_next_thr || !seen_curr || !seen_next

@@ -151,16 +151,16 @@ static enum Err print_literal_op(
         }
 
         // Emit cursor value
-        if (!inline_ptr || !*inline_ptr || !inline_end || *inline_ptr + INLINE_LIT_CAP > inline_end) {
+        if (!inline_ptr || !*inline_ptr || !inline_end || *inline_ptr + MAX_INLINE_LIT > inline_end) {
             return E_CAPACITY;
         }
         char* slot = *inline_ptr;
-        int written = snprintf(slot, INLINE_LIT_CAP, "%lld", (long long)clamped);
+        int written = snprintf(slot, MAX_INLINE_LIT, "%lld", (long long)clamped);
         if (written < 0) {
             return E_IO;
         }
-        if (written >= INLINE_LIT_CAP) {
-            written = INLINE_LIT_CAP - 1;
+        if (written >= MAX_INLINE_LIT) {
+            written = MAX_INLINE_LIT - 1;
             slot[written] = '\0';
         }
         String dyn = { slot, (size_t)written };
@@ -168,7 +168,7 @@ static enum Err print_literal_op(
         if (err != E_OK) {
             return err;
         }
-        *inline_ptr += INLINE_LIT_CAP;
+        *inline_ptr += MAX_INLINE_LIT;
 
         pos = offset;
     }
@@ -756,7 +756,7 @@ enum Err stage_clause(const Clause* clause,
     char* inline_ptr = inline_buf;
     char* inline_end = NULL;
     if (inline_buf && inline_cap > 0) {
-        inline_end = inline_buf + (size_t)inline_cap * INLINE_LIT_CAP;
+        inline_end = inline_buf + (size_t)inline_cap * MAX_INLINE_LIT;
     }
 
     enum Err err = E_OK;

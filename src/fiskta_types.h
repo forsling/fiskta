@@ -17,7 +17,7 @@ enum {
     MAX_LABELS = 128,
     MAX_LABEL_LEN = 15,
     MAX_ALTS = 256, // Maximum alternations in regex (a|b|c|...)
-    INLINE_LIT_CAP = 24 // Per-\c expansion buffer budget (bytes) reserved
+    MAX_INLINE_LIT = 24 // Per-\c expansion buffer budget (bytes) reserved
                         // for inline cursor injection during print staging
 };
 
