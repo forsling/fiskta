@@ -18,7 +18,7 @@ enum {
     FISKTA_MAX_LABEL_LEN = 15,
     FISKTA_MAX_ALTS = 256, // Maximum alternations in regex (a|b|c|...)
     FISKTA_MAX_INLINE_LIT = 24 // Per-\c expansion buffer budget (bytes) reserved
-                        // for inline cursor injection during print staging
+                               // for inline cursor injection during print staging
 };
 
 typedef struct {
@@ -235,7 +235,7 @@ typedef struct {
 // step-count explosion from pathological patterns like ((a?){50}){50}.
 typedef struct {
     size_t regex_budget_bytes; // Total regex VM memory budget (0 = 2 MiB default)
-    u64 regex_work_budget;     // Max thread enqueues per search (0 = 50M default)
+    u64 regex_work_budget; // Max thread enqueues per search (0 = 50M default)
 } FisktaBuildOptions;
 
 // Staged capture range or literal string

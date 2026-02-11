@@ -527,7 +527,7 @@ int main(int argc, char** argv)
     /*******************************
      * PROGRAM MEMORY REQUIREMENTS *
      *******************************/
-    FisktaBuildOptions build_opts = {0};  // Use defaults
+    FisktaBuildOptions build_opts = { 0 }; // Use defaults
     FisktaRuntimeRequirements req;
     int ret = fiskta_program_requirements(ops.token_count, ops.tokens, &build_opts, &req);
     if (ret != FISKTA_EXIT_OK) {

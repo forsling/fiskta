@@ -1123,7 +1123,7 @@ typedef struct {
  * PER-OPERATION PARSING HELPERS                              *
  * These functions consume tokens from *idx, validate syntax, *
  * and return parsed data WITHOUT side effects (no writes to  *
- * FisktaProgram/str_pool/LabelTable). This enables:                *
+ * FisktaProgram/str_pool/LabelTable). This enables:          *
  * 1. parse_op() to use them + materialize into IR            *
  * 2. parse_op_dry_run() to use them + discard temps          *
  **************************************************************/
@@ -1404,7 +1404,7 @@ static enum FisktaErr parse_clear_args(const FisktaString* tokens, i32* idx, i32
  * would for the same input. Any drift causes memory corruption via  *
  * wrong op_cursor calculation in parse_build().                     *
  * This function validates syntax and consumes tokens WITHOUT side   *
- * effects (no writes to FisktaProgram/str_pool/LabelTable).               *
+ * effects (no writes to FisktaProgram/str_pool/LabelTable).         *
  *********************************************************************/
 static enum FisktaErr parse_op_dry_run(const FisktaString* tokens, i32* idx, i32 token_count,
     FisktaProgram* prg, LabelTable* labels)
