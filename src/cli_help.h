@@ -132,7 +132,7 @@ static inline void print_usage(void)
     printf("\n");
     printf("LOOPING (CONTINUE MODE):\n");
     printf("  -c, --continue [delay]       Enable looping; optional delay between iterations (ms|s|m|h). Default: 0 (tight loop)\n");
-    printf("  -C, --continue-on-fail       Like -c, but continues looping even on program failure (no matches etc.)\n");
+    printf("  -C, --continue-on-fail [delay]  Like -c, but continues looping even on program failure (no matches etc.)\n");
     printf("  -u, --until-idle <time>      Stop when input window is empty for specified duration\n");
     printf("\n");
     printf("  Continue loop resumes from saved cursor position each iteration.\n");

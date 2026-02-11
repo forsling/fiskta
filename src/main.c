@@ -171,8 +171,12 @@ static bool parse_cli_args(int argc, char** argv,
             argi++;
             continue;
         }
-        if (strcmp(arg, "-c") == 0 || strcmp(arg, "--continue") == 0) {
+        if (strcmp(arg, "-c") == 0 || strcmp(arg, "--continue") == 0
+            || strcmp(arg, "-C") == 0 || strcmp(arg, "--continue-on-fail") == 0) {
             cfg.loop_enabled = true;
+            if (arg[1] == 'C' || strstr(arg, "-on-fail")) {
+                cfg.ignore_loop_failures = true;
+            }
             // Optional time value follows. Only consume if it looks like a time token.
             if (argi + 1 < argc) {
                 const char* val = argv[argi + 1];
@@ -195,7 +199,7 @@ static bool parse_cli_args(int argc, char** argv,
                     }
                 }
                 if (ok) {
-                    if (parse_time_option(val, "--continue", &cfg.loop_ms) != 0) {
+                    if (parse_time_option(val, arg, &cfg.loop_ms) != 0) {
                         *exit_code_out = FISKTA_EXIT_USAGE;
                         return false;
                     }
@@ -205,12 +209,6 @@ static bool parse_cli_args(int argc, char** argv,
             }
             // No interval provided: default tight loop
             cfg.loop_ms = 0;
-            argi++;
-            continue;
-        }
-        if (strcmp(arg, "-C") == 0 || strcmp(arg, "--continue-on-fail") == 0) {
-            cfg.loop_enabled = true;
-            cfg.ignore_loop_failures = true;
             argi++;
             continue;
         }

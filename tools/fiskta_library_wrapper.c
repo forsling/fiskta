@@ -2,7 +2,7 @@
 //
 // CLI wrapper that uses the library API internally.
 // This allows the test suite to validate the library interface
-// by running all 633 tests through fiskta_runtime_execute_buffer() and callbacks.
+// by running the test suite through fiskta_runtime_execute_buffer() and callbacks.
 
 #include "fiskta.h"
 #include "util.h"
@@ -19,9 +19,10 @@ static void output_to_stdout(const void* data, size_t len, void* userdata)
 }
 
 // Error callback: write to stderr in fiskta format (match fiskta.c:print_err)
-static void error_to_stderr(enum Err err, const char* context,
+static void error_to_stderr(enum FisktaErr err, const char* context,
     i32 position, const char* message, void* userdata)
 {
+    (void)context;
     (void)userdata;
 
     fprintf(stderr, "fiskta: %s", fiskta_err_str(err));
@@ -40,8 +41,8 @@ static void error_to_stderr(enum Err err, const char* context,
 // Print last error in the same format as CLI (used when a call returns non-OK)
 static void print_last_error_cli_like(void)
 {
-    enum Err e = fiskta_error_code();
-    if (e == E_OK) return;
+    enum FisktaErr e = fiskta_error_code();
+    if (e == FISKTA_E_OK) return;
     i32 position = fiskta_error_position();
     const char* message = fiskta_error_message();
     fprintf(stderr, "fiskta: %s", fiskta_err_str(e));
@@ -219,13 +220,16 @@ int main(int argc, char** argv)
             continue;
         }
 
-        // --continue [delay] or --continue=delay
-        if (strcmp(arg, "--continue") == 0) {
+        // -c/--continue [delay] or -C/--continue-on-fail [delay]
+        if (strcmp(arg, "-c") == 0 || strcmp(arg, "--continue") == 0
+            || strcmp(arg, "-C") == 0 || strcmp(arg, "--continue-on-fail") == 0) {
             loop_enabled = true;
+            if (arg[1] == 'C' || strstr(arg, "-on-fail")) {
+                ignore_loop_failures = true;
+            }
             // Check if next arg is a time value (not an operation token)
             if (argi + 1 < argc && argv[argi + 1][0] != '-') {
                 const char* next = argv[argi + 1];
-                // Try to parse as time; if it fails, assume it's an operation
                 i32 ms = parse_time_ms(next);
                 if (ms >= 0) {
                     loop_ms = ms;
@@ -233,7 +237,6 @@ int main(int argc, char** argv)
                     continue;
                 }
             }
-            // No delay specified, use 0 (tight loop)
             loop_ms = 0;
             argi++;
             continue;
@@ -243,6 +246,17 @@ int main(int argc, char** argv)
             loop_ms = parse_time_ms(arg + 11);
             if (loop_ms < 0) {
                 fprintf(stderr, "fiskta_library_wrapper: invalid time format: %s\n", arg + 11);
+                return 7;
+            }
+            argi++;
+            continue;
+        }
+        if (strncmp(arg, "--continue-on-fail=", 19) == 0) {
+            loop_enabled = true;
+            ignore_loop_failures = true;
+            loop_ms = parse_time_ms(arg + 19);
+            if (loop_ms < 0) {
+                fprintf(stderr, "fiskta_library_wrapper: invalid time format: %s\n", arg + 19);
                 return 7;
             }
             argi++;
@@ -357,7 +371,7 @@ int main(int argc, char** argv)
     }
 
     // Get operation tokens
-    String tokens[1024];
+    FisktaString tokens[1024];
     int token_count;
     char file_content_buf[16384];
     char tokenize_scratch[16384];
@@ -454,8 +468,8 @@ int main(int argc, char** argv)
     fiskta_set_error_handler(error_to_stderr, NULL);
 
     // Get program requirements
-    BuildOptions opts = {0};  // Use defaults
-    RuntimeRequirements reqs;
+    FisktaBuildOptions opts = {0};  // Use defaults
+    FisktaRuntimeRequirements reqs;
     int result = fiskta_program_requirements(token_count, tokens, &opts, &reqs);
     if (result != FISKTA_EXIT_OK) {
         print_last_error_cli_like();
@@ -470,8 +484,8 @@ int main(int argc, char** argv)
     }
 
     // Build program
-    Program prog = {0};
-    RuntimeBuffers buffers = {0};
+    FisktaProgram prog = {0};
+    FisktaRuntimeBuffers buffers = {0};
     result = fiskta_build_program(token_count, tokens, &opts, &prog, arena, reqs.arena_bytes, &buffers);
     if (result != FISKTA_EXIT_OK) {
         print_last_error_cli_like();
@@ -489,7 +503,7 @@ int main(int argc, char** argv)
     }
 
     // Configure runtime with output callback
-    RuntimeConfig config = {
+    FisktaRuntimeConfig config = {
         .loop_ms = loop_ms,
         .loop_enabled = loop_enabled,
         .ignore_loop_failures = ignore_loop_failures,
