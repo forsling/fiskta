@@ -35,7 +35,7 @@
 _Thread_local static enum Err tl_err = E_OK;
 _Thread_local static i32 tl_position = -1;
 _Thread_local static char tl_message[ERROR_MESSAGE_MAX] = { 0 };
-_Thread_local static FiskataErrorCallback tl_callback = NULL;
+_Thread_local static FisktaErrorCallback tl_callback = NULL;
 _Thread_local static void* tl_userdata = NULL;
 
 void error_set(enum Err err, i32 position, const char* fmt, ...)
@@ -68,7 +68,7 @@ FISKTA_API const char* fiskta_error_message(void)
     return tl_message[0] != '\0' ? tl_message : NULL;
 }
 
-FISKTA_API void fiskta_set_error_handler(FiskataErrorCallback callback, void* userdata)
+FISKTA_API void fiskta_set_error_handler(FisktaErrorCallback callback, void* userdata)
 {
     tl_callback = callback;
     tl_userdata = userdata;

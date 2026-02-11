@@ -60,9 +60,9 @@ typedef struct ReThread ReThread;
 typedef struct LabelWrite LabelWrite;
 
 // Callback types
-typedef void (*FiskataErrorCallback)(enum Err err, const char* context,
+typedef void (*FisktaErrorCallback)(enum Err err, const char* context,
     i32 position, const char* message, void* userdata);
-typedef void (*FiskataOutputCallback)(const void* data, size_t len, void* userdata);
+typedef void (*FisktaOutputCallback)(const void* data, size_t len, void* userdata);
 
 /********************************
  * REGEX ENGINE RESOURCE LIMITS *
@@ -106,9 +106,9 @@ typedef struct {
     i32 idle_timeout_ms;
     i32 exec_timeout_ms;
 
-    FiskataErrorCallback error_callback;
+    FisktaErrorCallback error_callback;
     void* error_userdata;
-    FiskataOutputCallback output_callback;
+    FisktaOutputCallback output_callback;
     void* output_userdata;
 } RuntimeConfig;
 
@@ -319,7 +319,7 @@ FISKTA_API int fiskta_runtime_execute_buffer(const Program* prog,
 //       fprintf(stderr, "Error: %s\n", msg);
 //   }
 //   fiskta_set_error_handler(my_handler, NULL);
-FISKTA_API void fiskta_set_error_handler(FiskataErrorCallback callback, void* userdata);
+FISKTA_API void fiskta_set_error_handler(FisktaErrorCallback callback, void* userdata);
 
 // Get last error code (thread-local)
 FISKTA_API enum Err fiskta_error_code(void);
