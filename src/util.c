@@ -668,12 +668,29 @@ i32 tokenize_ops_string(const char* s, FisktaString* out, i32 max_tokens, char* 
         }
     }
 
+    // Reject unterminated quotes
+    if (st == S_SQ || st == S_DQ) {
+        return -1;
+    }
+
     // Handle final token
-    if (st == S_TOKEN || st == S_SQ || st == S_DQ) {
-        if (ntok < max_tokens) {
-            out[ntok].bytes = scratch_buf + token_start;
-            out[ntok].len = (size_t)boff - token_start;
-            ntok++;
+    if (st == S_TOKEN) {
+        if (ntok >= max_tokens) {
+            return -1;
+        }
+        out[ntok].bytes = scratch_buf + token_start;
+        out[ntok].len = (size_t)boff - token_start;
+        ntok++;
+    }
+
+    // If we stopped the loop because ntok hit max_tokens, check for remaining input
+    if (ntok == max_tokens) {
+        while (*p) {
+            unsigned char c = (unsigned char)*p;
+            if (c != ' ' && c != '\t' && c != '\n' && c != '\r') {
+                return -1; // More tokens remain; signal capacity error
+            }
+            p++;
         }
     }
 
