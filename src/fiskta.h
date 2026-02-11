@@ -97,15 +97,15 @@ typedef void (*FisktaOutputCallback)(const void* data, size_t len, void* userdat
  * RUNTIME CONFIGURATION *
  *************************/
 typedef struct {
-    i32 loop_ms;
-    bool loop_enabled;
-    bool ignore_loop_failures;
-    i32 idle_timeout_ms;
-    i32 exec_timeout_ms;
+    i32 loop_ms;               // Delay between loop iterations in ms (0 = tight loop)
+    bool loop_enabled;         // Enable continue/loop mode
+    bool ignore_loop_failures; // Keep looping even when clauses fail
+    i32 idle_timeout_ms;       // Stop after idle period: -1 = disabled, 0 = immediate, >0 = ms
+    i32 exec_timeout_ms;       // Stop after total time: -1 = disabled, >=0 = ms
 
-    FisktaErrorCallback error_callback;
+    FisktaErrorCallback error_callback;  // Optional error handler (NULL = use stderr)
     void* error_userdata;
-    FisktaOutputCallback output_callback;
+    FisktaOutputCallback output_callback; // Optional output handler (NULL = use stdout)
     void* output_userdata;
 } RuntimeConfig;
 
