@@ -1520,12 +1520,12 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         // Materialize: populate Op from parsed args
         if (args.has_to) {
-            op->u.findr.to = args.to;
+            op->u.find_re.to = args.to;
         } else {
-            op->u.findr.to.base = LOC_EOF;
-            op->u.findr.to.name_idx = -1;
-            op->u.findr.to.offset = 0;
-            op->u.findr.to.unit = UNIT_BYTES;
+            op->u.find_re.to.base = LOC_EOF;
+            op->u.find_re.to.name_idx = -1;
+            op->u.find_re.to.offset = 0;
+            op->u.find_re.to.unit = UNIT_BYTES;
         }
 
         // Validate and materialize pattern
@@ -1535,18 +1535,18 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         }
 
         err = E_OK;
-        op->u.findr.pattern = parse_string_to_bytes(args.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL, NULL);
+        op->u.find_re.pattern = parse_string_to_bytes(args.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL, NULL);
         if (err != E_OK) {
             return err;
         }
 
         // Check for patterns that cause exponential expansion
-        if (has_empty_quantified_group(op->u.findr.pattern.bytes, op->u.findr.pattern.len)) {
+        if (has_empty_quantified_group(op->u.find_re.pattern.bytes, op->u.find_re.pattern.len)) {
             error_set(E_PARSE, args.pattern_idx, "regex pattern contains empty alternative in quantified group (e.g. '(|a)*')");
             return E_PARSE;
         }
 
-        op->u.findr.prog = NULL;
+        op->u.find_re.prog = NULL;
 
     } else if (is_keyword(cmd_tok, &kw_find_bin)) {
         op->kind = OP_FIND_BIN;
@@ -1560,13 +1560,13 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         // Materialize: populate Op from parsed args
         if (args.has_to) {
-            op->u.findbin.to = args.to;
+            op->u.find_bin.to = args.to;
         } else {
             // Default to EOF
-            op->u.findbin.to.base = LOC_EOF;
-            op->u.findbin.to.name_idx = -1;
-            op->u.findbin.to.offset = 0;
-            op->u.findbin.to.unit = UNIT_BYTES;
+            op->u.find_bin.to.base = LOC_EOF;
+            op->u.find_bin.to.name_idx = -1;
+            op->u.find_bin.to.offset = 0;
+            op->u.find_bin.to.unit = UNIT_BYTES;
         }
 
         // Validate and materialize hex string
@@ -1580,7 +1580,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         }
 
         err = E_OK;
-        op->u.findbin.needle = parse_hex_to_bytes(args.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err);
+        op->u.find_bin.needle = parse_hex_to_bytes(args.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err);
         if (err != E_OK) {
             return err;
         }

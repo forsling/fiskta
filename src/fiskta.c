@@ -813,13 +813,13 @@ FISKTA_API int fiskta_build_program(i32 token_count, const String* tokens,
             Op* op = &clause->ops[i];
             if (op->kind == OP_FIND_RE) {
                 ReProg* prog = &re_progs[re_prog_idx++];
-                enum Err err = re_compile_into(op->u.findr.pattern, prog,
+                enum Err err = re_compile_into(op->u.find_re.pattern, prog,
                     re_ins, (i32)(re_ins_bytes / sizeof(ReInst)), &re_ins_idx,
                     re_cls, (i32)(re_cls_bytes / sizeof(ReClass)), &re_cls_idx);
                 if (err != E_OK) {
                     return err_to_exit_code(err);
                 }
-                op->u.findr.prog = prog;
+                op->u.find_re.prog = prog;
             } else if (op->kind == OP_TAKE_UNTIL_RE) {
                 ReProg* prog = &re_progs[re_prog_idx++];
                 enum Err err = re_compile_into(op->u.take_until_re.pattern, prog,

@@ -118,11 +118,11 @@ typedef struct {
             LocExpr to;
             String pattern;
             struct ReProg* prog;
-        } findr;
+        } find_re;
         struct {
             LocExpr to;
             String needle; // parsed hex bytes
-        } findbin;
+        } find_bin;
         struct {
             bool is_location; // true for "skip to <loc>", false for "skip <offset><unit>"
             union {

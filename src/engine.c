@@ -287,8 +287,8 @@ static enum Err find_bytes_op(
     i64 win_hi;
 
     // Handle both OP_FIND and OP_FIND_BIN (same structure, different union field names)
-    const LocExpr* to_loc = (op->kind == OP_FIND_BIN) ? &op->u.findbin.to : &op->u.find.to;
-    const String* needle = (op->kind == OP_FIND_BIN) ? &op->u.findbin.needle : &op->u.find.needle;
+    const LocExpr* to_loc = (op->kind == OP_FIND_BIN) ? &op->u.find_bin.to : &op->u.find.to;
+    const String* needle = (op->kind == OP_FIND_BIN) ? &op->u.find_bin.needle : &op->u.find.needle;
 
     enum Err err = resolve_location(to_loc, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_VIEW, &win_hi);
     if (err != E_OK) {
@@ -335,7 +335,7 @@ static enum Err find_regex_op(
     i64 win_lo;
     i64 win_hi;
 
-    enum Err err = resolve_location(&op->u.findr.to, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_VIEW, &win_hi);
+    enum Err err = resolve_location(&op->u.find_re.to, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_VIEW, &win_hi);
     if (err != E_OK) {
         return err;
     }
@@ -353,7 +353,7 @@ static enum Err find_regex_op(
 
     i64 ms;
     i64 me;
-    err = regex_search_window(io, win_lo, win_hi, op->u.findr.prog, dir, &ms, &me);
+    err = regex_search_window(io, win_lo, win_hi, op->u.find_re.prog, dir, &ms, &me);
     if (err != E_OK) {
         return err;
     }
