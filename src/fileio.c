@@ -25,7 +25,7 @@
  * FILE I/O OPERATIONS *
  ***********************/
 
-enum Err io_open(File* io, const char* path,
+enum FisktaErr io_open(File* io, const char* path,
     unsigned char* search_buf, size_t search_buf_cap)
 {
     memset(io, 0, sizeof(*io));
@@ -35,7 +35,7 @@ enum Err io_open(File* io, const char* path,
         // Spool stdin to temp file
         io->disk.f = tmpfile();
         if (!io->disk.f) {
-            return E_IO;
+            return FISKTA_E_IO;
         }
 
 #ifdef _WIN32
@@ -51,7 +51,7 @@ enum Err io_open(File* io, const char* path,
             if (n == 0) {
                 if (ferror(stdin)) {
                     fclose(io->disk.f);
-                    return E_IO;
+                    return FISKTA_E_IO;
                 }
                 break;
             }
@@ -59,47 +59,47 @@ enum Err io_open(File* io, const char* path,
             size_t written = fwrite(buf, 1, n, io->disk.f);
             if (written != n) {
                 fclose(io->disk.f);
-                return E_IO;
+                return FISKTA_E_IO;
             }
         }
 
         if (fflush(io->disk.f) != 0) {
             fclose(io->disk.f);
-            return E_IO;
+            return FISKTA_E_IO;
         }
         if (fseeko(io->disk.f, 0, SEEK_END) != 0) {
             fclose(io->disk.f);
-            return E_IO;
+            return FISKTA_E_IO;
         }
         off_t sz = ftello(io->disk.f);
         if (sz < 0) {
             fclose(io->disk.f);
-            return E_IO;
+            return FISKTA_E_IO;
         }
         io->size = (i64)sz;
         if (fseek(io->disk.f, 0, SEEK_SET) != 0) {
             fclose(io->disk.f);
-            return E_IO;
+            return FISKTA_E_IO;
         }
     } else {
         io->disk.f = fopen(path, "rb");
         if (!io->disk.f) {
-            return E_IO;
+            return FISKTA_E_IO;
         }
 
         if (fseeko(io->disk.f, 0, SEEK_END) != 0) {
             fclose(io->disk.f);
-            return E_IO;
+            return FISKTA_E_IO;
         }
         off_t sz = ftello(io->disk.f);
         if (sz < 0) {
             fclose(io->disk.f);
-            return E_IO;
+            return FISKTA_E_IO;
         }
         io->size = (i64)sz;
         if (fseek(io->disk.f, 0, SEEK_SET) != 0) {
             fclose(io->disk.f);
-            return E_IO;
+            return FISKTA_E_IO;
         }
     }
 
@@ -115,10 +115,10 @@ enum Err io_open(File* io, const char* path,
         io->line_idx[i].sub_count = 0;
     }
 
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-enum Err io_open_buffer(File* io, const unsigned char* data, size_t len,
+enum FisktaErr io_open_buffer(File* io, const unsigned char* data, size_t len,
     unsigned char* search_buf, size_t search_buf_cap)
 {
     memset(io, 0, sizeof(*io));
@@ -139,7 +139,7 @@ enum Err io_open_buffer(File* io, const unsigned char* data, size_t len,
         io->line_idx[i].sub_count = 0;
     }
 
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
 void io_close(File* io)
@@ -182,48 +182,48 @@ void io_reset_full(File* io)
 }
 
 // Helper to read from a specific offset into a buffer
-// Returns E_OK on success, E_IO on error
+// Returns FISKTA_E_OK on success, FISKTA_E_IO on error
 // Sets *actual_out to the number of bytes actually read
-enum Err io_read_at(File* io, i64 offset, unsigned char* dest, size_t requested, size_t* actual_out)
+enum FisktaErr io_read_at(File* io, i64 offset, unsigned char* dest, size_t requested, size_t* actual_out)
 {
     if (offset < 0 || offset > io->size) {
         *actual_out = 0;
-        return E_IO;
+        return FISKTA_E_IO;
     }
 
     if (io->mode == FILE_MODE_DISK) {
         if (fseeko(io->disk.f, offset, SEEK_SET) != 0) {
             *actual_out = 0;
-            return E_IO;
+            return FISKTA_E_IO;
         }
         size_t n = fread(dest, 1, requested, io->disk.f);
         if (n == 0 && ferror(io->disk.f)) {
             *actual_out = 0;
-            return E_IO;
+            return FISKTA_E_IO;
         }
         *actual_out = n;
-        return E_OK;
+        return FISKTA_E_OK;
     } else {
         // FILE_MODE_MEMORY
         i64 available = io->size - offset;
         if (available <= 0) {
             *actual_out = 0;
-            return E_OK;
+            return FISKTA_E_OK;
         }
         size_t to_copy = (size_t)available < requested ? (size_t)available : requested;
         memcpy(dest, io->mem.data + offset, to_copy);
         *actual_out = to_copy;
-        return E_OK;
+        return FISKTA_E_OK;
     }
 }
 
-enum Err io_emit(File* io, i64 start, i64 end, FILE* out)
+enum FisktaErr io_emit(File* io, i64 start, i64 end, FILE* out)
 {
     if (start >= end) {
-        return E_OK;
+        return FISKTA_E_OK;
     }
     if (start < 0 || end > io->size) {
-        return E_IO;
+        return FISKTA_E_IO;
     }
 
     i64 offset = start;
@@ -231,8 +231,8 @@ enum Err io_emit(File* io, i64 start, i64 end, FILE* out)
     while (remaining > 0) {
         size_t chunk_size = (remaining > (i64)io->buf_cap) ? io->buf_cap : (size_t)remaining;
         size_t n;
-        enum Err err = io_read_at(io, offset, io->buf, chunk_size, &n);
-        if (err != E_OK) {
+        enum FisktaErr err = io_read_at(io, offset, io->buf, chunk_size, &n);
+        if (err != FISKTA_E_OK) {
             return err;
         }
         if (n == 0) {
@@ -241,14 +241,14 @@ enum Err io_emit(File* io, i64 start, i64 end, FILE* out)
 
         size_t written = fwrite(io->buf, 1, n, out);
         if (written != n) {
-            return E_IO;
+            return FISKTA_E_IO;
         }
 
         offset += (i64)n;
         remaining -= (i64)n;
     }
 
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
 /*******************
@@ -275,21 +275,21 @@ static inline i32 utf8_len_from_lead_byte(unsigned char b)
 }
 
 // Forward declaration for internal helper
-static enum Err get_line_block(File* io, i64 pos, LineBlockIdx** out);
+static enum FisktaErr get_line_block(File* io, i64 pos, LineBlockIdx** out);
 
-enum Err io_line_start(File* io, i64 pos, i64* out)
+enum FisktaErr io_line_start(File* io, i64 pos, i64* out)
 {
     if (pos <= 0) {
         *out = 0;
-        return E_OK;
+        return FISKTA_E_OK;
     }
 
     // Use line index for fast reverse block jumping
     i64 cur_pos = pos - 1; // We want the previous LF before or at pos-1
     while (cur_pos >= 0) {
         LineBlockIdx* block;
-        enum Err err = get_line_block(io, cur_pos, &block);
-        if (err != E_OK) {
+        enum FisktaErr err = get_line_block(io, cur_pos, &block);
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
@@ -326,8 +326,8 @@ enum Err io_line_start(File* io, i64 pos, i64* out)
 
         // Scan this subchunk for the last LF
         size_t n;
-        enum Err read_err = io_read_at(io, sub_start, io->buf, (size_t)(sub_end - sub_start), &n);
-        if (read_err != E_OK) {
+        enum FisktaErr read_err = io_read_at(io, sub_start, io->buf, (size_t)(sub_end - sub_start), &n);
+        if (read_err != FISKTA_E_OK) {
             return read_err;
         }
 
@@ -335,7 +335,7 @@ enum Err io_line_start(File* io, i64 pos, i64* out)
         for (i64 i = scan_end; i >= 0; --i) {
             if (io->buf[i] == '\n') {
                 *out = sub_start + i + 1;
-                return E_OK;
+                return FISKTA_E_OK;
             }
         }
 
@@ -344,26 +344,26 @@ enum Err io_line_start(File* io, i64 pos, i64* out)
     }
 
     *out = 0;
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-enum Err io_line_end(File* io, i64 pos, i64* out)
+enum FisktaErr io_line_end(File* io, i64 pos, i64* out)
 {
     if (pos < 0) {
         *out = 0;
-        return E_OK;
+        return FISKTA_E_OK;
     }
     if (pos >= io->size) {
         *out = io->size;
-        return E_OK;
+        return FISKTA_E_OK;
     }
 
     // Use line index for fast block jumping
     i64 cur_pos = pos;
     while (cur_pos < io->size) {
         LineBlockIdx* block;
-        enum Err err = get_line_block(io, cur_pos, &block);
-        if (err != E_OK) {
+        enum FisktaErr err = get_line_block(io, cur_pos, &block);
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
@@ -400,8 +400,8 @@ enum Err io_line_end(File* io, i64 pos, i64* out)
 
         // Scan this subchunk for the first LF
         size_t n;
-        enum Err read_err = io_read_at(io, sub_start, io->buf, (size_t)(sub_end - sub_start), &n);
-        if (read_err != E_OK) {
+        enum FisktaErr read_err = io_read_at(io, sub_start, io->buf, (size_t)(sub_end - sub_start), &n);
+        if (read_err != FISKTA_E_OK) {
             return read_err;
         }
 
@@ -409,7 +409,7 @@ enum Err io_line_end(File* io, i64 pos, i64* out)
         for (size_t i = (size_t)scan_start; i < n; ++i) {
             if (io->buf[i] == '\n') {
                 *out = sub_start + (i64)i + 1;
-                return E_OK;
+                return FISKTA_E_OK;
             }
         }
 
@@ -418,13 +418,13 @@ enum Err io_line_end(File* io, i64 pos, i64* out)
     }
 
     *out = io->size;
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-enum Err io_step_lines(File* io, i64 start_line_start, i32 delta, i64* out_line_start)
+enum FisktaErr io_step_lines(File* io, i64 start_line_start, i32 delta, i64* out_line_start)
 {
     if (start_line_start < 0 || start_line_start > io->size) {
-        return E_LOC_RESOLVE;
+        return FISKTA_E_LOC_RESOLVE;
     }
 
     i64 current = start_line_start;
@@ -433,14 +433,14 @@ enum Err io_step_lines(File* io, i64 start_line_start, i32 delta, i64* out_line_
         // Move forward by delta lines
         for (i32 i = 0; i < delta; i++) {
             i64 line_end;
-            enum Err err = io_line_end(io, current, &line_end);
-            if (err != E_OK) {
+            enum FisktaErr err = io_line_end(io, current, &line_end);
+            if (err != FISKTA_E_OK) {
                 return err;
             }
 
             if (line_end >= io->size) {
                 *out_line_start = io->size;
-                return E_OK;
+                return FISKTA_E_OK;
             }
             current = line_end;
         }
@@ -449,12 +449,12 @@ enum Err io_step_lines(File* io, i64 start_line_start, i32 delta, i64* out_line_
         for (i32 i = 0; i < -delta; i++) {
             if (current == 0) {
                 *out_line_start = 0;
-                return E_OK;
+                return FISKTA_E_OK;
             }
 
             i64 line_start;
-            enum Err err = io_line_start(io, current - 1, &line_start);
-            if (err != E_OK) {
+            enum FisktaErr err = io_line_start(io, current - 1, &line_start);
+            if (err != FISKTA_E_OK) {
                 return err;
             }
             current = line_start;
@@ -462,22 +462,22 @@ enum Err io_step_lines(File* io, i64 start_line_start, i32 delta, i64* out_line_
     }
 
     *out_line_start = current;
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
 /******************************
  * UTF-8 CHARACTER NAVIGATION *
  ******************************/
 
-enum Err io_prev_char_start(File* io, i64 pos, i64* out)
+enum FisktaErr io_prev_char_start(File* io, i64 pos, i64* out)
 {
     if (pos <= 0) {
         *out = 0;
-        return E_OK;
+        return FISKTA_E_OK;
     }
     if (pos >= io->size) {
         *out = io->size;
-        return E_OK;
+        return FISKTA_E_OK;
     }
 
     // Read up to 4 bytes before pos to find a non-continuation byte
@@ -487,15 +487,15 @@ enum Err io_prev_char_start(File* io, i64 pos, i64* out)
     }
     i64 hi = pos;
     size_t n;
-    enum Err err = io_read_at(io, lo, io->buf, (size_t)(hi - lo), &n);
-    if (err != E_OK) {
+    enum FisktaErr err = io_read_at(io, lo, io->buf, (size_t)(hi - lo), &n);
+    if (err != FISKTA_E_OK) {
         return err;
     }
 
     i64 rel_end = (i64)n; // number of bytes we have (hi - lo)
     if (rel_end <= 0) {
         *out = pos;
-        return E_OK;
+        return FISKTA_E_OK;
     }
 
     // Scan backward from pos-1 toward lo to find a non-continuation byte
@@ -507,24 +507,24 @@ enum Err io_prev_char_start(File* io, i64 pos, i64* out)
             i64 start = hi - k;
             if (len == 0 || start + len > io->size) {
                 *out = start;
-                return E_OK;
+                return FISKTA_E_OK;
             }
             // If the character we found ends exactly at 'pos' and there's more data,
             // the cursor is already on a character boundary; keep it there.
             if (start + len == pos && pos < io->size) {
                 *out = pos;
-                return E_OK;
+                return FISKTA_E_OK;
             }
             *out = start;
-            return E_OK;
+            return FISKTA_E_OK;
         }
     }
     // All were continuation bytes; treat lo as boundary (permissive)
     *out = lo ? lo : pos;
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-enum Err io_step_chars(File* io, i64 start, i32 delta, i64* out)
+enum FisktaErr io_step_chars(File* io, i64 start, i32 delta, i64* out)
 {
     if (start < 0) {
         start = 0;
@@ -540,7 +540,7 @@ enum Err io_step_chars(File* io, i64 start, i32 delta, i64* out)
         for (i32 i = 0; i < delta; ++i) {
             if (cur >= io->size) {
                 *out = io->size;
-                return E_OK;
+                return FISKTA_E_OK;
             }
             // Read a small window [cur, cur+4]
             i64 hi = cur + 4;
@@ -548,13 +548,13 @@ enum Err io_step_chars(File* io, i64 start, i32 delta, i64* out)
                 hi = io->size;
             }
             size_t n;
-            enum Err err = io_read_at(io, cur, io->buf, (size_t)(hi - cur), &n);
-            if (err != E_OK) {
+            enum FisktaErr err = io_read_at(io, cur, io->buf, (size_t)(hi - cur), &n);
+            if (err != FISKTA_E_OK) {
                 return err;
             }
             if (n == 0) {
                 *out = cur;
-                return E_OK;
+                return FISKTA_E_OK;
             }
 
             unsigned char b0 = io->buf[0];
@@ -580,7 +580,7 @@ enum Err io_step_chars(File* io, i64 start, i32 delta, i64* out)
             }
         }
         *out = cur;
-        return E_OK;
+        return FISKTA_E_OK;
     }
 
     // backward
@@ -588,25 +588,25 @@ enum Err io_step_chars(File* io, i64 start, i32 delta, i64* out)
     for (i32 i = 0; i < steps; ++i) {
         if (cur <= 0) {
             *out = 0;
-            return E_OK;
+            return FISKTA_E_OK;
         }
         i64 start_char;
         // snap to the start of the char immediately before cur
-        enum Err e = io_prev_char_start(io, cur - 1, &start_char);
-        if (e != E_OK) {
+        enum FisktaErr e = io_prev_char_start(io, cur - 1, &start_char);
+        if (e != FISKTA_E_OK) {
             return e;
         }
         cur = start_char;
     }
     *out = cur;
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
 /*****************
  * LINE INDEXING *
  *****************/
 
-static enum Err get_line_block(File* io, i64 pos, LineBlockIdx** out)
+static enum FisktaErr get_line_block(File* io, i64 pos, LineBlockIdx** out)
 {
     if (pos < 0) {
         pos = 0;
@@ -635,7 +635,7 @@ static enum Err get_line_block(File* io, i64 pos, LineBlockIdx** out)
         if (e->block_lo == block_lo && e->block_hi == block_hi) {
             e->gen = ++io->line_idx_gen;
             *out = e;
-            return E_OK;
+            return FISKTA_E_OK;
         }
         if (io->line_idx[i].gen < io->line_idx[lru_slot].gen) {
             lru_slot = i;
@@ -670,8 +670,8 @@ static enum Err get_line_block(File* io, i64 pos, LineBlockIdx** out)
         }
 
         size_t n;
-        enum Err err = io_read_at(io, sub_lo, io->buf, (size_t)(sub_hi - sub_lo), &n);
-        if (err != E_OK) {
+        enum FisktaErr err = io_read_at(io, sub_lo, io->buf, (size_t)(sub_hi - sub_lo), &n);
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
@@ -691,5 +691,5 @@ static enum Err get_line_block(File* io, i64 pos, LineBlockIdx** out)
     e->in_use = true;
 
     *out = e;
-    return E_OK;
+    return FISKTA_E_OK;
 }

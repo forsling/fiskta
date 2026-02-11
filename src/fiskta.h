@@ -57,7 +57,7 @@ extern "C" {
 #endif
 
 // Callback types
-typedef void (*FisktaErrorCallback)(enum Err err, const char* context,
+typedef void (*FisktaErrorCallback)(enum FisktaErr err, const char* context,
     i32 position, const char* message, void* userdata);
 typedef void (*FisktaOutputCallback)(const void* data, size_t len, void* userdata);
 
@@ -75,7 +75,7 @@ typedef void (*FisktaOutputCallback)(const void* data, size_t len, void* userdat
 // - Max pattern (16K ins): ~2 MiB total seen (2×1 MiB), minimal threads
 //
 // Memory usage is predictable and independent of runtime complexity. Patterns
-// that exceed the budget fail gracefully with E_CAPACITY.
+// that exceed the budget fail gracefully with FISKTA_E_CAPACITY.
 //
 // These defaults can be overridden via BuildOptions (see fiskta_types.h).
 //
@@ -312,14 +312,14 @@ FISKTA_API int fiskta_runtime_execute_buffer(const Program* prog,
 // Safe to call multiple times to change handler.
 //
 // Example:
-//   void my_handler(enum Err err, const char* ctx, i32 pos, const char* msg, void* data) {
+//   void my_handler(enum FisktaErr err, const char* ctx, i32 pos, const char* msg, void* data) {
 //       fprintf(stderr, "Error: %s\n", msg);
 //   }
 //   fiskta_set_error_handler(my_handler, NULL);
 FISKTA_API void fiskta_set_error_handler(FisktaErrorCallback callback, void* userdata);
 
 // Get last error code (thread-local)
-FISKTA_API enum Err fiskta_error_code(void);
+FISKTA_API enum FisktaErr fiskta_error_code(void);
 
 // Get last error message (thread-local, may be NULL)
 FISKTA_API const char* fiskta_error_message(void);
@@ -328,7 +328,7 @@ FISKTA_API const char* fiskta_error_message(void);
 FISKTA_API i32 fiskta_error_position(void);
 
 // Get human-readable string for error code
-FISKTA_API const char* fiskta_err_str(enum Err e);
+FISKTA_API const char* fiskta_err_str(enum FisktaErr e);
 
 // Library version helpers
 FISKTA_API const char* fiskta_version(void);

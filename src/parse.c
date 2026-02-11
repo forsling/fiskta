@@ -26,20 +26,20 @@
 
 // Forward declarations
 typedef struct LabelTable LabelTable;
-static enum Err parse_op_dry_run(const String* tokens, i32* idx, i32 token_count,
+static enum FisktaErr parse_op_dry_run(const String* tokens, i32* idx, i32 token_count,
     Program* prg, LabelTable* labels);
 
 // Validate pattern length (max size check only)
-// Returns E_OK if valid, E_CAPACITY if too long
+// Returns FISKTA_E_OK if valid, FISKTA_E_CAPACITY if too long
 // Note: Empty pattern check is done elsewhere (in regex compiler for regex patterns,
 // or in literal search for literal needles) to ensure correct exit code mapping.
-static inline enum Err check_pattern_len(String tok, i32 err_pos)
+static inline enum FisktaErr check_pattern_len(String tok, i32 err_pos)
 {
     if (tok.len > MAX_PATTERN_LENGTH) {
-        error_set(E_CAPACITY, err_pos, "pattern too long (max %d bytes)", MAX_PATTERN_LENGTH);
-        return E_CAPACITY;
+        error_set(FISKTA_E_CAPACITY, err_pos, "pattern too long (max %d bytes)", MAX_PATTERN_LENGTH);
+        return FISKTA_E_CAPACITY;
     }
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
 static int parse_hex_digit(char c)
@@ -188,13 +188,13 @@ static inline bool is_keyword(String token, const String* kw)
 {
     return string_eq(token, *kw);
 }
-static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op, Program* prg,
+static enum FisktaErr parse_op(const String* tokens, i32* idx, i32 token_count, Op* op, Program* prg,
     LabelTable* labels,
     char* str_pool, size_t* str_pool_off, size_t str_pool_cap,
     i16* offset_pool, i32* offset_pool_off);
-static enum Err parse_loc_expr(const String* tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg, LabelTable* labels);
-static enum Err parse_at_expr(const String* tokens, i32* idx, i32 token_count, LocExpr* at);
-static enum Err parse_offset(String token, i64* offset, Unit* unit);
+static enum FisktaErr parse_loc_expr(const String* tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg, LabelTable* labels);
+static enum FisktaErr parse_at_expr(const String* tokens, i32* idx, i32 token_count, LocExpr* at);
+static enum FisktaErr parse_offset(String token, i64* offset, Unit* unit);
 static i32 find_or_add_label(Program* prg, LabelTable* labels, String name);
 static bool is_label_name_valid(String name);
 static bool has_empty_quantified_group(const char* pattern, size_t len);
@@ -468,13 +468,13 @@ static i32 estimate_regex_instructions(String pattern)
     return estimate;
 }
 
-enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_path, ParsePlan* plan, const char** in_path_out)
+enum FisktaErr parse_preflight(i32 token_count, const String* tokens, const char* in_path, ParsePlan* plan, const char** in_path_out)
 {
     memset(plan, 0, sizeof(*plan));
 
     if (token_count < 1) {
-        error_set(E_PARSE, -1, "expected at least one operation");
-        return E_PARSE;
+        error_set(FISKTA_E_PARSE, -1, "expected at least one operation");
+        return FISKTA_E_PARSE;
     }
 
     *in_path_out = in_path;
@@ -662,10 +662,10 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                             // Validate counter quantifier usage before compilation
                             i32 counter_count = count_counter_quantifiers_in_pattern(pat_tok);
                             if (counter_count > MAX_RE_COUNTERS) {
-                                error_set(E_CAPACITY, idx,
+                                error_set(FISKTA_E_CAPACITY, idx,
                                     "regex: too many quantified groups in pattern (found %d, max %d); reduce nesting or use simpler quantifiers",
                                     counter_count, MAX_RE_COUNTERS);
-                                return E_CAPACITY;
+                                return FISKTA_E_CAPACITY;
                             }
 
                             plan->sum_findr_ops++;
@@ -845,8 +845,8 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                     i32 segments = 0;
                     i32 marks = 0;
                     if (!compute_print_stats(tokens[idx], &stored_len, &segments, &marks)) {
-                        error_set(E_PARSE, idx, "invalid escape in print literal");
-                        return E_PARSE;
+                        error_set(FISKTA_E_PARSE, idx, "invalid escape in print literal");
+                        return FISKTA_E_PARSE;
                     }
                     plan->needle_count++;
                     plan->needle_bytes += stored_len;
@@ -862,8 +862,8 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
                     idx++;
                 }
             } else {
-                error_set(E_PARSE, idx, "unknown operation '%.*s'", cmd_tok.len, cmd_tok.bytes);
-                return E_PARSE;
+                error_set(FISKTA_E_PARSE, idx, "unknown operation '%.*s'", cmd_tok.len, cmd_tok.bytes);
+                return FISKTA_E_PARSE;
             }
         }
 
@@ -872,7 +872,7 @@ enum Err parse_preflight(i32 token_count, const String* tokens, const char* in_p
         }
     }
 
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
 // Check if regex pattern contains empty alternative in quantified group
@@ -928,14 +928,14 @@ static bool has_empty_quantified_group(const char* pattern, size_t len)
     return false;
 }
 
-enum Err parse_build(i32 token_count, const String* tokens, const char* in_path, Program* prg, const char** in_path_out,
+enum FisktaErr parse_build(i32 token_count, const String* tokens, const char* in_path, Program* prg, const char** in_path_out,
     Clause* clauses_buf, Op* ops_buf, char* str_pool, size_t str_pool_cap, i16* offset_pool)
 {
     memset(prg, 0, sizeof(*prg));
 
     if (token_count < 1) {
-        error_set(E_PARSE, -1, "expected at least one operation");
-        return E_PARSE;
+        error_set(FISKTA_E_PARSE, -1, "expected at least one operation");
+        return FISKTA_E_PARSE;
     }
 
     // Input path is passed separately
@@ -965,8 +965,8 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
         i32 clause_start = idx;
         i32 scan_idx = idx;
         while (scan_idx < token_count && !is_keyword(tokens[scan_idx], &kw_then) && !is_keyword(tokens[scan_idx], &kw_or)) {
-            enum Err err = parse_op_dry_run(tokens, &scan_idx, token_count, prg, &labels);
-            if (err != E_OK) {
+            enum FisktaErr err = parse_op_dry_run(tokens, &scan_idx, token_count, prg, &labels);
+            if (err != FISKTA_E_OK) {
                 return err;
             }
         }
@@ -975,8 +975,8 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
         idx = clause_start;
         while (idx < token_count && !is_keyword(tokens[idx], &kw_then) && !is_keyword(tokens[idx], &kw_or)) {
             Op* op = &clause->ops[clause->op_count];
-            enum Err err = parse_op(tokens, &idx, token_count, op, prg, &labels, str_pool, &str_pool_off, str_pool_cap, offset_pool, &offset_pool_off);
-            if (err != E_OK) {
+            enum FisktaErr err = parse_op(tokens, &idx, token_count, op, prg, &labels, str_pool, &str_pool_off, str_pool_cap, offset_pool, &offset_pool_off);
+            if (err != FISKTA_E_OK) {
                 return err;
             }
             clause->op_count++;
@@ -1005,15 +1005,15 @@ enum Err parse_build(i32 token_count, const String* tokens, const char* in_path,
         if (last_clause->link != LINK_NONE) {
             if (token_count > 0) {
                 const String tail_tok = tokens[token_count - 1];
-                error_set(E_PARSE, token_count - 1, "dangling '%.*s' without following clause", tail_tok.len, tail_tok.bytes);
+                error_set(FISKTA_E_PARSE, token_count - 1, "dangling '%.*s' without following clause", tail_tok.len, tail_tok.bytes);
             } else {
-                error_set(E_PARSE, -1, "dangling clause link without target");
+                error_set(FISKTA_E_PARSE, -1, "dangling clause link without target");
             }
-            return E_PARSE; // Trailing OR/THEN is a parse error
+            return FISKTA_E_PARSE; // Trailing OR/THEN is a parse error
         }
     }
 
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
 static i32 find_or_add_label(Program* prg, LabelTable* labels, String name)
@@ -1126,7 +1126,7 @@ enum FindKind { FIND_LIT,
 
 // Parse arguments for find/find:re/find:bin
 // Grammar: [to LOCATION] PATTERN
-static enum Err parse_find_like_args(const String* tokens, i32* idx, i32 token_count,
+static enum FisktaErr parse_find_like_args(const String* tokens, i32* idx, i32 token_count,
     i32 cmd_idx, enum FindKind kind,
     TmpFindArgs* out, Program* prg, LabelTable* labels)
 {
@@ -1138,8 +1138,8 @@ static enum Err parse_find_like_args(const String* tokens, i32* idx, i32 token_c
     if (*idx < token_count && is_keyword(tokens[*idx], &kw_to)) {
         (*idx)++;
         out->has_to = true;
-        enum Err err = parse_loc_expr(tokens, idx, token_count, &out->to, prg, labels);
-        if (err != E_OK) {
+        enum FisktaErr err = parse_loc_expr(tokens, idx, token_count, &out->to, prg, labels);
+        if (err != FISKTA_E_OK) {
             return err;
         }
     }
@@ -1150,57 +1150,57 @@ static enum Err parse_find_like_args(const String* tokens, i32* idx, i32 token_c
                                                                               : "find:bin";
         const char* what = (kind == FIND_BIN) ? "hex bytes" : (kind == FIND_LIT) ? "needle"
                                                                                  : "pattern";
-        error_set(E_PARSE, cmd_idx, "missing %s for '%s'", what, op_name);
-        return E_PARSE;
+        error_set(FISKTA_E_PARSE, cmd_idx, "missing %s for '%s'", what, op_name);
+        return FISKTA_E_PARSE;
     }
 
     out->pattern_tok = tokens[*idx];
     out->pattern_idx = *idx;
     (*idx)++;
 
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
 // Parse arguments for skip operation
 // Grammar: (to LOCATION) | OFFSET
-static enum Err parse_skip_args(const String* tokens, i32* idx, i32 token_count,
+static enum FisktaErr parse_skip_args(const String* tokens, i32* idx, i32 token_count,
     i32 cmd_idx, TmpSkipArgs* out, Program* prg, LabelTable* labels)
 {
     if (*idx >= token_count) {
-        error_set(E_PARSE, cmd_idx, "missing target for 'skip'");
-        return E_PARSE;
+        error_set(FISKTA_E_PARSE, cmd_idx, "missing target for 'skip'");
+        return FISKTA_E_PARSE;
     }
 
     // Check if this is "skip to <location>" or "skip <offset><unit>"
     if (is_keyword(tokens[*idx], &kw_to)) {
         (*idx)++; // consume "to"
         out->is_location = true;
-        enum Err err = parse_loc_expr(tokens, idx, token_count, &out->u.to_location, prg, labels);
-        if (err != E_OK) {
+        enum FisktaErr err = parse_loc_expr(tokens, idx, token_count, &out->u.to_location, prg, labels);
+        if (err != FISKTA_E_OK) {
             return err;
         }
     } else {
         out->is_location = false;
         i32 offset_idx = *idx;
-        enum Err err = parse_offset(tokens[*idx], &out->u.by_offset.offset, &out->u.by_offset.unit);
-        if (err != E_OK) {
-            error_set(E_PARSE, offset_idx, "invalid offset '%.*s' for 'skip'", tokens[offset_idx].len, tokens[offset_idx].bytes);
+        enum FisktaErr err = parse_offset(tokens[*idx], &out->u.by_offset.offset, &out->u.by_offset.unit);
+        if (err != FISKTA_E_OK) {
+            error_set(FISKTA_E_PARSE, offset_idx, "invalid offset '%.*s' for 'skip'", tokens[offset_idx].len, tokens[offset_idx].bytes);
             return err;
         }
         (*idx)++;
     }
 
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
 // Parse arguments for take operation
 // Grammar: (to LOCATION) | (until[:re|:bin] PATTERN [at EXPR]) | ([len] OFFSET)
-static enum Err parse_take_args(const String* tokens, i32* idx, i32 token_count,
+static enum FisktaErr parse_take_args(const String* tokens, i32* idx, i32 token_count,
     i32 cmd_idx, TmpTakeArgs* out, Program* prg, LabelTable* labels)
 {
     if (*idx >= token_count) {
-        error_set(E_PARSE, cmd_idx, "missing argument for 'take'");
-        return E_PARSE;
+        error_set(FISKTA_E_PARSE, cmd_idx, "missing argument for 'take'");
+        return FISKTA_E_PARSE;
     }
 
     const String next_tok = tokens[*idx];
@@ -1208,8 +1208,8 @@ static enum Err parse_take_args(const String* tokens, i32* idx, i32 token_count,
     if (is_keyword(next_tok, &kw_to)) {
         out->kind = TAKE_TO;
         (*idx)++;
-        enum Err err = parse_loc_expr(tokens, idx, token_count, &out->u.to, prg, labels);
-        if (err != E_OK) {
+        enum FisktaErr err = parse_loc_expr(tokens, idx, token_count, &out->u.to, prg, labels);
+        if (err != FISKTA_E_OK) {
             return err;
         }
     } else if (is_keyword(next_tok, &kw_until_re)) {
@@ -1218,8 +1218,8 @@ static enum Err parse_take_args(const String* tokens, i32* idx, i32 token_count,
 
         // Parse pattern
         if (*idx >= token_count) {
-            error_set(E_PARSE, cmd_idx, "missing pattern for 'take until:re'");
-            return E_PARSE;
+            error_set(FISKTA_E_PARSE, cmd_idx, "missing pattern for 'take until:re'");
+            return FISKTA_E_PARSE;
         }
         out->u.until.pattern_tok = tokens[*idx];
         out->u.until.pattern_idx = *idx;
@@ -1229,8 +1229,8 @@ static enum Err parse_take_args(const String* tokens, i32* idx, i32 token_count,
         if (*idx < token_count && is_keyword(tokens[*idx], &kw_at_keyword)) {
             (*idx)++;
             out->u.until.has_at = true;
-            enum Err err = parse_at_expr(tokens, idx, token_count, &out->u.until.at);
-            if (err != E_OK) {
+            enum FisktaErr err = parse_at_expr(tokens, idx, token_count, &out->u.until.at);
+            if (err != FISKTA_E_OK) {
                 return err;
             }
         } else {
@@ -1242,8 +1242,8 @@ static enum Err parse_take_args(const String* tokens, i32* idx, i32 token_count,
 
         // Parse hex string
         if (*idx >= token_count) {
-            error_set(E_PARSE, cmd_idx, "missing hex bytes for 'take until:bin'");
-            return E_PARSE;
+            error_set(FISKTA_E_PARSE, cmd_idx, "missing hex bytes for 'take until:bin'");
+            return FISKTA_E_PARSE;
         }
         out->u.until.pattern_tok = tokens[*idx];
         out->u.until.pattern_idx = *idx;
@@ -1253,8 +1253,8 @@ static enum Err parse_take_args(const String* tokens, i32* idx, i32 token_count,
         if (*idx < token_count && is_keyword(tokens[*idx], &kw_at_keyword)) {
             (*idx)++;
             out->u.until.has_at = true;
-            enum Err err = parse_at_expr(tokens, idx, token_count, &out->u.until.at);
-            if (err != E_OK) {
+            enum FisktaErr err = parse_at_expr(tokens, idx, token_count, &out->u.until.at);
+            if (err != FISKTA_E_OK) {
                 return err;
             }
         } else {
@@ -1266,8 +1266,8 @@ static enum Err parse_take_args(const String* tokens, i32* idx, i32 token_count,
 
         // Parse needle
         if (*idx >= token_count) {
-            error_set(E_PARSE, cmd_idx, "missing needle for 'take until'");
-            return E_PARSE;
+            error_set(FISKTA_E_PARSE, cmd_idx, "missing needle for 'take until'");
+            return FISKTA_E_PARSE;
         }
         out->u.until.pattern_tok = tokens[*idx];
         out->u.until.pattern_idx = *idx;
@@ -1277,8 +1277,8 @@ static enum Err parse_take_args(const String* tokens, i32* idx, i32 token_count,
         if (*idx < token_count && is_keyword(tokens[*idx], &kw_at_keyword)) {
             (*idx)++;
             out->u.until.has_at = true;
-            enum Err err = parse_at_expr(tokens, idx, token_count, &out->u.until.at);
-            if (err != E_OK) {
+            enum FisktaErr err = parse_at_expr(tokens, idx, token_count, &out->u.until.at);
+            if (err != FISKTA_E_OK) {
                 return err;
             }
         } else {
@@ -1290,89 +1290,89 @@ static enum Err parse_take_args(const String* tokens, i32* idx, i32 token_count,
         if (is_keyword(next_tok, &kw_len)) {
             (*idx)++;
             if (*idx >= token_count) {
-                error_set(E_PARSE, cmd_idx, "missing length value for 'take len'");
-                return E_PARSE;
+                error_set(FISKTA_E_PARSE, cmd_idx, "missing length value for 'take len'");
+                return FISKTA_E_PARSE;
             }
         }
-        enum Err err = parse_offset(tokens[*idx], &out->u.len.offset, &out->u.len.unit);
-        if (err != E_OK) {
+        enum FisktaErr err = parse_offset(tokens[*idx], &out->u.len.offset, &out->u.len.unit);
+        if (err != FISKTA_E_OK) {
             const char* ctx = is_keyword(next_tok, &kw_len) ? "take len" : "take";
-            error_set(E_PARSE, *idx, "invalid offset '%.*s' for '%s'", tokens[*idx].len, tokens[*idx].bytes, ctx);
+            error_set(FISKTA_E_PARSE, *idx, "invalid offset '%.*s' for '%s'", tokens[*idx].len, tokens[*idx].bytes, ctx);
             return err;
         }
         (*idx)++;
     }
 
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
 // Parse arguments for view operation
 // Grammar: LOCATION LOCATION
-static enum Err parse_view_args(const String* tokens, i32* idx, i32 token_count,
+static enum FisktaErr parse_view_args(const String* tokens, i32* idx, i32 token_count,
     i32 cmd_idx, TmpViewArgs* out, Program* prg, LabelTable* labels)
 {
     if (*idx >= token_count) {
-        error_set(E_PARSE, cmd_idx, "missing start location for 'view'");
-        return E_PARSE;
+        error_set(FISKTA_E_PARSE, cmd_idx, "missing start location for 'view'");
+        return FISKTA_E_PARSE;
     }
-    enum Err err = parse_loc_expr(tokens, idx, token_count, &out->a, prg, labels);
-    if (err != E_OK) {
+    enum FisktaErr err = parse_loc_expr(tokens, idx, token_count, &out->a, prg, labels);
+    if (err != FISKTA_E_OK) {
         return err;
     }
 
     if (*idx >= token_count) {
-        error_set(E_PARSE, cmd_idx, "missing end location for 'view'");
-        return E_PARSE;
+        error_set(FISKTA_E_PARSE, cmd_idx, "missing end location for 'view'");
+        return FISKTA_E_PARSE;
     }
     err = parse_loc_expr(tokens, idx, token_count, &out->b, prg, labels);
-    if (err != E_OK) {
+    if (err != FISKTA_E_OK) {
         return err;
     }
 
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
 // Parse arguments for print/echo/fail operations
 // Grammar: STRING
-static enum Err parse_print_args(const String* tokens, i32* idx, i32 token_count,
+static enum FisktaErr parse_print_args(const String* tokens, i32* idx, i32 token_count,
     i32 cmd_idx, const String cmd_tok, TmpPrintArgs* out)
 {
     if (*idx >= token_count) {
-        error_set(E_PARSE, cmd_idx, "missing string for '%.*s'", cmd_tok.len, cmd_tok.bytes);
-        return E_PARSE;
+        error_set(FISKTA_E_PARSE, cmd_idx, "missing string for '%.*s'", cmd_tok.len, cmd_tok.bytes);
+        return FISKTA_E_PARSE;
     }
 
     out->str_tok = tokens[*idx];
     out->str_idx = *idx;
     (*idx)++;
 
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
 // Parse arguments for label operation
 // Grammar: NAME
-static enum Err parse_label_args(const String* tokens, i32* idx, i32 token_count,
+static enum FisktaErr parse_label_args(const String* tokens, i32* idx, i32 token_count,
     i32 cmd_idx, TmpLabelArgs* out)
 {
     if (*idx >= token_count) {
-        error_set(E_PARSE, cmd_idx, "missing label name for 'label'");
-        return E_PARSE;
+        error_set(FISKTA_E_PARSE, cmd_idx, "missing label name for 'label'");
+        return FISKTA_E_PARSE;
     }
 
     out->name_tok = tokens[*idx];
     out->name_idx_token = *idx;
     (*idx)++;
 
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
 // Parse arguments for clear operation
 // Grammar: clear (view | <LABEL_NAME>)
-static enum Err parse_clear_args(const String* tokens, i32* idx, i32 token_count, i32 cmd_idx)
+static enum FisktaErr parse_clear_args(const String* tokens, i32* idx, i32 token_count, i32 cmd_idx)
 {
     if (*idx >= token_count) {
-        error_set(E_PARSE, cmd_idx, "missing target for 'clear'");
-        return E_PARSE;
+        error_set(FISKTA_E_PARSE, cmd_idx, "missing target for 'clear'");
+        return FISKTA_E_PARSE;
     }
 
     String target_tok = tokens[*idx];
@@ -1380,12 +1380,12 @@ static enum Err parse_clear_args(const String* tokens, i32* idx, i32 token_count
 
     // Accept either 'view' or a valid label name
     if (is_keyword(target_tok, &kw_view)) {
-        return E_OK;
+        return FISKTA_E_OK;
     } else if (is_label_name_valid(target_tok)) {
-        return E_OK;
+        return FISKTA_E_OK;
     } else {
-        error_set(E_PARSE, *idx - 1, "invalid clear target '%.*s' (expected 'view' or label name)", target_tok.len, target_tok.bytes);
-        return E_PARSE;
+        error_set(FISKTA_E_PARSE, *idx - 1, "invalid clear target '%.*s' (expected 'view' or label name)", target_tok.len, target_tok.bytes);
+        return FISKTA_E_PARSE;
     }
 }
 
@@ -1397,12 +1397,12 @@ static enum Err parse_clear_args(const String* tokens, i32* idx, i32 token_count
  * This function validates syntax and consumes tokens WITHOUT side   *
  * effects (no writes to Program/str_pool/LabelTable).               *
  *********************************************************************/
-static enum Err parse_op_dry_run(const String* tokens, i32* idx, i32 token_count,
+static enum FisktaErr parse_op_dry_run(const String* tokens, i32* idx, i32 token_count,
     Program* prg, LabelTable* labels)
 {
     if (*idx >= token_count) {
-        error_set(E_PARSE, token_count, "unexpected end of input while reading operation");
-        return E_PARSE;
+        error_set(FISKTA_E_PARSE, token_count, "unexpected end of input while reading operation");
+        return FISKTA_E_PARSE;
     }
 
     i32 cmd_idx = *idx;
@@ -1451,18 +1451,18 @@ static enum Err parse_op_dry_run(const String* tokens, i32* idx, i32 token_count
         return parse_print_args(tokens, idx, token_count, cmd_idx, cmd_tok, &args.print);
 
     } else {
-        error_set(E_PARSE, cmd_idx, "unknown operation '%.*s'", cmd_tok.len, cmd_tok.bytes);
-        return E_PARSE;
+        error_set(FISKTA_E_PARSE, cmd_idx, "unknown operation '%.*s'", cmd_tok.len, cmd_tok.bytes);
+        return FISKTA_E_PARSE;
     }
 }
 
-static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op, Program* prg, LabelTable* labels,
+static enum FisktaErr parse_op(const String* tokens, i32* idx, i32 token_count, Op* op, Program* prg, LabelTable* labels,
     char* str_pool, size_t* str_pool_off, size_t str_pool_cap,
     i16* offset_pool, i32* offset_pool_off)
 {
     if (*idx >= token_count) {
-        error_set(E_PARSE, token_count, "unexpected end of input while reading operation");
-        return E_PARSE;
+        error_set(FISKTA_E_PARSE, token_count, "unexpected end of input while reading operation");
+        return FISKTA_E_PARSE;
     }
 
     i32 cmd_idx = *idx;
@@ -1477,8 +1477,8 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         // Parse arguments
         TmpFindArgs args;
-        enum Err err = parse_find_like_args(tokens, idx, token_count, cmd_idx, FIND_LIT, &args, prg, labels);
-        if (err != E_OK) {
+        enum FisktaErr err = parse_find_like_args(tokens, idx, token_count, cmd_idx, FIND_LIT, &args, prg, labels);
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
@@ -1495,17 +1495,17 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         // Validate and materialize needle
         err = check_pattern_len(args.pattern_tok, args.pattern_idx);
-        if (err != E_OK) {
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
         if (args.pattern_tok.len == 0) {
-            return E_BAD_NEEDLE;
+            return FISKTA_E_BAD_NEEDLE;
         }
 
-        err = E_OK;
+        err = FISKTA_E_OK;
         op->u.find.needle = parse_string_to_bytes(args.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL, NULL);
-        if (err != E_OK) {
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
@@ -1514,8 +1514,8 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         // Parse arguments
         TmpFindArgs args;
-        enum Err err = parse_find_like_args(tokens, idx, token_count, cmd_idx, FIND_RE, &args, prg, labels);
-        if (err != E_OK) {
+        enum FisktaErr err = parse_find_like_args(tokens, idx, token_count, cmd_idx, FIND_RE, &args, prg, labels);
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
@@ -1531,20 +1531,20 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         // Validate and materialize pattern
         err = check_pattern_len(args.pattern_tok, args.pattern_idx);
-        if (err != E_OK) {
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
-        err = E_OK;
+        err = FISKTA_E_OK;
         op->u.find_re.pattern = parse_string_to_bytes(args.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL, NULL);
-        if (err != E_OK) {
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
         // Check for patterns that cause exponential expansion
         if (has_empty_quantified_group(op->u.find_re.pattern.bytes, op->u.find_re.pattern.len)) {
-            error_set(E_PARSE, args.pattern_idx, "regex pattern contains empty alternative in quantified group (e.g. '(|a)*')");
-            return E_PARSE;
+            error_set(FISKTA_E_PARSE, args.pattern_idx, "regex pattern contains empty alternative in quantified group (e.g. '(|a)*')");
+            return FISKTA_E_PARSE;
         }
 
         op->u.find_re.prog = NULL;
@@ -1554,8 +1554,8 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         // Parse arguments
         TmpFindArgs args;
-        enum Err err = parse_find_like_args(tokens, idx, token_count, cmd_idx, FIND_BIN, &args, prg, labels);
-        if (err != E_OK) {
+        enum FisktaErr err = parse_find_like_args(tokens, idx, token_count, cmd_idx, FIND_BIN, &args, prg, labels);
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
@@ -1572,17 +1572,17 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         // Validate and materialize hex string
         err = check_pattern_len(args.pattern_tok, args.pattern_idx);
-        if (err != E_OK) {
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
         if (args.pattern_tok.len == 0) {
-            return E_BAD_NEEDLE;
+            return FISKTA_E_BAD_NEEDLE;
         }
 
-        err = E_OK;
+        err = FISKTA_E_OK;
         op->u.find_bin.needle = parse_hex_to_bytes(args.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err);
-        if (err != E_OK) {
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
@@ -1594,8 +1594,8 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         // Parse arguments
         TmpSkipArgs args;
-        enum Err err = parse_skip_args(tokens, idx, token_count, cmd_idx, &args, prg, labels);
-        if (err != E_OK) {
+        enum FisktaErr err = parse_skip_args(tokens, idx, token_count, cmd_idx, &args, prg, labels);
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
@@ -1615,8 +1615,8 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
     } else if (is_keyword(cmd_tok, &kw_take)) {
         // Parse arguments
         TmpTakeArgs args;
-        enum Err err = parse_take_args(tokens, idx, token_count, cmd_idx, &args, prg, labels);
-        if (err != E_OK) {
+        enum FisktaErr err = parse_take_args(tokens, idx, token_count, cmd_idx, &args, prg, labels);
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
@@ -1630,20 +1630,20 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
             // Validate and materialize pattern
             err = check_pattern_len(args.u.until.pattern_tok, args.u.until.pattern_idx);
-            if (err != E_OK) {
+            if (err != FISKTA_E_OK) {
                 return err;
             }
 
-            err = E_OK;
+            err = FISKTA_E_OK;
             op->u.take_until_re.pattern = parse_string_to_bytes(args.u.until.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL, NULL);
-            if (err != E_OK) {
+            if (err != FISKTA_E_OK) {
                 return err;
             }
 
             // Check for patterns that cause exponential expansion
             if (has_empty_quantified_group(op->u.take_until_re.pattern.bytes, op->u.take_until_re.pattern.len)) {
-                error_set(E_PARSE, args.u.until.pattern_idx, "regex pattern contains empty alternative in quantified group (e.g. '(|a)*')");
-                return E_PARSE;
+                error_set(FISKTA_E_PARSE, args.u.until.pattern_idx, "regex pattern contains empty alternative in quantified group (e.g. '(|a)*')");
+                return FISKTA_E_PARSE;
             }
 
             op->u.take_until_re.has_at = args.u.until.has_at;
@@ -1657,17 +1657,17 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
             // Validate and materialize hex string
             err = check_pattern_len(args.u.until.pattern_tok, args.u.until.pattern_idx);
-            if (err != E_OK) {
+            if (err != FISKTA_E_OK) {
                 return err;
             }
 
             if (args.u.until.pattern_tok.len == 0) {
-                return E_BAD_NEEDLE;
+                return FISKTA_E_BAD_NEEDLE;
             }
 
-            err = E_OK;
+            err = FISKTA_E_OK;
             op->u.take_until_bin.needle = parse_hex_to_bytes(args.u.until.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err);
-            if (err != E_OK) {
+            if (err != FISKTA_E_OK) {
                 return err;
             }
 
@@ -1681,17 +1681,17 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
             // Validate and materialize needle
             err = check_pattern_len(args.u.until.pattern_tok, args.u.until.pattern_idx);
-            if (err != E_OK) {
+            if (err != FISKTA_E_OK) {
                 return err;
             }
 
             if (args.u.until.pattern_tok.len == 0) {
-                return E_BAD_NEEDLE;
+                return FISKTA_E_BAD_NEEDLE;
             }
 
-            err = E_OK;
+            err = FISKTA_E_OK;
             op->u.take_until.needle = parse_string_to_bytes(args.u.until.pattern_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL, NULL);
-            if (err != E_OK) {
+            if (err != FISKTA_E_OK) {
                 return err;
             }
 
@@ -1714,21 +1714,21 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         // Parse arguments
         TmpLabelArgs args;
-        enum Err err = parse_label_args(tokens, idx, token_count, cmd_idx, &args);
-        if (err != E_OK) {
+        enum FisktaErr err = parse_label_args(tokens, idx, token_count, cmd_idx, &args);
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
         // Validate and materialize
         if (!is_label_name_valid(args.name_tok)) {
-            error_set(E_LABEL_FMT, *idx, "invalid label name (must be A-Z followed by A-Z0-9_-, max %d chars)", MAX_LABEL_LEN);
-            return E_LABEL_FMT;
+            error_set(FISKTA_E_LABEL_FMT, *idx, "invalid label name (must be A-Z followed by A-Z0-9_-, max %d chars)", MAX_LABEL_LEN);
+            return FISKTA_E_LABEL_FMT;
         }
 
         i32 name_idx = find_or_add_label(prg, labels, args.name_tok);
         if (name_idx < 0) {
-            error_set(E_CAPACITY, *idx, "too many labels (max %d)", MAX_LABELS);
-            return E_CAPACITY;
+            error_set(FISKTA_E_CAPACITY, *idx, "too many labels (max %d)", MAX_LABELS);
+            return FISKTA_E_CAPACITY;
         }
         op->u.label.name_idx = name_idx;
 
@@ -1740,8 +1740,8 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         // Parse arguments
         TmpViewArgs args;
-        enum Err err = parse_view_args(tokens, idx, token_count, cmd_idx, &args, prg, labels);
-        if (err != E_OK) {
+        enum FisktaErr err = parse_view_args(tokens, idx, token_count, cmd_idx, &args, prg, labels);
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
@@ -1752,8 +1752,8 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
     } else if (is_keyword(cmd_tok, &kw_clear)) {
         // Parse arguments (parse_clear_args already consumed tokens)
         i32 args_start = *idx;
-        enum Err err = parse_clear_args(tokens, idx, token_count, cmd_idx);
-        if (err != E_OK) {
+        enum FisktaErr err = parse_clear_args(tokens, idx, token_count, cmd_idx);
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
@@ -1768,8 +1768,8 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
             // Find or add label
             i32 name_idx = find_or_add_label(prg, labels, target_tok);
             if (name_idx < 0) {
-                error_set(E_CAPACITY, args_start, "too many labels (max %d)", MAX_LABELS);
-                return E_CAPACITY;
+                error_set(FISKTA_E_CAPACITY, args_start, "too many labels (max %d)", MAX_LABELS);
+                return FISKTA_E_CAPACITY;
             }
             op->u.label_clear.name_idx = name_idx;
         }
@@ -1782,19 +1782,19 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         // Parse arguments
         TmpPrintArgs args;
-        enum Err err = parse_print_args(tokens, idx, token_count, cmd_idx, cmd_tok, &args);
-        if (err != E_OK) {
+        enum FisktaErr err = parse_print_args(tokens, idx, token_count, cmd_idx, cmd_tok, &args);
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
         // Validate and materialize
         i32 segments = 0;
         if (!compute_print_stats(args.str_tok, NULL, &segments, NULL)) {
-            error_set(E_PARSE, cmd_idx, "invalid escape in print literal");
-            return E_PARSE;
+            error_set(FISKTA_E_PARSE, cmd_idx, "invalid escape in print literal");
+            return FISKTA_E_PARSE;
         }
 
-        err = E_OK;
+        err = FISKTA_E_OK;
         i32 parsed_marks = 0;
 
         // Allocate offset array if there are cursor marks
@@ -1804,7 +1804,7 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
         }
 
         op->u.print.string = parse_string_to_bytes(args.str_tok, str_pool, str_pool_off, str_pool_cap, &err, &parsed_marks, offsets);
-        if (err != E_OK) {
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
@@ -1822,31 +1822,31 @@ static enum Err parse_op(const String* tokens, i32* idx, i32 token_count, Op* op
 
         // Parse arguments
         TmpPrintArgs args;
-        enum Err err = parse_print_args(tokens, idx, token_count, cmd_idx, cmd_tok, &args);
-        if (err != E_OK) {
+        enum FisktaErr err = parse_print_args(tokens, idx, token_count, cmd_idx, cmd_tok, &args);
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
         // Materialize
-        err = E_OK;
+        err = FISKTA_E_OK;
         op->u.fail.message = parse_string_to_bytes(args.str_tok, str_pool, str_pool_off, str_pool_cap, &err, NULL, NULL);
-        if (err != E_OK) {
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
     } else {
-        error_set(E_PARSE, cmd_idx, "unknown operation '%.*s'", cmd_tok.len, cmd_tok.bytes);
-        return E_PARSE;
+        error_set(FISKTA_E_PARSE, cmd_idx, "unknown operation '%.*s'", cmd_tok.len, cmd_tok.bytes);
+        return FISKTA_E_PARSE;
     }
 
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-static enum Err parse_loc_expr(const String* tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg, LabelTable* labels)
+static enum FisktaErr parse_loc_expr(const String* tokens, i32* idx, i32 token_count, LocExpr* loc, Program* prg, LabelTable* labels)
 {
     if (*idx >= token_count) {
-        error_set(E_PARSE, token_count, "expected location expression");
-        return E_PARSE;
+        error_set(FISKTA_E_PARSE, token_count, "expected location expression");
+        return FISKTA_E_PARSE;
     }
 
     // Initialize defaults
@@ -1863,20 +1863,20 @@ static enum Err parse_loc_expr(const String* tokens, i32* idx, i32 token_count, 
         // Parse base part
         size_t base_len = (size_t)(offset_start - token);
         if (base_len == 0) {
-            error_set(E_PARSE, loc_idx, "location '%.*s' missing base before offset", token_tok.len, token_tok.bytes);
-            return E_PARSE;
+            error_set(FISKTA_E_PARSE, loc_idx, "location '%.*s' missing base before offset", token_tok.len, token_tok.bytes);
+            return FISKTA_E_PARSE;
         }
         if (base_len > INT32_MAX) {
-            error_set(E_PARSE, loc_idx, "location '%.*s' base is too long", token_tok.len, token_tok.bytes);
-            return E_PARSE;
+            error_set(FISKTA_E_PARSE, loc_idx, "location '%.*s' base is too long", token_tok.len, token_tok.bytes);
+            return FISKTA_E_PARSE;
         }
 
         // Parse offset part
         size_t offset_len = token_tok.len - (size_t)(offset_start - token_tok.bytes);
         String offset_str = { offset_start, offset_len };
-        enum Err err = parse_offset(offset_str, &loc->offset, &loc->unit);
-        if (err != E_OK) {
-            error_set(E_PARSE, loc_idx, "invalid offset '%.*s' in location '%.*s'", (int)offset_str.len, offset_str.bytes, (int)token_tok.len, token_tok.bytes);
+        enum FisktaErr err = parse_offset(offset_str, &loc->offset, &loc->unit);
+        if (err != FISKTA_E_OK) {
+            error_set(FISKTA_E_PARSE, loc_idx, "invalid offset '%.*s' in location '%.*s'", (int)offset_str.len, offset_str.bytes, (int)token_tok.len, token_tok.bytes);
             return err;
         }
 
@@ -1909,39 +1909,39 @@ static enum Err parse_loc_expr(const String* tokens, i32* idx, i32 token_count, 
         loc->base = LOC_NAME;
         i32 name_idx = find_or_add_label(prg, labels, base_tok);
         if (name_idx < 0) {
-            error_set(E_CAPACITY, loc_idx, "too many labels (max %d)", MAX_LABELS);
-            return E_CAPACITY;
+            error_set(FISKTA_E_CAPACITY, loc_idx, "too many labels (max %d)", MAX_LABELS);
+            return FISKTA_E_CAPACITY;
         }
         loc->name_idx = name_idx;
     } else if (base_tok.len > MAX_LABEL_LEN && base_tok.bytes[0] >= 'A' && base_tok.bytes[0] <= 'Z') {
         // Looks like a label but too long - give helpful error
-        error_set(E_LABEL_FMT, loc_idx, "label too long (max %d chars)", MAX_LABEL_LEN);
-        return E_LABEL_FMT;
+        error_set(FISKTA_E_LABEL_FMT, loc_idx, "label too long (max %d chars)", MAX_LABEL_LEN);
+        return FISKTA_E_LABEL_FMT;
     } else {
-        error_set(E_PARSE, loc_idx, "unknown location '%.*s'", token_tok.len, token_tok.bytes);
-        return E_PARSE;
+        error_set(FISKTA_E_PARSE, loc_idx, "unknown location '%.*s'", token_tok.len, token_tok.bytes);
+        return FISKTA_E_PARSE;
     }
 
     // Support detached offset as next token (e.g., "BOF +100b")
     if (*idx < token_count) {
         i64 offset_tmp;
         Unit unit_tmp;
-        enum Err off_err = parse_offset(tokens[*idx], &offset_tmp, &unit_tmp);
-        if (off_err == E_OK) {
+        enum FisktaErr off_err = parse_offset(tokens[*idx], &offset_tmp, &unit_tmp);
+        if (off_err == FISKTA_E_OK) {
             loc->offset = offset_tmp;
             loc->unit = unit_tmp;
             (*idx)++; // consume detached offset token
         }
     }
 
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-static enum Err parse_at_expr(const String* tokens, i32* idx, i32 token_count, LocExpr* at)
+static enum FisktaErr parse_at_expr(const String* tokens, i32* idx, i32 token_count, LocExpr* at)
 {
     if (*idx >= token_count) {
-        error_set(E_PARSE, token_count, "expected location after 'at'");
-        return E_PARSE;
+        error_set(FISKTA_E_PARSE, token_count, "expected location after 'at'");
+        return FISKTA_E_PARSE;
     }
 
     i32 at_idx = *idx;
@@ -1955,21 +1955,21 @@ static enum Err parse_at_expr(const String* tokens, i32* idx, i32 token_count, L
         // Parse base part
         size_t base_len = (size_t)(offset_start - token);
         if (base_len == 0) {
-            error_set(E_PARSE, at_idx, "location '%.*s' missing base before offset", token_tok.len, token_tok.bytes);
-            return E_PARSE;
+            error_set(FISKTA_E_PARSE, at_idx, "location '%.*s' missing base before offset", token_tok.len, token_tok.bytes);
+            return FISKTA_E_PARSE;
         }
         if (base_len > INT32_MAX) {
-            error_set(E_PARSE, at_idx, "location '%.*s' base is too long", token_tok.len, token_tok.bytes);
-            return E_PARSE;
+            error_set(FISKTA_E_PARSE, at_idx, "location '%.*s' base is too long", token_tok.len, token_tok.bytes);
+            return FISKTA_E_PARSE;
         }
 
         // Parse offset part
         // Create String for offset part - compute length directly
         size_t offset_len = token_tok.len - (size_t)(offset_start - token_tok.bytes);
         String offset_str = { offset_start, offset_len };
-        enum Err err = parse_offset(offset_str, &at->offset, &at->unit);
-        if (err != E_OK) {
-            error_set(E_PARSE, at_idx, "invalid offset '%.*s' in location '%.*s'", (int)offset_str.len, offset_str.bytes, (int)token_tok.len, token_tok.bytes);
+        enum FisktaErr err = parse_offset(offset_str, &at->offset, &at->unit);
+        if (err != FISKTA_E_OK) {
+            error_set(FISKTA_E_PARSE, at_idx, "invalid offset '%.*s' in location '%.*s'", (int)offset_str.len, offset_str.bytes, (int)token_tok.len, token_tok.bytes);
             return err;
         }
 
@@ -1993,8 +1993,8 @@ static enum Err parse_at_expr(const String* tokens, i32* idx, i32 token_count, L
     } else if (is_keyword(base_tok, &kw_line_end)) {
         at->base = LOC_LINE_END;
     } else {
-        error_set(E_PARSE, at_idx, "unknown 'at' location '%.*s'", token_tok.len, token_tok.bytes);
-        return E_PARSE;
+        error_set(FISKTA_E_PARSE, at_idx, "unknown 'at' location '%.*s'", token_tok.len, token_tok.bytes);
+        return FISKTA_E_PARSE;
     }
 
     // AtExpr never uses named labels, so set name_idx to -1
@@ -2004,21 +2004,21 @@ static enum Err parse_at_expr(const String* tokens, i32* idx, i32 token_count, L
     if (*idx < token_count) {
         i64 offset_tmp;
         Unit unit_tmp;
-        enum Err off_err = parse_offset(tokens[*idx], &offset_tmp, &unit_tmp);
-        if (off_err == E_OK) {
+        enum FisktaErr off_err = parse_offset(tokens[*idx], &offset_tmp, &unit_tmp);
+        if (off_err == FISKTA_E_OK) {
             at->offset = offset_tmp;
             at->unit = unit_tmp;
             (*idx)++; // consume
         }
     }
 
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-static enum Err parse_offset(String token, i64* offset, Unit* unit)
+static enum FisktaErr parse_offset(String token, i64* offset, Unit* unit)
 {
     if (token.len <= 0) {
-        return E_PARSE;
+        return FISKTA_E_PARSE;
     }
 
     const char* p = token.bytes;
@@ -2035,14 +2035,14 @@ static enum Err parse_offset(String token, i64* offset, Unit* unit)
 
     // Parse number
     if (!isdigit(*p)) {
-        return E_PARSE;
+        return FISKTA_E_PARSE;
     }
 
     u64 num = 0;
     while (isdigit(*p)) {
         u64 new_num = num * 10 + (u64)(*p - '0');
         if (new_num < num) {
-            return E_PARSE; // Overflow
+            return FISKTA_E_PARSE; // Overflow
         }
         num = new_num;
         p++;
@@ -2059,24 +2059,24 @@ static enum Err parse_offset(String token, i64* offset, Unit* unit)
         *unit = UNIT_CHARS;
         p++;
     } else {
-        return E_PARSE;
+        return FISKTA_E_PARSE;
     }
 
     // Check if we consumed the entire token
     if (p != token.bytes + token.len) {
-        return E_PARSE; // Extra characters
+        return FISKTA_E_PARSE; // Extra characters
     }
 
     // Validate character unit limits
     if (*unit == UNIT_CHARS && num > INT_MAX) {
-        return E_PARSE; // Character count exceeds INT_MAX
+        return FISKTA_E_PARSE; // Character count exceeds INT_MAX
     }
 
     // Convert to signed and apply sign
     if (sign < 0) {
         u64 limit = (u64)INT64_MAX + 1;
         if (num > limit) {
-            return E_PARSE; // Overflow
+            return FISKTA_E_PARSE; // Overflow
         }
         if (num == limit) {
             *offset = INT64_MIN;
@@ -2085,11 +2085,11 @@ static enum Err parse_offset(String token, i64* offset, Unit* unit)
         }
     } else {
         if (num > (u64)INT64_MAX) {
-            return E_PARSE; // Overflow
+            return FISKTA_E_PARSE; // Overflow
         }
         *offset = (i64)num;
     }
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
 static bool is_label_name_valid(String name)

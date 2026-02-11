@@ -65,19 +65,19 @@ enum {
     LOC_LINE_END
 };
 
-enum Err {
-    E_OK = 0,
-    E_PARSE,
-    E_BAD_NEEDLE,
-    E_BAD_HEX,
-    E_LOC_RESOLVE,
-    E_NO_MATCH,
-    E_FAIL_OP,
-    E_LABEL_FMT,
-    E_LABEL_EXISTS, // Label already set; use 'clear label' to overwrite
-    E_IO,
-    E_CAPACITY,
-    E_OOM
+enum FisktaErr {
+    FISKTA_E_OK = 0,
+    FISKTA_E_PARSE,
+    FISKTA_E_BAD_NEEDLE,
+    FISKTA_E_BAD_HEX,
+    FISKTA_E_LOC_RESOLVE,
+    FISKTA_E_NO_MATCH,
+    FISKTA_E_FAIL_OP,
+    FISKTA_E_LABEL_FMT,
+    FISKTA_E_LABEL_EXISTS, // Label already set; use 'clear label' to overwrite
+    FISKTA_E_IO,
+    FISKTA_E_CAPACITY,
+    FISKTA_E_OOM
 };
 
 // Exit codes

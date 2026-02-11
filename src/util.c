@@ -162,11 +162,11 @@ static int hex_value(char c)
     return -1;
 }
 
-String parse_hex_to_bytes(String hex_str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum Err* err_out)
+String parse_hex_to_bytes(String hex_str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum FisktaErr* err_out)
 {
     String out = { 0 };
     if (err_out) {
-        *err_out = E_OK;
+        *err_out = FISKTA_E_OK;
     }
 
     size_t hex_digit_count = 0;
@@ -189,7 +189,7 @@ String parse_hex_to_bytes(String hex_str, char* str_pool, size_t* str_pool_off, 
     size_t new_off;
     if (add_overflow(*str_pool_off, byte_count, &new_off) || new_off > str_pool_cap) {
         if (err_out) {
-            *err_out = E_CAPACITY;
+            *err_out = FISKTA_E_CAPACITY;
         }
         return out;
     }
@@ -224,7 +224,7 @@ String parse_hex_to_bytes(String hex_str, char* str_pool, size_t* str_pool_off, 
 
 bad_hex:
     if (err_out) {
-        *err_out = E_BAD_HEX;
+        *err_out = FISKTA_E_BAD_HEX;
     }
     return out;
 }
@@ -266,11 +266,11 @@ size_t calculate_escaped_string_length(String str)
     return dst_len;
 }
 
-String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum Err* err_out, i32* cursor_marks_out, i16* cursor_offsets_out)
+String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum FisktaErr* err_out, i32* cursor_marks_out, i16* cursor_offsets_out)
 {
     String out = { 0 };
     if (err_out) {
-        *err_out = E_OK;
+        *err_out = FISKTA_E_OK;
     }
     if (cursor_marks_out) {
         *cursor_marks_out = 0;
@@ -314,7 +314,7 @@ String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, s
     size_t new_off;
     if (add_overflow(*str_pool_off, dst_len, &new_off) || new_off > str_pool_cap) {
         if (err_out) {
-            *err_out = E_CAPACITY;
+            *err_out = FISKTA_E_CAPACITY;
         }
         return out;
     }
@@ -385,7 +385,7 @@ String parse_string_to_bytes(String str, char* str_pool, size_t* str_pool_off, s
 
 parse_err:
     if (err_out) {
-        *err_out = E_PARSE;
+        *err_out = FISKTA_E_PARSE;
     }
     return (String) { 0 };
 }

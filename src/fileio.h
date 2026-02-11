@@ -135,16 +135,16 @@ typedef struct File {
 } File;
 
 // Open using caller-provided search buffer. No dynamic ownership here.
-enum Err io_open(File* io, const char* path,
+enum FisktaErr io_open(File* io, const char* path,
     unsigned char* search_buf, size_t search_buf_cap);
-enum Err io_open_buffer(File* io, const unsigned char* data, size_t len,
+enum FisktaErr io_open_buffer(File* io, const unsigned char* data, size_t len,
     unsigned char* search_buf, size_t search_buf_cap);
 void io_close(File* io);
 void io_reset_full(File* io);
-enum Err io_emit(File* io, i64 start, i64 end, FILE* out);
+enum FisktaErr io_emit(File* io, i64 start, i64 end, FILE* out);
 
 // Helper to read from a specific offset (abstracts disk vs memory)
-enum Err io_read_at(File* io, i64 offset, unsigned char* dest, size_t requested, size_t* actual_out);
+enum FisktaErr io_read_at(File* io, i64 offset, unsigned char* dest, size_t requested, size_t* actual_out);
 
 // Provide preallocated regex scratch to File (no mallocs during search).
 //
@@ -171,10 +171,10 @@ static inline i64 io_size(const File* io) { return io->size; }
 // - io_line_start: returns position after the previous '\n' (or 0 if no previous '\n')
 // - io_line_end: returns position after the next '\n' (or EOF if no next '\n')
 // This means: line content with newline = [line_start, line_end)
-enum Err io_line_start(File* io, i64 pos, i64* out);
-enum Err io_line_end(File* io, i64 pos, i64* out);
-enum Err io_step_lines(File* io, i64 start_line_start, i32 delta, i64* out_line_start);
+enum FisktaErr io_line_start(File* io, i64 pos, i64* out);
+enum FisktaErr io_line_end(File* io, i64 pos, i64* out);
+enum FisktaErr io_step_lines(File* io, i64 start_line_start, i32 delta, i64* out_line_start);
 
 // UTF-8 character navigation
-enum Err io_prev_char_start(File* io, i64 pos, i64* out_char_start); // snap to start of the char containing/after pos
-enum Err io_step_chars(File* io, i64 start_char_start, i32 delta, i64* out_char_start);
+enum FisktaErr io_prev_char_start(File* io, i64 pos, i64* out_char_start); // snap to start of the char containing/after pos
+enum FisktaErr io_step_chars(File* io, i64 start_char_start, i32 delta, i64* out_char_start);

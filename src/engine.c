@@ -86,42 +86,42 @@ void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap, i32*
     }
 }
 
-static enum Err execute_op(const Op* op, File* io, VM* vm,
+static enum FisktaErr execute_op(const Op* op, File* io, VM* vm,
     i64* c_cursor, Match* c_last_match,
     Range** ranges, i32* range_count, const i32* range_cap,
     LabelWrite** label_writes, i32* label_count, const i32* label_cap,
     View* c_view,
     char** inline_ptr, char* inline_end);
-static enum Err resolve_location(
+static enum FisktaErr resolve_location(
     const LocExpr* loc, File* io, const VM* vm,
     const Match* staged_match, i64 staged_cursor,
     const LabelWrite* staged_labels, i32 staged_label_count,
     const View* c_view, ClampPolicy clamp, i64* out);
 
-static enum Err stage_file_range(Range* ranges, i32* range_count, i32 range_cap, i64 start, i64 end)
+static enum FisktaErr stage_file_range(Range* ranges, i32* range_count, i32 range_cap, i64 start, i64 end)
 {
     if (*range_count >= range_cap) {
-        return E_CAPACITY;
+        return FISKTA_E_CAPACITY;
     }
     ranges[*range_count].kind = RANGE_FILE;
     ranges[*range_count].file.start = start;
     ranges[*range_count].file.end = end;
     (*range_count)++;
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-static enum Err stage_lit_range(Range* ranges, i32* range_count, i32 range_cap, String lit)
+static enum FisktaErr stage_lit_range(Range* ranges, i32* range_count, i32 range_cap, String lit)
 {
     if (*range_count >= range_cap) {
-        return E_CAPACITY;
+        return FISKTA_E_CAPACITY;
     }
     ranges[*range_count].kind = RANGE_LIT;
     ranges[*range_count].lit = lit;
     (*range_count)++;
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-static enum Err print_literal_op(
+static enum FisktaErr print_literal_op(
     const Op* op,
     const File* io,
     const View* c_view,
@@ -144,28 +144,28 @@ static enum Err print_literal_op(
         // Emit literal segment before cursor
         if (offset > pos) {
             String seg = { bytes + pos, offset - pos };
-            enum Err err = stage_lit_range(ranges, range_count, range_cap, seg);
-            if (err != E_OK) {
+            enum FisktaErr err = stage_lit_range(ranges, range_count, range_cap, seg);
+            if (err != FISKTA_E_OK) {
                 return err;
             }
         }
 
         // Emit cursor value
         if (!inline_ptr || !*inline_ptr || !inline_end || *inline_ptr + MAX_INLINE_LIT > inline_end) {
-            return E_CAPACITY;
+            return FISKTA_E_CAPACITY;
         }
         char* slot = *inline_ptr;
         int written = snprintf(slot, MAX_INLINE_LIT, "%lld", (long long)clamped);
         if (written < 0) {
-            return E_IO;
+            return FISKTA_E_IO;
         }
         if (written >= MAX_INLINE_LIT) {
             written = MAX_INLINE_LIT - 1;
             slot[written] = '\0';
         }
         String dyn = { slot, (size_t)written };
-        enum Err err = stage_lit_range(ranges, range_count, range_cap, dyn);
-        if (err != E_OK) {
+        enum FisktaErr err = stage_lit_range(ranges, range_count, range_cap, dyn);
+        if (err != FISKTA_E_OK) {
             return err;
         }
         *inline_ptr += MAX_INLINE_LIT;
@@ -176,26 +176,26 @@ static enum Err print_literal_op(
     // Emit trailing literal segment after all cursor marks
     if (len > pos) {
         String seg = { bytes + pos, len - pos };
-        enum Err err = stage_lit_range(ranges, range_count, range_cap, seg);
-        if (err != E_OK) {
+        enum FisktaErr err = stage_lit_range(ranges, range_count, range_cap, seg);
+        if (err != FISKTA_E_OK) {
             return err;
         }
     }
 
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-static enum Err fail_with_message_op(const Op* op)
+static enum FisktaErr fail_with_message_op(const Op* op)
 {
     // Write message to stderr immediately (not staged)
     if (op->u.fail.message.len > 0) {
         fwrite(op->u.fail.message.bytes, 1, (size_t)op->u.fail.message.len, stderr);
     }
     // Always fail the clause
-    return E_FAIL_OP;
+    return FISKTA_E_FAIL_OP;
 }
 
-static enum Err label_op(
+static enum FisktaErr label_op(
     const Op* op,
     const VM* vm,
     const i64* c_cursor,
@@ -221,29 +221,29 @@ static enum Err label_op(
         // Found a staged operation on this label
         if (!most_recent_is_clear) {
             // Most recent was a write (not a clear), so label is already set
-            error_set(E_LABEL_EXISTS, -1, "label already set; use 'clear' to overwrite");
-            return E_LABEL_EXISTS;
+            error_set(FISKTA_E_LABEL_EXISTS, -1, "label already set; use 'clear' to overwrite");
+            return FISKTA_E_LABEL_EXISTS;
         }
         // Most recent was a clear, so we can write
     } else {
         // Not found in staged, check committed state in VM
         if (vm->label_pos[name_idx] >= 0) {
-            error_set(E_LABEL_EXISTS, -1, "label already set; use 'clear' to overwrite");
-            return E_LABEL_EXISTS;
+            error_set(FISKTA_E_LABEL_EXISTS, -1, "label already set; use 'clear' to overwrite");
+            return FISKTA_E_LABEL_EXISTS;
         }
     }
 
     // Stage label write
     if (*label_count >= label_cap) {
-        return E_CAPACITY;
+        return FISKTA_E_CAPACITY;
     }
     label_writes[*label_count].name_idx = name_idx;
     label_writes[*label_count].pos = *c_cursor;
     (*label_count)++;
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-static enum Err label_clear_op(
+static enum FisktaErr label_clear_op(
     const Op* op,
     LabelWrite* label_writes,
     i32* label_count,
@@ -251,29 +251,29 @@ static enum Err label_clear_op(
 {
     // Stage label clear (pos = -1 sentinel)
     if (*label_count >= label_cap) {
-        return E_CAPACITY;
+        return FISKTA_E_CAPACITY;
     }
     label_writes[*label_count].name_idx = op->u.label_clear.name_idx;
     label_writes[*label_count].pos = -1;
     (*label_count)++;
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-static enum Err view_clear_op(
+static enum FisktaErr view_clear_op(
     File* io,
     View* c_view)
 {
     if (!c_view) {
-        return E_OK;
+        return FISKTA_E_OK;
     }
 
     c_view->active = false;
     c_view->lo = 0;
     c_view->hi = io_size(io);
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-static enum Err find_bytes_op(
+static enum FisktaErr find_bytes_op(
     File* io,
     const Op* op,
     VM* vm,
@@ -291,8 +291,8 @@ static enum Err find_bytes_op(
     const LocExpr* to_loc = (op->kind == OP_FIND_BIN) ? &op->u.find_bin.to : &op->u.find.to;
     const String* needle = (op->kind == OP_FIND_BIN) ? &op->u.find_bin.needle : &op->u.find.needle;
 
-    enum Err err = resolve_location(to_loc, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_VIEW, &win_hi);
-    if (err != E_OK) {
+    enum FisktaErr err = resolve_location(to_loc, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_VIEW, &win_hi);
+    if (err != FISKTA_E_OK) {
         return err;
     }
 
@@ -312,7 +312,7 @@ static enum Err find_bytes_op(
     err = literal_search_window(io, win_lo, win_hi,
         (const unsigned char*)needle->bytes,
         (size_t)needle->len, dir, &ms, &me);
-    if (err != E_OK) {
+    if (err != FISKTA_E_OK) {
         return err;
     }
 
@@ -320,10 +320,10 @@ static enum Err find_bytes_op(
     c_last_match->end = me;
     c_last_match->valid = true;
     *c_cursor = ms;
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-static enum Err find_regex_op(
+static enum FisktaErr find_regex_op(
     File* io,
     const Op* op,
     VM* vm,
@@ -336,8 +336,8 @@ static enum Err find_regex_op(
     i64 win_lo;
     i64 win_hi;
 
-    enum Err err = resolve_location(&op->u.find_re.to, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_VIEW, &win_hi);
-    if (err != E_OK) {
+    enum FisktaErr err = resolve_location(&op->u.find_re.to, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_VIEW, &win_hi);
+    if (err != FISKTA_E_OK) {
         return err;
     }
 
@@ -355,7 +355,7 @@ static enum Err find_regex_op(
     i64 ms;
     i64 me;
     err = regex_search_window(io, win_lo, win_hi, op->u.find_re.prog, dir, &ms, &me);
-    if (err != E_OK) {
+    if (err != FISKTA_E_OK) {
         return err;
     }
 
@@ -363,10 +363,10 @@ static enum Err find_regex_op(
     c_last_match->end = me;
     c_last_match->valid = true;
     *c_cursor = ms;
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-static enum Err skip_op(
+static enum FisktaErr skip_op(
     File* io,
     const Op* op,
     VM* vm,
@@ -378,8 +378,8 @@ static enum Err skip_op(
 {
     if (op->u.skip.is_location) {
         // skip to <location>
-        enum Err err = resolve_location(&op->u.skip.to_location.to, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_NONE, c_cursor);
-        if (err != E_OK) {
+        enum FisktaErr err = resolve_location(&op->u.skip.to_location.to, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_NONE, c_cursor);
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
@@ -387,13 +387,13 @@ static enum Err skip_op(
         // Note: cursor positions range [lo, hi] while view data is [lo, hi)
         // Cursor at hi is valid (points after last byte, like EOF)
         if (c_view->active && (*c_cursor < c_view->lo || *c_cursor > c_view->hi)) {
-            error_set(E_LOC_RESOLVE, -1, "skip to: target location (%lld) outside view bounds [%lld, %lld]",
+            error_set(FISKTA_E_LOC_RESOLVE, -1, "skip to: target location (%lld) outside view bounds [%lld, %lld]",
                 (long long)*c_cursor, (long long)c_view->lo, (long long)c_view->hi);
-            return E_LOC_RESOLVE;
+            return FISKTA_E_LOC_RESOLVE;
         }
 
         *c_cursor = clamp64(*c_cursor, 0, io_size(io));
-        return E_OK;
+        return FISKTA_E_OK;
     }
 
     // skip <offset><unit>
@@ -404,8 +404,8 @@ static enum Err skip_op(
     } else if (op->u.skip.by_offset.unit == UNIT_LINES) {
         // Skip by lines
         i64 current_line_start;
-        enum Err err = io_line_start(io, *c_cursor, &current_line_start);
-        if (err != E_OK) {
+        enum FisktaErr err = io_line_start(io, *c_cursor, &current_line_start);
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
@@ -416,26 +416,26 @@ static enum Err skip_op(
 
         err = io_step_lines(io, current_line_start,
             (i32)op->u.skip.by_offset.offset, c_cursor);
-        if (err != E_OK) {
+        if (err != FISKTA_E_OK) {
             return err;
         }
         *c_cursor = view_clamp(c_view, io, *c_cursor);
     } else { // UNIT_CHARS
         i64 char_start;
-        enum Err err = io_prev_char_start(io, *c_cursor, &char_start);
-        if (err != E_OK) {
+        enum FisktaErr err = io_prev_char_start(io, *c_cursor, &char_start);
+        if (err != FISKTA_E_OK) {
             return err;
         }
         err = io_step_chars(io, char_start, (i32)op->u.skip.by_offset.offset, c_cursor);
-        if (err != E_OK) {
+        if (err != FISKTA_E_OK) {
             return err;
         }
         *c_cursor = view_clamp(c_view, io, *c_cursor);
     }
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-static enum Err viewset_op(
+static enum FisktaErr viewset_op(
     File* io,
     const Op* op,
     VM* vm,
@@ -447,12 +447,12 @@ static enum Err viewset_op(
 {
     i64 a;
     i64 b;
-    enum Err err = resolve_location(&op->u.view.a, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_VIEW, &a);
-    if (err != E_OK) {
+    enum FisktaErr err = resolve_location(&op->u.view.a, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_VIEW, &a);
+    if (err != FISKTA_E_OK) {
         return err;
     }
     err = resolve_location(&op->u.view.b, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_VIEW, &b);
-    if (err != E_OK) {
+    if (err != FISKTA_E_OK) {
         return err;
     }
 
@@ -471,10 +471,10 @@ static enum Err viewset_op(
     if (c_last_match->valid && (c_last_match->start < lo || c_last_match->end > hi)) {
         c_last_match->valid = false;
     }
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-static enum Err take_len_op(
+static enum FisktaErr take_len_op(
     File* io,
     const Op* op,
     i64* c_cursor,
@@ -501,8 +501,8 @@ static enum Err take_len_op(
     } else if (op->u.take_len.unit == UNIT_LINES) {
         // Take by lines
         i64 line_start;
-        enum Err err = io_line_start(io, *c_cursor, &line_start);
-        if (err != E_OK) {
+        enum FisktaErr err = io_line_start(io, *c_cursor, &line_start);
+        if (err != FISKTA_E_OK) {
             return err;
         }
 
@@ -514,36 +514,36 @@ static enum Err take_len_op(
         if (op->u.take_len.offset > 0) {
             start = line_start;
             if (op->u.take_len.offset > INT_MAX) {
-                return E_PARSE;
+                return FISKTA_E_PARSE;
             }
             err = io_step_lines(io, line_start,
                 (i32)op->u.take_len.offset, &end);
-            if (err != E_OK) {
+            if (err != FISKTA_E_OK) {
                 return err;
             }
             end = view_clamp(c_view, io, end);
         } else {
             end = line_start;
             if (op->u.take_len.offset < -INT_MAX) {
-                return E_PARSE;
+                return FISKTA_E_PARSE;
             }
             err = io_step_lines(io, line_start,
                 (i32)op->u.take_len.offset, &start);
-            if (err != E_OK) {
+            if (err != FISKTA_E_OK) {
                 return err;
             }
             start = clamp64(start, view_bof(c_view), end);
         }
     } else { // UNIT_CHARS
         i64 cstart;
-        enum Err err = io_prev_char_start(io, *c_cursor, &cstart);
-        if (err != E_OK) {
+        enum FisktaErr err = io_prev_char_start(io, *c_cursor, &cstart);
+        if (err != FISKTA_E_OK) {
             return err;
         }
         if (op->u.take_len.offset > 0) {
             start = cstart;
             err = io_step_chars(io, cstart, (i32)op->u.take_len.offset, &end);
-            if (err != E_OK) {
+            if (err != FISKTA_E_OK) {
                 return err;
             }
             end = view_clamp(c_view, io, end);
@@ -551,7 +551,7 @@ static enum Err take_len_op(
             end = cstart;
             i64 s;
             err = io_step_chars(io, cstart, (i32)op->u.take_len.offset, &s);
-            if (err != E_OK) {
+            if (err != FISKTA_E_OK) {
                 return err;
             }
             start = clamp64(s, view_bof(c_view), end);
@@ -559,17 +559,17 @@ static enum Err take_len_op(
     }
 
     // Stage the range
-    enum Err err_stage = stage_file_range(ranges, range_count, range_cap, start, end);
-    if (err_stage != E_OK) {
+    enum FisktaErr err_stage = stage_file_range(ranges, range_count, range_cap, start, end);
+    if (err_stage != FISKTA_E_OK) {
         return err_stage;
     }
     if (start != end) {
         *c_cursor = start > end ? start : end;
     }
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-static enum Err take_to_op(
+static enum FisktaErr take_to_op(
     File* io,
     const Op* op,
     VM* vm,
@@ -583,8 +583,8 @@ static enum Err take_to_op(
     const View* c_view)
 {
     i64 target;
-    enum Err err = resolve_location(&op->u.take_to.to, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_VIEW, &target);
-    if (err != E_OK) {
+    enum FisktaErr err = resolve_location(&op->u.take_to.to, io, vm, c_last_match, *c_cursor, label_writes, label_count, c_view, CLAMP_VIEW, &target);
+    if (err != FISKTA_E_OK) {
         return err;
     }
 
@@ -600,17 +600,17 @@ static enum Err take_to_op(
 
     // Stage the range
     err = stage_file_range(ranges, range_count, range_cap, start, end);
-    if (err != E_OK) {
+    if (err != FISKTA_E_OK) {
         return err;
     }
 
     if (start != end) {
         *c_cursor = view_clamp(c_view, io, end);
     }
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-static enum Err take_until_common(
+static enum FisktaErr take_until_common(
     File* io,
     const Op* op,
     VM* vm,
@@ -627,7 +627,7 @@ static enum Err take_until_common(
     // Search forward from cursor to view end
     i64 ms;
     i64 me;
-    enum Err err;
+    enum FisktaErr err;
     if (kind == OP_TAKE_UNTIL_RE) {
         err = regex_search_window(io, view_clamp(c_view, io, *c_cursor), view_eof(c_view, io),
             op->u.take_until_re.prog, DIR_FWD, &ms, &me);
@@ -640,7 +640,7 @@ static enum Err take_until_common(
             (const unsigned char*)op->u.take_until.needle.bytes,
             (size_t)op->u.take_until.needle.len, DIR_FWD, &ms, &me);
     }
-    if (err != E_OK) {
+    if (err != FISKTA_E_OK) {
         return err;
     }
 
@@ -666,7 +666,7 @@ static enum Err take_until_common(
     if (has_at) {
         err = resolve_location(at, io, vm, c_last_match, ms,
             label_writes, label_count, c_view, CLAMP_VIEW, &target);
-        if (err != E_OK) {
+        if (err != FISKTA_E_OK) {
             return err;
         }
     } else {
@@ -678,7 +678,7 @@ static enum Err take_until_common(
     // Stage [cursor, dst) ONLY (no order-normalization)
     i64 range_start = view_clamp(c_view, io, *c_cursor);
     err = stage_file_range(ranges, range_count, range_cap, range_start, dst);
-    if (err != E_OK) {
+    if (err != FISKTA_E_OK) {
         return err;
     }
 
@@ -686,10 +686,10 @@ static enum Err take_until_common(
     if (dst > *c_cursor) {
         *c_cursor = dst;
     }
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-static enum Err take_until_op(
+static enum FisktaErr take_until_op(
     File* io,
     const Op* op,
     VM* vm,
@@ -706,7 +706,7 @@ static enum Err take_until_op(
         ranges, range_count, range_cap, label_writes, label_count, c_view, OP_TAKE_UNTIL);
 }
 
-static enum Err take_until_re_op(
+static enum FisktaErr take_until_re_op(
     File* io,
     const Op* op,
     VM* vm,
@@ -723,7 +723,7 @@ static enum Err take_until_re_op(
         ranges, range_count, range_cap, label_writes, label_count, c_view, OP_TAKE_UNTIL_RE);
 }
 
-static enum Err take_until_bin_op(
+static enum FisktaErr take_until_bin_op(
     File* io,
     const Op* op,
     VM* vm,
@@ -740,7 +740,7 @@ static enum Err take_until_bin_op(
         ranges, range_count, range_cap, label_writes, label_count, c_view, OP_TAKE_UNTIL_BIN);
 }
 
-enum Err stage_clause(const Clause* clause,
+enum FisktaErr stage_clause(const Clause* clause,
     File* io, VM* vm,
     Range* ranges, i32 ranges_cap,
     LabelWrite* label_writes, i32 label_cap,
@@ -759,7 +759,7 @@ enum Err stage_clause(const Clause* clause,
         inline_end = inline_buf + (size_t)inline_cap * MAX_INLINE_LIT;
     }
 
-    enum Err err = E_OK;
+    enum FisktaErr err = FISKTA_E_OK;
     for (i32 i = 0; i < clause->op_count; i++) {
         err = execute_op(&clause->ops[i], io, vm,
             &c_cursor, &c_last_match,
@@ -767,7 +767,7 @@ enum Err stage_clause(const Clause* clause,
             &label_writes, &label_count, &label_cap,
             &c_view,
             inline_buf ? &inline_ptr : NULL, inline_end);
-        if (err != E_OK) {
+        if (err != FISKTA_E_OK) {
             break;
         }
     }
@@ -784,7 +784,7 @@ enum Err stage_clause(const Clause* clause,
     return err;
 }
 
-static enum Err execute_op(const Op* op, File* io, VM* vm,
+static enum FisktaErr execute_op(const Op* op, File* io, VM* vm,
     i64* c_cursor, Match* c_last_match,
     Range** ranges, i32* range_count, const i32* range_cap,
     LabelWrite** label_writes, i32* label_count, const i32* label_cap,
@@ -823,11 +823,11 @@ static enum Err execute_op(const Op* op, File* io, VM* vm,
     case OP_FAIL:
         return fail_with_message_op(op);
     default:
-        return E_PARSE;
+        return FISKTA_E_PARSE;
     }
 }
 
-static enum Err resolve_location(
+static enum FisktaErr resolve_location(
     const LocExpr* loc, File* io, const VM* vm,
     const Match* staged_match, i64 staged_cursor,
     const LabelWrite* staged_labels, i32 staged_label_count,
@@ -851,7 +851,7 @@ static enum Err resolve_location(
     case LOC_NAME: {
         // Validate label index bounds
         if (loc->name_idx < 0 || loc->name_idx >= MAX_LABELS) {
-            return E_PARSE;
+            return FISKTA_E_PARSE;
         }
         // Check staged labels first (overrides committed)
         // Search backwards to find most recent operation on this label
@@ -859,7 +859,7 @@ static enum Err resolve_location(
         for (i32 i = staged_label_count - 1; i >= 0; i--) {
             if (staged_labels[i].name_idx == loc->name_idx) {
                 if (staged_labels[i].pos < 0) {
-                    return E_LOC_RESOLVE;
+                    return FISKTA_E_LOC_RESOLVE;
                 }
                 base = staged_labels[i].pos;
                 found = true;
@@ -876,26 +876,26 @@ static enum Err resolve_location(
             }
         }
         if (!found) {
-            return E_LOC_RESOLVE;
+            return FISKTA_E_LOC_RESOLVE;
         }
         break;
     }
     case LOC_MATCH_START:
         if (!staged_match->valid) {
-            return E_LOC_RESOLVE;
+            return FISKTA_E_LOC_RESOLVE;
         }
         base = staged_match->start;
         break;
     case LOC_MATCH_END:
         if (!staged_match->valid) {
-            return E_LOC_RESOLVE;
+            return FISKTA_E_LOC_RESOLVE;
         }
         base = staged_match->end;
         break;
     case LOC_LINE_START: {
         i64 anchor = staged_cursor;
-        enum Err e = io_line_start(io, anchor, &base);
-        if (e != E_OK) {
+        enum FisktaErr e = io_line_start(io, anchor, &base);
+        if (e != FISKTA_E_OK) {
             return e;
         }
         if (base < view_bof(c_view)) {
@@ -905,8 +905,8 @@ static enum Err resolve_location(
     }
     case LOC_LINE_END: {
         i64 anchor = staged_cursor;
-        enum Err e = io_line_end(io, anchor, &base);
-        if (e != E_OK) {
+        enum FisktaErr e = io_line_end(io, anchor, &base);
+        if (e != FISKTA_E_OK) {
             return e;
         }
         if (base > view_eof(c_view, io)) {
@@ -915,7 +915,7 @@ static enum Err resolve_location(
         break;
     }
     default:
-        return E_PARSE;
+        return FISKTA_E_PARSE;
     }
 
     /*************************
@@ -926,25 +926,25 @@ static enum Err resolve_location(
             apply_delta_with_clamp(&base, loc->offset, c_view, io, clamp == CLAMP_FILE ? CLAMP_FILE : clamp);
         } else if (loc->unit == UNIT_LINES) {
             if (loc->offset > INT_MAX || loc->offset < -INT_MAX) {
-                return E_PARSE;
+                return FISKTA_E_PARSE;
             }
             i32 d = (i32)loc->offset;
-            enum Err e = io_step_lines(io, base, d, &base);
-            if (e != E_OK) {
+            enum FisktaErr e = io_step_lines(io, base, d, &base);
+            if (e != FISKTA_E_OK) {
                 return e;
             }
         } else { // UNIT_CHARS
             if (loc->offset > INT_MAX || loc->offset < -INT_MAX) {
-                return E_PARSE;
+                return FISKTA_E_PARSE;
             }
             i64 cs;
-            enum Err e = io_prev_char_start(io, base, &cs);
-            if (e != E_OK) {
+            enum FisktaErr e = io_prev_char_start(io, base, &cs);
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             i32 d = (i32)loc->offset;
             e = io_step_chars(io, cs, d, &cs);
-            if (e != E_OK) {
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             base = cs;
@@ -961,7 +961,7 @@ static enum Err resolve_location(
     } else {
         *out = base;
     }
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
 void commit_labels(VM* vm, const LabelWrite* label_writes, i32 label_count)

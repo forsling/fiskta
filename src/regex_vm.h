@@ -31,10 +31,10 @@
 //   ms, me:  Output match range [ms, me) on success
 //
 // Returns:
-//   E_OK:        Match found, [ms, me) contains match position
-//   E_NO_MATCH:  No match in window
-//   E_CAPACITY:  Thread list capacity exceeded (pattern too complex)
-//   E_IO:        File read error
+//   FISKTA_E_OK:        Match found, [ms, me) contains match position
+//   FISKTA_E_NO_MATCH:  No match in window
+//   FISKTA_E_CAPACITY:  Thread list capacity exceeded (pattern too complex)
+//   FISKTA_E_IO:        File read error
 //
 // Match selection (when multiple matches exist):
 //   1. Smallest start offset (leftmost match)
@@ -45,5 +45,5 @@
 //   - No heap allocation during search
 //   - File position unchanged on return
 //   - Thread/seen buffers must be sized per ReProg requirements (see regex_prog.h)
-enum Err regex_search_window(File* io, i64 win_lo, i64 win_hi,
+enum FisktaErr regex_search_window(File* io, i64 win_lo, i64 win_hi,
     const ReProg* re, enum Dir dir, i64* ms, i64* me);

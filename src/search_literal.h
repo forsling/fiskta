@@ -13,7 +13,7 @@
 #include "fiskta_types.h"
 
 // Search for literal needle in file window [win_lo, win_hi)
-// Returns match position in [ms, me) on success, E_NO_MATCH if not found
-enum Err literal_search_window(File* io, i64 win_lo, i64 win_hi,
+// Returns match position in [ms, me) on success, FISKTA_E_NO_MATCH if not found
+enum FisktaErr literal_search_window(File* io, i64 win_lo, i64 win_hi,
     const unsigned char* needle, size_t nlen,
     enum Dir dir, i64* ms, i64* me);

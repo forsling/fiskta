@@ -19,11 +19,11 @@
  *******************************/
 
 // Internal helper: BMH search in memory buffer
-static enum Err bmh_search_forward(const unsigned char* text, size_t text_len,
+static enum FisktaErr bmh_search_forward(const unsigned char* text, size_t text_len,
     const unsigned char* needle, size_t nlen, i64* ms, i64* me)
 {
     if (nlen == 0 || nlen > text_len) {
-        return E_NO_MATCH;
+        return FISKTA_E_NO_MATCH;
     }
 
     size_t shift[256];
@@ -40,23 +40,23 @@ static enum Err bmh_search_forward(const unsigned char* text, size_t text_len,
         if (last == needle[nlen - 1] && memcmp(text + pos, needle, nlen) == 0) {
             *ms = (i64)pos;
             *me = (i64)(pos + nlen);
-            return E_OK;
+            return FISKTA_E_OK;
         }
         pos += shift[last];
     }
-    return E_NO_MATCH;
+    return FISKTA_E_NO_MATCH;
 }
 
 /*****************
  * STRING SEARCH *
  *****************/
 
-enum Err literal_search_window(File* io, i64 win_lo, i64 win_hi,
+enum FisktaErr literal_search_window(File* io, i64 win_lo, i64 win_hi,
     const unsigned char* needle, size_t nlen,
     enum Dir dir, i64* ms, i64* me)
 {
     if (nlen == 0) {
-        return E_BAD_NEEDLE;
+        return FISKTA_E_BAD_NEEDLE;
     }
 
     // Clamp window to file bounds (be permissive; callers may pass slightly OOB)
@@ -64,7 +64,7 @@ enum Err literal_search_window(File* io, i64 win_lo, i64 win_hi,
     win_hi = clamp64(win_hi, 0, io->size);
 
     if (win_lo >= win_hi) {
-        return E_NO_MATCH;
+        return FISKTA_E_NO_MATCH;
     }
 
     if (dir == DIR_FWD) {
@@ -83,8 +83,8 @@ enum Err literal_search_window(File* io, i64 win_lo, i64 win_hi,
             }
 
             size_t n;
-            enum Err read_err = io_read_at(io, block_lo, io->buf, (size_t)(block_hi - block_lo), &n);
-            if (read_err != E_OK) {
+            enum FisktaErr read_err = io_read_at(io, block_lo, io->buf, (size_t)(block_hi - block_lo), &n);
+            if (read_err != FISKTA_E_OK) {
                 return read_err;
             }
             if (n == 0) {
@@ -93,11 +93,11 @@ enum Err literal_search_window(File* io, i64 win_lo, i64 win_hi,
 
             i64 local_ms;
             i64 local_me;
-            enum Err err = bmh_search_forward(io->buf, n, needle, nlen, &local_ms, &local_me);
-            if (err == E_OK) {
+            enum FisktaErr err = bmh_search_forward(io->buf, n, needle, nlen, &local_ms, &local_me);
+            if (err == FISKTA_E_OK) {
                 *ms = block_lo + local_ms;
                 *me = block_lo + local_me;
-                return E_OK;
+                return FISKTA_E_OK;
             }
 
             if (block_hi == win_hi) {
@@ -108,7 +108,7 @@ enum Err literal_search_window(File* io, i64 win_lo, i64 win_hi,
                 pos = block_hi; // guard
             }
         }
-        return E_NO_MATCH;
+        return FISKTA_E_NO_MATCH;
     }
 
     // Backward search: scan blocks backwards
@@ -135,8 +135,8 @@ enum Err literal_search_window(File* io, i64 win_lo, i64 win_hi,
         }
 
         size_t n;
-        enum Err read_err = io_read_at(io, block_lo, io->buf, (size_t)block_size, &n);
-        if (read_err != E_OK) {
+        enum FisktaErr read_err = io_read_at(io, block_lo, io->buf, (size_t)block_size, &n);
+        if (read_err != FISKTA_E_OK) {
             return read_err;
         }
         if (n == 0) {
@@ -148,9 +148,9 @@ enum Err literal_search_window(File* io, i64 win_lo, i64 win_hi,
         while (search_pos < (i64)n) {
             i64 local_ms;
             i64 local_me;
-            enum Err err = bmh_search_forward(io->buf + search_pos, (size_t)((i64)n - search_pos),
+            enum FisktaErr err = bmh_search_forward(io->buf + search_pos, (size_t)((i64)n - search_pos),
                 needle, nlen, &local_ms, &local_me);
-            if (err != E_OK) {
+            if (err != FISKTA_E_OK) {
                 break;
             }
 
@@ -173,8 +173,8 @@ enum Err literal_search_window(File* io, i64 win_lo, i64 win_hi,
     if (best_ms >= 0) {
         *ms = best_ms;
         *me = best_me;
-        return E_OK;
+        return FISKTA_E_OK;
     }
 
-    return E_NO_MATCH;
+    return FISKTA_E_NO_MATCH;
 }

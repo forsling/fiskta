@@ -26,14 +26,14 @@ typedef struct {
     i32 range_count; // Number of staged ranges
     LabelWrite* label_writes; // Staged label writes
     i32 label_count; // Number of staged labels
-    enum Err err; // Execution result
+    enum FisktaErr err; // Execution result
 } StagedResult;
 
 // Determine clause resource requirements
 void clause_caps(const Clause* c, i32* out_ranges_cap, i32* out_labels_cap, i32* out_inline_cap);
 
 // Execute clause with staging (atomic commit/rollback)
-enum Err stage_clause(const Clause* clause,
+enum FisktaErr stage_clause(const Clause* clause,
     File* io, VM* vm,
     Range* ranges, i32 ranges_cap,
     LabelWrite* label_writes, i32 label_cap,

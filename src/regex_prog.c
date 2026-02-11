@@ -61,13 +61,13 @@ typedef struct {
     String pattern; // Pattern being compiled (for error messages)
 } ReB;
 
-static enum Err emit_inst(ReB* b, ReOp op, int x, int y, unsigned char ch, int cls_idx, int* out_idx)
+static enum FisktaErr emit_inst(ReB* b, ReOp op, int x, int y, unsigned char ch, int cls_idx, int* out_idx)
 {
     if (b->nins >= b->ins_cap) {
-        error_set(E_CAPACITY, -1,
+        error_set(FISKTA_E_CAPACITY, -1,
             "regex: pattern too complex (needs %d+ instructions, max %d); reduce alternations/quantifiers",
             b->nins + 1, b->ins_cap);
-        return E_CAPACITY;
+        return FISKTA_E_CAPACITY;
     }
     int idx = b->nins++;
     b->ins[idx].op = op;
@@ -78,20 +78,20 @@ static enum Err emit_inst(ReB* b, ReOp op, int x, int y, unsigned char ch, int c
     if (out_idx) {
         *out_idx = idx;
     }
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
-static enum Err emit_class(ReB* b, const ReClass* src, int* idx_out)
+static enum FisktaErr emit_class(ReB* b, const ReClass* src, int* idx_out)
 {
     if (b->ncls >= b->cls_cap) {
-        error_set(E_CAPACITY, -1,
+        error_set(FISKTA_E_CAPACITY, -1,
             "regex: too many character classes (needs %d+, max %d); simplify pattern",
             b->ncls + 1, b->cls_cap);
-        return E_CAPACITY;
+        return FISKTA_E_CAPACITY;
     }
     b->cls[b->ncls] = *src;
     *idx_out = b->ncls++;
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
 /**************************
@@ -99,7 +99,7 @@ static enum Err emit_class(ReB* b, const ReClass* src, int* idx_out)
  **************************/
 
 // Parse a character class: pattern points at first char AFTER '['; returns index AFTER ']'
-static enum Err parse_char_class(ReB* b, String pat, size_t* i_inout, int* out_cls_idx)
+static enum FisktaErr parse_char_class(ReB* b, String pat, size_t* i_inout, int* out_cls_idx)
 {
     size_t i = *i_inout;
     ReClass cls;
@@ -107,7 +107,7 @@ static enum Err parse_char_class(ReB* b, String pat, size_t* i_inout, int* out_c
     int negated = 0;
 
     if (pat.bytes[i] == ']') {
-        return E_PARSE; // empty
+        return FISKTA_E_PARSE; // empty
     }
 
     // Check for negation
@@ -121,7 +121,7 @@ static enum Err parse_char_class(ReB* b, String pat, size_t* i_inout, int* out_c
         if (pat.bytes[i] == '\\') {
             ++i;
             if (i >= pat.len) {
-                return E_PARSE;
+                return FISKTA_E_PARSE;
             }
             switch (pat.bytes[i]) {
             case 'd':
@@ -179,7 +179,7 @@ static enum Err parse_char_class(ReB* b, String pat, size_t* i_inout, int* out_c
                 if (pat.bytes[i] == '\\') {
                     ++i;
                     if (i >= pat.len) {
-                        return E_PARSE;
+                        return FISKTA_E_PARSE;
                     }
                     bch = (unsigned char)pat.bytes[i++];
                 } else {
@@ -192,7 +192,7 @@ static enum Err parse_char_class(ReB* b, String pat, size_t* i_inout, int* out_c
         }
     }
     if (i >= pat.len || pat.bytes[i] != ']') {
-        return E_PARSE;
+        return FISKTA_E_PARSE;
     }
     ++i;
 
@@ -210,20 +210,20 @@ static enum Err parse_char_class(ReB* b, String pat, size_t* i_inout, int* out_c
     }
 
     int cls_idx;
-    enum Err e = emit_class(b, &cls, &cls_idx);
-    if (e != E_OK) {
+    enum FisktaErr e = emit_class(b, &cls, &cls_idx);
+    if (e != FISKTA_E_OK) {
         return e;
     }
     *i_inout = i;
     *out_cls_idx = cls_idx;
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
 /***********************
  * PATTERN COMPILATION *
  ***********************/
 
-static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_nullable);
+static enum FisktaErr compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_nullable);
 
 // Syntactic nullability analysis - determines if pattern can match empty string
 // without actually compiling it. Returns true if pattern is nullable.
@@ -494,7 +494,7 @@ static bool is_pattern_nullable(String pat, size_t len)
 // Compiles pat[0..len) into `b` without emitting RI_MATCH.
 // Uses N-1 splits so there is no epsilon path that skips all alts.
 // If out_nullable is non-NULL, sets *out_nullable to true if pattern can match empty string.
-static enum Err compile_alt_sequence(ReB* b, String pat, size_t len, bool* out_nullable)
+static enum FisktaErr compile_alt_sequence(ReB* b, String pat, size_t len, bool* out_nullable)
 {
     // 1) Collect top-level alternatives (respect escapes/parentheses)
     int depth = 0;
@@ -523,8 +523,8 @@ static enum Err compile_alt_sequence(ReB* b, String pat, size_t len, bool* out_n
         bool sequence_nullable = true;
         while (i < len) {
             bool atom_nullable = false;
-            enum Err e = compile_atom(b, tmp_bytes, &i, &atom_nullable);
-            if (e != E_OK) {
+            enum FisktaErr e = compile_atom(b, tmp_bytes, &i, &atom_nullable);
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             if (!atom_nullable) {
@@ -534,12 +534,12 @@ static enum Err compile_alt_sequence(ReB* b, String pat, size_t len, bool* out_n
         if (out_nullable) {
             *out_nullable = sequence_nullable;
         }
-        return E_OK;
+        return FISKTA_E_OK;
     }
 
     // Prevent stack overflow with too many alternatives
     if (nalt > MAX_ALTS) {
-        return E_CAPACITY; // Too many alternations
+        return FISKTA_E_CAPACITY; // Too many alternations
     }
 
     // 2) Record (lo,len) for each alt using fixed-size arrays
@@ -554,7 +554,7 @@ static enum Err compile_alt_sequence(ReB* b, String pat, size_t len, bool* out_n
     int* split_pc = split_pc_arr;
     int* alt_start_pc = alt_start_pc_arr;
     int* jmp_pc = jmp_pc_arr;
-    enum Err err = E_OK;
+    enum FisktaErr err = FISKTA_E_OK;
 
     int k = 0;
     size_t start = 0;
@@ -581,14 +581,14 @@ static enum Err compile_alt_sequence(ReB* b, String pat, size_t len, bool* out_n
     alen[k] = len - start; /* k == nalt-1 */
 
     // 3) Emit N-1 splits + all alt bodies
-    enum Err e;
+    enum FisktaErr e;
     // Track if any alternative is nullable (alternation is nullable if ANY alt is nullable)
     bool any_alt_nullable = false;
 
     // Emit a split before each of the first N-1 alts, then their bodies
     for (int i = 0; i < nalt - 1; ++i) {
         e = emit_inst(b, RI_SPLIT, -1, -1, 0, -1, &split_pc[i]);
-        if (e != E_OK) {
+        if (e != FISKTA_E_OK) {
             err = e;
             goto cleanup;
         }
@@ -601,7 +601,7 @@ static enum Err compile_alt_sequence(ReB* b, String pat, size_t len, bool* out_n
         while (pi < alen[i]) {
             bool atom_nullable = false;
             e = compile_atom(b, frag_bytes, &pi, &atom_nullable);
-            if (e != E_OK) {
+            if (e != FISKTA_E_OK) {
                 err = e;
                 goto cleanup;
             }
@@ -614,7 +614,7 @@ static enum Err compile_alt_sequence(ReB* b, String pat, size_t len, bool* out_n
         }
 
         e = emit_inst(b, RI_JMP, -1, 0, 0, -1, &jmp_pc[i]);
-        if (e != E_OK) {
+        if (e != FISKTA_E_OK) {
             err = e;
             goto cleanup;
         }
@@ -628,7 +628,7 @@ static enum Err compile_alt_sequence(ReB* b, String pat, size_t len, bool* out_n
     while (pi < alen[nalt - 1]) {
         bool atom_nullable = false;
         e = compile_atom(b, last_bytes, &pi, &atom_nullable);
-        if (e != E_OK) {
+        if (e != FISKTA_E_OK) {
             err = e;
             goto cleanup;
         }
@@ -640,7 +640,7 @@ static enum Err compile_alt_sequence(ReB* b, String pat, size_t len, bool* out_n
         any_alt_nullable = true;
     }
     e = emit_inst(b, RI_JMP, -1, 0, 0, -1, &jmp_pc[nalt - 1]);
-    if (e != E_OK) {
+    if (e != FISKTA_E_OK) {
         err = e;
         goto cleanup;
     }
@@ -661,7 +661,7 @@ static enum Err compile_alt_sequence(ReB* b, String pat, size_t len, bool* out_n
         *out_nullable = any_alt_nullable;
     }
 
-    err = E_OK;
+    err = FISKTA_E_OK;
 
 cleanup:
     return err;
@@ -669,7 +669,7 @@ cleanup:
 
 // Parse quantifier at position i, updating i_inout to position after quantifier
 // Returns parsed min/max counts, whether a quantifier was found, and if it's lazy
-static enum Err parse_quantifier(String pat, size_t* i_inout, int* min_count, int* max_count, bool* is_quantified, bool* is_lazy)
+static enum FisktaErr parse_quantifier(String pat, size_t* i_inout, int* min_count, int* max_count, bool* is_quantified, bool* is_lazy)
 {
     size_t i = *i_inout;
     *is_quantified = false;
@@ -678,7 +678,7 @@ static enum Err parse_quantifier(String pat, size_t* i_inout, int* min_count, in
     *max_count = 1;
 
     if (i >= pat.len) {
-        return E_OK;
+        return FISKTA_E_OK;
     }
 
     char q = pat.bytes[i];
@@ -702,8 +702,8 @@ static enum Err parse_quantifier(String pat, size_t* i_inout, int* min_count, in
         // Parse {n,m} quantifier
         i++; // skip '{'
         if (i >= pat.len || !isdigit(pat.bytes[i])) {
-            error_set(E_PARSE, -1, "invalid quantifier syntax");
-            return E_PARSE;
+            error_set(FISKTA_E_PARSE, -1, "invalid quantifier syntax");
+            return FISKTA_E_PARSE;
         }
 
         // Parse minimum count
@@ -712,16 +712,16 @@ static enum Err parse_quantifier(String pat, size_t* i_inout, int* min_count, in
             // Check for overflow before multiplication
             // Safe limit: (INT_MAX - 9) / 10 to ensure count * 10 + digit fits in int
             if (*min_count > (INT_MAX - 9) / 10) {
-                error_set(E_PARSE, -1, "quantifier value too large");
-                return E_PARSE;
+                error_set(FISKTA_E_PARSE, -1, "quantifier value too large");
+                return FISKTA_E_PARSE;
             }
             *min_count = *min_count * 10 + (pat.bytes[i] - '0');
             i++;
         }
 
         if (i >= pat.len) {
-            error_set(E_PARSE, -1, "missing closing brace in quantifier");
-            return E_PARSE;
+            error_set(FISKTA_E_PARSE, -1, "missing closing brace in quantifier");
+            return FISKTA_E_PARSE;
         }
         if (pat.bytes[i] == '}') {
             // {n} - exactly n times
@@ -730,8 +730,8 @@ static enum Err parse_quantifier(String pat, size_t* i_inout, int* min_count, in
         } else if (pat.bytes[i] == ',') {
             i++; // skip ','
             if (i >= pat.len) {
-                error_set(E_PARSE, -1, "missing closing brace after comma in quantifier");
-                return E_PARSE;
+                error_set(FISKTA_E_PARSE, -1, "missing closing brace after comma in quantifier");
+                return FISKTA_E_PARSE;
             }
             if (pat.bytes[i] == '}') {
                 // {n,} - n or more times
@@ -743,24 +743,24 @@ static enum Err parse_quantifier(String pat, size_t* i_inout, int* min_count, in
                 while (i < pat.len && isdigit(pat.bytes[i])) {
                     // Check for overflow before multiplication
                     if (*max_count > (INT_MAX - 9) / 10) {
-                        error_set(E_PARSE, -1, "quantifier value too large");
-                        return E_PARSE;
+                        error_set(FISKTA_E_PARSE, -1, "quantifier value too large");
+                        return FISKTA_E_PARSE;
                     }
                     *max_count = *max_count * 10 + (pat.bytes[i] - '0');
                     i++;
                 }
                 if (i >= pat.len || pat.bytes[i] != '}') {
-                    error_set(E_PARSE, -1, "missing closing brace in quantifier");
-                    return E_PARSE;
+                    error_set(FISKTA_E_PARSE, -1, "missing closing brace in quantifier");
+                    return FISKTA_E_PARSE;
                 }
                 i++;
             } else {
-                error_set(E_PARSE, -1, "invalid quantifier syntax");
-                return E_PARSE;
+                error_set(FISKTA_E_PARSE, -1, "invalid quantifier syntax");
+                return FISKTA_E_PARSE;
             }
         } else {
-            error_set(E_PARSE, -1, "invalid quantifier syntax");
-            return E_PARSE;
+            error_set(FISKTA_E_PARSE, -1, "invalid quantifier syntax");
+            return FISKTA_E_PARSE;
         }
         *is_quantified = true;
     }
@@ -768,8 +768,8 @@ static enum Err parse_quantifier(String pat, size_t* i_inout, int* min_count, in
     // Validate quantifier bounds
     if (*is_quantified) {
         if (*max_count > 0 && *min_count > *max_count) {
-            error_set(E_PARSE, -1, "quantifier bounds inverted {%d,%d}", *min_count, *max_count);
-            return E_PARSE;
+            error_set(FISKTA_E_PARSE, -1, "quantifier bounds inverted {%d,%d}", *min_count, *max_count);
+            return FISKTA_E_PARSE;
         }
         // Check for lazy suffix '?'
         if (i < pat.len && pat.bytes[i] == '?') {
@@ -779,16 +779,16 @@ static enum Err parse_quantifier(String pat, size_t* i_inout, int* min_count, in
     }
 
     *i_inout = i;
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
 // Compile a single regex atom (+ optional quantifier)
 // If out_nullable is non-NULL, sets *out_nullable to true if atom can match empty string.
-static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_nullable)
+static enum FisktaErr compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_nullable)
 {
     size_t i = *i_inout;
     if (i >= pat.len) {
-        return E_PARSE;
+        return FISKTA_E_PARSE;
     }
 
     // Initialize nullable to false by default (most atoms consume input)
@@ -813,7 +813,7 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
                     j += 2;
                     continue;
                 }
-                return E_PARSE;
+                return FISKTA_E_PARSE;
             }
             if (pat.bytes[j] == '(') {
                 depth++;
@@ -826,7 +826,7 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
             j++;
         }
         if (j >= pat.len || pat.bytes[j] != ')') {
-            return E_PARSE; // unmatched '('
+            return FISKTA_E_PARSE; // unmatched '('
         }
 
         size_t inner_lo = i + 1;
@@ -837,8 +837,8 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
             size_t k = j + 1;
             int min_count, max_count;
             bool is_quantified, is_lazy;
-            enum Err e = parse_quantifier(pat, &k, &min_count, &max_count, &is_quantified, &is_lazy);
-            if (e != E_OK) {
+            enum FisktaErr e = parse_quantifier(pat, &k, &min_count, &max_count, &is_quantified, &is_lazy);
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             *i_inout = k;
@@ -846,15 +846,15 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
             if (out_nullable) {
                 *out_nullable = true;
             }
-            return E_OK; // epsilon group
+            return FISKTA_E_OK; // epsilon group
         }
 
         // Parse quantifier after the closing )
         size_t k = j + 1;
         int min_count, max_count;
         bool is_quantified, is_lazy;
-        enum Err e = parse_quantifier(pat, &k, &min_count, &max_count, &is_quantified, &is_lazy);
-        if (e != E_OK) {
+        enum FisktaErr e = parse_quantifier(pat, &k, &min_count, &max_count, &is_quantified, &is_lazy);
+        if (e != FISKTA_E_OK) {
             return e;
         }
         if (is_lazy) {
@@ -867,14 +867,14 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
             // No quantifier - just compile the group and propagate its nullability
             bool group_nullable = false;
             e = compile_alt_sequence(b, inner, inner_len, &group_nullable);
-            if (e != E_OK) {
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             *i_inout = k;
             if (out_nullable) {
                 *out_nullable = group_nullable;
             }
-            return E_OK;
+            return FISKTA_E_OK;
         }
 
         // For quantified groups, check if the result would be nullable
@@ -891,9 +891,9 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
         // Very large means max_count > 1000 (effectively unbounded for nullable patterns)
         // Examples: (a*)*, (a*)+, (a*){5,}, (\W?){10,}, ((x{0})){0,999999}
         if (inner_nullable && (max_count == -1 || max_count > 1000)) {
-            error_set(E_PARSE, -1,
+            error_set(FISKTA_E_PARSE, -1,
                 "regex: unbounded or very large quantifier on nullable pattern (can match empty string repeatedly)");
-            return E_PARSE;
+            return FISKTA_E_PARSE;
         }
 
         // Handle group quantifiers with counter-based approach
@@ -905,13 +905,13 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
             if (out_nullable) {
                 *out_nullable = quantifier_makes_nullable; // Always true for {0}
             }
-            return E_OK;
+            return FISKTA_E_OK;
         }
 
         // Special case: {1} - compile group once (no counter needed)
         if (min_count == 1 && max_count == 1) {
             e = compile_alt_sequence(b, inner, inner_len, NULL);
-            if (e != E_OK) {
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             *i_inout = k;
@@ -920,7 +920,7 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
             if (out_nullable) {
                 *out_nullable = false; // {1} doesn't make nullable
             }
-            return E_OK;
+            return FISKTA_E_OK;
         }
 
         if (min_count == 0 && max_count == 1) {
@@ -928,12 +928,12 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
             int split_pc;
             // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
             e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &split_pc);
-            if (e != E_OK) {
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             int group_start = b->nins;
             e = compile_alt_sequence(b, inner, inner_len, NULL);
-            if (e != E_OK) {
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             if (is_lazy) {
@@ -953,17 +953,17 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
                 // * quantifier - split(loop, stop) for greedy; split(stop, loop) for lazy
                 int split_pc;
                 e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &split_pc);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
                 int group_start = b->nins;
                 e = compile_alt_sequence(b, inner, inner_len, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
                 int jmp_pc;
                 e = emit_inst(b, RI_JMP, split_pc, 0, 0, -1, &jmp_pc);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
                 if (is_lazy) {
@@ -979,23 +979,23 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
             } else if (min_count == 1) {
                 // + quantifier - split(loop, stop) for greedy; split(stop, loop) for lazy
                 e = compile_alt_sequence(b, inner, inner_len, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
                 int split_pc;
                 // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
                 e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &split_pc);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
                 int group_start = b->nins;
                 e = compile_alt_sequence(b, inner, inner_len, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
                 int jmp_pc;
                 e = emit_inst(b, RI_JMP, split_pc, 0, 0, -1, &jmp_pc);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
                 if (is_lazy) {
@@ -1012,15 +1012,15 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
                 // {n,} where n >= 2 - use counter-based loop
                 int counter_id = b->next_counter_id++;
                 if (counter_id >= MAX_RE_COUNTERS) {
-                    error_set(E_CAPACITY, -1,
+                    error_set(FISKTA_E_CAPACITY, -1,
                         "regex: too many quantified groups in pattern (max %d); reduce nesting or use simpler quantifiers",
                         MAX_RE_COUNTERS);
-                    return E_CAPACITY;
+                    return FISKTA_E_CAPACITY;
                 }
 
                 // COUNTER_RESET: initialize counter to 0
                 e = emit_inst(b, RI_COUNTER_RESET, counter_id, 0, 0, -1, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
 
@@ -1029,13 +1029,13 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
 
                 // Emit the pattern once
                 e = compile_alt_sequence(b, inner, inner_len, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
 
                 // Increment counter after successful match
                 e = emit_inst(b, RI_COUNTER_INC, counter_id, 0, 0, -1, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
                 if (out_nullable) {
@@ -1046,21 +1046,21 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
                 int split_pc;
                 // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
                 e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &split_pc);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
 
                 // First branch: loop unconditionally (no max limit)
                 int loop_branch = b->nins;
                 e = emit_inst(b, RI_JMP, loop_start, 0, 0, -1, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
 
                 // Second branch: check minimum before exiting
                 int exit_branch = b->nins;
                 e = emit_inst(b, RI_COUNTER_CHECK_MIN, counter_id, min_count, 0, -1, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
 
@@ -1078,15 +1078,15 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
             // These are safe even with nullable patterns (bounded)
             int counter_id = b->next_counter_id++;
             if (counter_id >= MAX_RE_COUNTERS) {
-                error_set(E_CAPACITY, -1,
+                error_set(FISKTA_E_CAPACITY, -1,
                     "regex: too many quantified groups in pattern (max %d); reduce nesting or use simpler quantifiers",
                     MAX_RE_COUNTERS);
-                return E_CAPACITY;
+                return FISKTA_E_CAPACITY;
             }
 
             // COUNTER_RESET: initialize counter to 0
             e = emit_inst(b, RI_COUNTER_RESET, counter_id, 0, 0, -1, NULL);
-            if (e != E_OK) {
+            if (e != FISKTA_E_OK) {
                 return e;
             }
 
@@ -1095,13 +1095,13 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
 
             // Emit the pattern once
             e = compile_alt_sequence(b, inner, inner_len, NULL);
-            if (e != E_OK) {
+            if (e != FISKTA_E_OK) {
                 return e;
             }
 
             // Increment counter after successful match
             e = emit_inst(b, RI_COUNTER_INC, counter_id, 0, 0, -1, NULL);
-            if (e != E_OK) {
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             // Bounded quantifiers: nullable if min_count == 0
@@ -1115,25 +1115,25 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
                 int split_pc;
                 // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
                 e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &split_pc);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
 
                 // First branch: check if we can loop, then jump
                 int check_branch = b->nins;
                 e = emit_inst(b, RI_COUNTER_CHECK, counter_id, max_count, 0, -1, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
                 e = emit_inst(b, RI_JMP, loop_start, 0, 0, -1, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
 
                 // Second branch: check minimum before exit
                 int exit_branch = b->nins;
                 e = emit_inst(b, RI_COUNTER_CHECK_MIN, counter_id, min_count, 0, -1, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
 
@@ -1151,25 +1151,25 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
                 int split_pc;
                 // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
                 e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &split_pc);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
 
                 // First branch: check if we can loop, then jump
                 int check_branch = b->nins;
                 e = emit_inst(b, RI_COUNTER_CHECK, counter_id, max_count, 0, -1, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
                 e = emit_inst(b, RI_JMP, loop_start, 0, 0, -1, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
 
                 // Second branch: check minimum before exit
                 int exit_branch = b->nins;
                 e = emit_inst(b, RI_COUNTER_CHECK_MIN, counter_id, min_count, 0, -1, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
 
@@ -1185,7 +1185,7 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
         }
 
         *i_inout = k;
-        return E_OK;
+        return FISKTA_E_OK;
     } else if (pat.bytes[i] == '^') {
         ak = A_BOL;
         nullable = true; // BOL is nullable (doesn't consume input)
@@ -1200,23 +1200,23 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
         i++;
     } else if (pat.bytes[i] == '[') {
         i++;
-        enum Err e = parse_char_class(b, pat, &i, &cls_idx);
-        if (e != E_OK) {
+        enum FisktaErr e = parse_char_class(b, pat, &i, &cls_idx);
+        if (e != FISKTA_E_OK) {
             return e;
         }
         ak = A_CLASS;
     } else if (pat.bytes[i] == '\\') {
         i++;
         if (i >= pat.len) {
-            return E_PARSE;
+            return FISKTA_E_PARSE;
         }
         switch (pat.bytes[i]) {
         case 'd': {
             ReClass c;
             cls_clear(&c);
             cls_set_digit(&c);
-            enum Err e = emit_class(b, &c, &cls_idx);
-            if (e != E_OK) {
+            enum FisktaErr e = emit_class(b, &c, &cls_idx);
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             ak = A_CLASS;
@@ -1233,8 +1233,8 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
             for (int b2 = 0; b2 < 32; ++b2) {
                 c.bits[b2] &= (unsigned char)~d.bits[b2];
             }
-            enum Err e = emit_class(b, &c, &cls_idx);
-            if (e != E_OK) {
+            enum FisktaErr e = emit_class(b, &c, &cls_idx);
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             ak = A_CLASS;
@@ -1243,8 +1243,8 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
             ReClass c;
             cls_clear(&c);
             cls_set_word(&c);
-            enum Err e = emit_class(b, &c, &cls_idx);
-            if (e != E_OK) {
+            enum FisktaErr e = emit_class(b, &c, &cls_idx);
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             ak = A_CLASS;
@@ -1261,8 +1261,8 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
             for (int b2 = 0; b2 < 32; ++b2) {
                 c.bits[b2] &= (unsigned char)~w.bits[b2];
             }
-            enum Err e = emit_class(b, &c, &cls_idx);
-            if (e != E_OK) {
+            enum FisktaErr e = emit_class(b, &c, &cls_idx);
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             ak = A_CLASS;
@@ -1271,8 +1271,8 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
             ReClass c;
             cls_clear(&c);
             cls_set_ws(&c);
-            enum Err e = emit_class(b, &c, &cls_idx);
-            if (e != E_OK) {
+            enum FisktaErr e = emit_class(b, &c, &cls_idx);
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             ak = A_CLASS;
@@ -1289,8 +1289,8 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
             for (int b2 = 0; b2 < 32; ++b2) {
                 c.bits[b2] &= (unsigned char)~ws.bits[b2];
             }
-            enum Err e = emit_class(b, &c, &cls_idx);
-            if (e != E_OK) {
+            enum FisktaErr e = emit_class(b, &c, &cls_idx);
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             ak = A_CLASS;
@@ -1329,7 +1329,7 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
         ch = (unsigned char)pat.bytes[i];
         // Check for bare quantifiers at pattern start
         if (ch == '+' || ch == '*' || ch == '?') {
-            return E_PARSE; // quantifiers require an atom to quantify
+            return FISKTA_E_PARSE; // quantifiers require an atom to quantify
         }
         i++;
         ak = A_CHAR;
@@ -1338,8 +1338,8 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
     // Parse quantifier using shared helper
     int min_count, max_count;
     bool is_quantified, is_lazy;
-    enum Err e = parse_quantifier(pat, &i, &min_count, &max_count, &is_quantified, &is_lazy);
-    if (e != E_OK) {
+    enum FisktaErr e = parse_quantifier(pat, &i, &min_count, &max_count, &is_quantified, &is_lazy);
+    if (e != FISKTA_E_OK) {
         return e;
     }
     if (is_lazy) {
@@ -1366,14 +1366,14 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
             e = emit_inst(b, RI_EOL, 0, 0, 0, -1, NULL);
             break;
         }
-        if (e != E_OK) {
+        if (e != FISKTA_E_OK) {
             return e;
         }
         // nullable already set correctly above
     } else {
         // Handle quantified patterns
         if (ak == A_BOL || ak == A_EOL) {
-            return E_PARSE; // 4 anchors can't be quantified
+            return FISKTA_E_PARSE; // 4 anchors can't be quantified
         }
 
         if (min_count == 0 && max_count == 1) {
@@ -1382,7 +1382,7 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
             int idx_atom;
             // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
             e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &idx_split);
-            if (e != E_OK) {
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             switch (ak) {
@@ -1396,9 +1396,9 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
                 e = emit_inst(b, RI_CLASS, 0, 0, 0, cls_idx, &idx_atom);
                 break;
             default:
-                return E_PARSE;
+                return FISKTA_E_PARSE;
             }
-            if (e != E_OK) {
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             if (is_lazy) {
@@ -1417,7 +1417,7 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
             int idx_jmp;
             // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
             e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &idx_split);
-            if (e != E_OK) {
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             switch (ak) {
@@ -1431,13 +1431,13 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
                 e = emit_inst(b, RI_CLASS, 0, 0, 0, cls_idx, &idx_atom);
                 break;
             default:
-                return E_PARSE;
+                return FISKTA_E_PARSE;
             }
-            if (e != E_OK) {
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             e = emit_inst(b, RI_JMP, idx_split, 0, 0, -1, &idx_jmp);
-            if (e != E_OK) {
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             if (is_lazy) {
@@ -1464,14 +1464,14 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
                 e = emit_inst(b, RI_CLASS, 0, 0, 0, cls_idx, &idx_atom);
                 break;
             default:
-                return E_PARSE;
+                return FISKTA_E_PARSE;
             }
-            if (e != E_OK) {
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
             e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &idx_split);
-            if (e != E_OK) {
+            if (e != FISKTA_E_OK) {
                 return e;
             }
             if (is_lazy) {
@@ -1496,7 +1496,7 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
                 if (out_nullable) {
                     *out_nullable = true;
                 }
-                return E_OK;
+                return FISKTA_E_OK;
             }
 
             // Special case: {1} - emit once without loop or counter
@@ -1512,9 +1512,9 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
                     e = emit_inst(b, RI_CLASS, 0, 0, 0, cls_idx, NULL);
                     break;
                 default:
-                    return E_PARSE;
+                    return FISKTA_E_PARSE;
                 }
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
                 *i_inout = i;
@@ -1523,7 +1523,7 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
                 if (out_nullable) {
                     *out_nullable = nullable;
                 }
-                return E_OK;
+                return FISKTA_E_OK;
             }
             // Bounded quantifiers: nullable if min_count == 0
             nullable = (min_count == 0);
@@ -1531,15 +1531,15 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
             // All other cases use counter-based loops
             int counter_id = b->next_counter_id++;
             if (counter_id >= MAX_RE_COUNTERS) {
-                error_set(E_CAPACITY, -1,
+                error_set(FISKTA_E_CAPACITY, -1,
                     "regex: too many quantified groups in pattern (max %d); reduce nesting or use simpler quantifiers",
                     MAX_RE_COUNTERS);
-                return E_CAPACITY;
+                return FISKTA_E_CAPACITY;
             }
 
             // COUNTER_RESET: initialize counter to 0
             e = emit_inst(b, RI_COUNTER_RESET, counter_id, 0, 0, -1, NULL);
-            if (e != E_OK) {
+            if (e != FISKTA_E_OK) {
                 return e;
             }
 
@@ -1558,15 +1558,15 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
                 e = emit_inst(b, RI_CLASS, 0, 0, 0, cls_idx, NULL);
                 break;
             default:
-                return E_PARSE;
+                return FISKTA_E_PARSE;
             }
-            if (e != E_OK) {
+            if (e != FISKTA_E_OK) {
                 return e;
             }
 
             // Increment counter after successful match
             e = emit_inst(b, RI_COUNTER_INC, counter_id, 0, 0, -1, NULL);
-            if (e != E_OK) {
+            if (e != FISKTA_E_OK) {
                 return e;
             }
 
@@ -1576,21 +1576,21 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
                 int split_pc;
                 // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
                 e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &split_pc);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
 
                 // First branch: loop unconditionally (no max limit)
                 int loop_branch = b->nins;
                 e = emit_inst(b, RI_JMP, loop_start, 0, 0, -1, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
 
                 // Second branch: check minimum before exiting
                 int exit_branch = b->nins;
                 e = emit_inst(b, RI_COUNTER_CHECK_MIN, counter_id, min_count, 0, -1, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
 
@@ -1608,25 +1608,25 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
                 int split_pc;
                 // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
                 e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &split_pc);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
 
                 // First branch: check if we can loop, then jump
                 int check_branch = b->nins;
                 e = emit_inst(b, RI_COUNTER_CHECK, counter_id, max_count, 0, -1, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
                 e = emit_inst(b, RI_JMP, loop_start, 0, 0, -1, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
 
                 // Second branch: exit (must meet exact count)
                 int exit_branch = b->nins;
                 e = emit_inst(b, RI_COUNTER_CHECK_MIN, counter_id, min_count, 0, -1, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
 
@@ -1644,25 +1644,25 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
                 int split_pc;
                 // ch: bit0=repeat(1), bit1=lazy(if is_lazy)
                 e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &split_pc);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
 
                 // First branch: check max, then jump back
                 int check_branch = b->nins;
                 e = emit_inst(b, RI_COUNTER_CHECK, counter_id, max_count, 0, -1, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
                 e = emit_inst(b, RI_JMP, loop_start, 0, 0, -1, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
 
                 // Second branch: check minimum and continue
                 int exit_branch = b->nins;
                 e = emit_inst(b, RI_COUNTER_CHECK_MIN, counter_id, min_count, 0, -1, NULL);
-                if (e != E_OK) {
+                if (e != FISKTA_E_OK) {
                     return e;
                 }
 
@@ -1683,14 +1683,14 @@ static enum Err compile_atom(ReB* b, String pat, size_t* i_inout, bool* out_null
     if (out_nullable) {
         *out_nullable = nullable;
     }
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
 /**************
  * PUBLIC API *
  **************/
 
-enum Err re_compile_into(String pattern,
+enum FisktaErr re_compile_into(String pattern,
     ReProg* out,
     ReInst* ins_base, int ins_cap, int* ins_used,
     ReClass* cls_base, int cls_cap, int* cls_used)
@@ -1705,7 +1705,7 @@ enum Err re_compile_into(String pattern,
     int ins_start = (ins_used && *ins_used >= 0) ? *ins_used : 0;
     int cls_start = (cls_used && *cls_used >= 0) ? *cls_used : 0;
     if (ins_start > ins_cap || cls_start > cls_cap) {
-        return E_CAPACITY;
+        return FISKTA_E_CAPACITY;
     }
     b.ins = ins_base + ins_start;
     b.ins_cap = ins_cap - ins_start;
@@ -1715,7 +1715,7 @@ enum Err re_compile_into(String pattern,
     b.ncls = 0;
 
     if (!pattern.bytes || pattern.len == 0) {
-        return E_BAD_NEEDLE;
+        return FISKTA_E_BAD_NEEDLE;
     }
 
     // Always use the proven single-pass emitter (with nested alternation via compile_alt_sequence)
@@ -1742,21 +1742,21 @@ enum Err re_compile_into(String pattern,
     if (!has_bar) {
         size_t i = 0;
         while (i < pattern.len) {
-            enum Err e = compile_atom(&b, pattern, &i, NULL);
-            if (e != E_OK) {
+            enum FisktaErr e = compile_atom(&b, pattern, &i, NULL);
+            if (e != FISKTA_E_OK) {
                 return e;
             }
         }
     } else {
-        enum Err e2 = compile_alt_sequence(&b, pattern, pattern.len, NULL);
-        if (e2 != E_OK) {
+        enum FisktaErr e2 = compile_alt_sequence(&b, pattern, pattern.len, NULL);
+        if (e2 != FISKTA_E_OK) {
             return e2;
         }
     }
 
     // Emit final match instruction
-    enum Err e = emit_inst(&b, RI_MATCH, 0, 0, 0, -1, NULL);
-    if (e != E_OK) {
+    enum FisktaErr e = emit_inst(&b, RI_MATCH, 0, 0, 0, -1, NULL);
+    if (e != FISKTA_E_OK) {
         return e;
     }
 
@@ -1776,7 +1776,7 @@ enum Err re_compile_into(String pattern,
     if (getenv("FISKTA_TRACE_COMPILE")) {
         fprintf(stderr, "TRACE COMPILE pattern='%.*s' nins=%d\n", (int)pattern.len, pattern.bytes, b.nins);
     }
-    return E_OK;
+    return FISKTA_E_OK;
 }
 
 /*****************************

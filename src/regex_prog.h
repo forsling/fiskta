@@ -67,7 +67,7 @@ typedef struct ReProg {
 
 // Compile pattern into preallocated pools; appends instructions/classes to the pools.
 // Starts at offsets *ins_used / *cls_used and ADVANCES them on success.
-enum Err re_compile_into(String pattern,
+enum FisktaErr re_compile_into(String pattern,
     ReProg* out,
     ReInst* ins_base, int ins_cap, int* ins_used,
     ReClass* cls_base, int cls_cap, int* cls_used);
