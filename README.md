@@ -1,6 +1,6 @@
 # (fi)nd (sk)ip (ta)ke
 
-**fiskta** is a cursor-oriented data extraction tool. Unlike traditional tools that rely primarily on pattern matching, fiskta is built around cursor position and movement: find a pattern, skip around, capture some bytes, characters or lines. Think in terms of "where am I?" and "what do I do from here?" rather than "what pattern matches this line?"
+**fiskta** is a cursor-oriented data extraction tool. Unlike traditional tools that rely primarily on pattern matching, fiskta is built around cursor position and movement: find a pattern, skip around, capture some bytes, characters or lines.
 
 It may be a good fit when grep is insufficient but you don't want to deal with something like awk: Extract text between delimiters, navigate multi-line structures, and build conditional extractions step by step. No cryptic syntax, just relatively straightforward imperative operations.
 
@@ -52,8 +52,8 @@ $ fiskta --input file.txt find "Optional Section" THEN take 5l
 
 **Try to find "user=" and extract username, fallback to "id=" if not found:**
 ```bash
-$ echo 'id=12345 user=john' | fiskta find "user=" skip 5b take until " " OR find "id=" skip 3b take until " "
-12345
+$ echo 'id=12345 user=john role=admin' | fiskta find "user=" skip 5b take until " " OR find "id=" skip 3b take until " "
+john
 ```
 
 **Detect PNG file header:**
@@ -75,12 +75,12 @@ $ fiskta --input source --continue 200ms find:re "^BEGIN" take until:re "\s{4}:"
 
 **Tail log file, stop when no new data appears for 1 minute:**
 ```bash
-$ fiskta --continue 1s --ignore-failures --until-idle 1m --input service.log find "ERROR" take to line-end THEN skip to EOF
+$ fiskta -C 1s --until-idle 1m --input service.log find "ERROR" take to line-end THEN skip to EOF
 ```
 
 **Monitor changing file content:**
 ```bash
-$ fiskta --input status.txt --continue 2s --for 8h clear view THEN skip to BOF THEN find "DISCONNECTED" take -10l THEN skip to EOF
+$ fiskta --input status.txt -C 2s --for 8h clear view THEN skip to BOF THEN find "DISCONNECTED" take -10l THEN skip to EOF
 ```
 
 ## Overview
@@ -99,7 +99,8 @@ $ fiskta --input status.txt --continue 2s --for 8h clear view THEN skip to BOF T
 - `find:bin [to <location>] <hex-string>` - Search for binary patterns specified as hexadecimal (e.g., `DEADBEEF` or `DE AD BE EF`); case-insensitive, whitespace-ignored
 
 **Navigation:**
-- `label <name>` - Mark current position with label
+- `label <name>` - Mark current position with label (fails if already set)
+- `clear <name>` - Unset a label (allows relabeling)
 - `skip to <location>` - Move cursor to labeled position
 - `view <L1> <L2>` - Limit all ops to `[min(L1,L2), max(L1,L2))`
 - `clear view` - Clear view; return to full file
@@ -143,7 +144,7 @@ $ fiskta --input status.txt --continue 2s --for 8h clear view THEN skip to BOF T
 - **Quantifiers**: `*` (0+), `+` (1+), `?` (0-1), `{n}` (exactly n), `{n,m}` (n to m), `{n,}` (n or more)
   - Greedy by default (match as much as possible)
   - Lazy/non-greedy: `*?`, `+?`, `??`, `{n,m}?`, `{n,}?` (match as little as possible)
-  - Max quantifier values: 100 (policy limit)
+  - Max 16 distinct `{n,m}` counters per pattern; max 256 alternations
 - **Grouping**: `( ... )` (group subpatterns), `(a|b)+` (quantified groups)
 - **Anchors**: `^` (line start), `$` (line end)
 - **Alternation**: `|` (OR)
@@ -192,9 +193,9 @@ Evaluation is strictly left-to-right (no operator precedence).
 
 **Looping:**
 - `-c, --continue [delay]` - Enable looping; optional delay between iterations (`ms`, `s`, `m`, `h`; default `0` for tight loop)
+- `-C, --continue-on-fail [delay]` - Like `-c`, but keeps looping even if clauses fail
 - `--for <time>` - Stop after total wall-clock time elapses
 - `-u, --until-idle <time>` - Stop once the input window is empty for the given duration (`0` exits immediately on idle)
-- `-k, --ignore-failures` - Keep looping even if clause pipelines fail (suppresses program-failure exits)
 
 Loop mode resumes from the last cursor position. For follow/monitor emulation, see the Looping section below.
 
@@ -261,7 +262,7 @@ Search using regular expressions. Same search behavior as `find`.
 
 Regex syntax:
 - Classes: `\d` (digit), `\D` (non-digit), `\w` (word), `\W` (non-word), `\s` (space), `\S` (non-space), `[a-z]`, `[^0-9]`
-- Quantifiers: `*` (0+), `+` (1+), `?` (0-1), `{n}`, `{n,m}`, `{n,}` (max: 100)
+- Quantifiers: `*` (0+), `+` (1+), `?` (0-1), `{n}`, `{n,m}`, `{n,}`
   - Greedy (default): `*`, `+`, `?`, `{n,m}`
   - Lazy: `*?`, `+?`, `??`, `{n,m}?`, `{n,}?`
 - Anchors: `^` (line start), `$` (line end)
@@ -415,11 +416,15 @@ Mark the current cursor position with a label. Labels can be used with `skip to`
 - Start with A-Z, contain A-Z0-9_-
 - Maximum 15 characters
 - Maximum 128 labels
+- Labels are write-once: setting a label that is already set fails the clause
+- Use `clear <NAME>` to unset a label before reassigning it
 
 ```bash
 label START
 label SECTION_A
 label END-OF-HEADER
+clear START                 # unset START so it can be reassigned
+label START                 # now succeeds
 ```
 
 ### Views
@@ -428,7 +433,13 @@ label END-OF-HEADER
 
 Restrict all subsequent operations to the range `[min(loc1, loc2), max(loc1, loc2))`. View boundaries are order-normalized.
 
-Operations will fail if they try to move outside the view. View changes are staged and committed atomically with the clause.
+Once a view is set:
+- `find`, `find:re`, and `find:bin` only search within the view
+- `take` and `skip` can't move outside the view
+- `skip to` fails if the target is outside the view
+- View changes are staged and committed atomically with the clause
+- The view remains active until `clear view` or program ends
+- Views can't be nested, but can be replaced by setting a new view
 
 ```bash
 view BOF+100b EOF-100b        # exclude first/last 100 bytes
@@ -486,10 +497,10 @@ fiskta can loop over your operations as files grow or change. Loop mode resumes 
 
 ### Loop Options
 
-- `--continue [delay]` — Enable looping; optional delay between iterations (`ms`, `s`, `m`, `h`; default `0` for tight loop)
+- `-c` / `--continue [delay]` — Enable looping; optional delay between iterations (`ms`, `s`, `m`, `h`; default `0` for tight loop)
+- `-C` / `--continue-on-fail [delay]` — Like `-c`, but keeps looping even if clauses fail
 - `--for <time>` — Stop after total run time hits limit (works for single execution too)
 - `-u` / `--until-idle <time>` — Stop once the input window is empty for the given period (`0` exits immediately on idle)
-- `-k` / `--ignore-failures` — Keep looping even if clauses fail (suppresses program-failure exit)
 
 ```bash
 fiskta --continue 200ms --input metrics.log \
@@ -522,7 +533,7 @@ fiskta uses exit codes to indicate success, failure, and the type of error encou
   - At least one clause succeeded in the final iteration
 - **1**: Program failure (no clause succeeded in final iteration)
   - Returned when every clause in the last iteration failed
-  - Suppressed by `--ignore-failures` while looping
+  - Suppressed by `-C` / `--continue-on-fail` while looping
 - **2**: Execution timeout (`--for` elapsed)
 - **7**: Usage error (CLI misuse)
   - Unknown or unsupported flags, invalid flag combinations
@@ -542,67 +553,17 @@ fiskta uses exit codes to indicate success, failure, and the type of error encou
   - malloc() failed (insufficient available memory)
   - Arena allocation exhausted
 
-## Views and Scoping
+## Limits
 
-Views let you restrict operations to a specific region of the file. This is useful for extracting from sections or preventing operations from wandering too far.
-
-### Basic Usage
-
-```bash
-# Limit operations to bytes 100-200
-fiskta --input data.txt view BOF+100b BOF+200b take to EOF
-
-# Extract only from the [server] section
-fiskta --input config.ini \
-    find "[server]" skip to match-end label START \
-    find "[" label END \
-    view START END \
-    ...
-```
-
-### View Atomicity
-
-Views are part of clause atomicity. If a clause fails, view changes are rolled back:
-
-```bash
-# View is only set if find succeeds
-find "[section]" view cursor cursor+1000b
-```
-
-### View Scope
-
-Once a view is set:
-- `find`, `find:re`, and `find:bin` only search within the view
-- `take` and `skip` can't move outside the view
-- `skip to` fails if the target is outside the view
-- The view remains active until `clear view` or program ends
-
-### Nested Views
-
-You can't nest views, but you can replace them:
-
-```bash
-view BOF EOF-1000b    # exclude last 1000 bytes
-# ... do stuff ...
-view BOF EOF          # back to full file
-```
-
-## Common Patterns
-
-**Extract from specific section:**
-```bash
-fiskta --continue --input config.ini \
-    find "[database]" skip to line-end label S \
-    find "[" label E \
-    view S E \
-    find "=" take to line-end
-```
-
-**Limit search scope:**
-```bash
-# Only look in next 1000 bytes for pattern
-view cursor cursor+1000b find "marker"
-```
+| Resource | Limit |
+|----------|-------|
+| Labels | 128 total, 15 character names |
+| Operation tokens | 1024 per program |
+| Search pattern size | 16 KB |
+| Regex `{n,m}` counters | 16 per pattern |
+| Regex alternations | 256 per group |
+| Regex VM memory | 2 MiB (configurable via `FisktaBuildOptions`) |
+| Regex work budget | 50M thread enqueues per search |
 
 ## Examples
 
@@ -622,14 +583,6 @@ Problem: Skip first 5 lines of a report, then extract the next 20 lines
 fiskta --input report.txt skip 5l take 20l
 ```
 
-### Extract after a marker
-
-Problem: Find "ERROR:" and extract the rest of the line
-
-```bash
-fiskta --input app.log find "ERROR:" take to line-end
-```
-
 ### Conditional extraction
 
 Problem: Extract the username only if the line contains "login success"
@@ -639,30 +592,12 @@ fiskta --input auth.log \
     find "login success" skip to line-end skip -1l find "user=" skip 5b take until " "
 ```
 
-### Try multiple patterns
-
-Problem: Extract error messages that might start with "ERROR:" or "FATAL:"
-
-```bash
-fiskta --input app.log \
-    find "ERROR:" take to line-end OR find "FATAL:" take to line-end
-```
-
 ### Extract between delimiters
 
 Problem: Extract content between `<tag>` and `</tag>`
 
 ```bash
 fiskta --input data.xml find "<tag>" skip 5b take until "<"
-```
-
-### Extract all occurrences
-
-Problem: Extract all email addresses
-
-```bash
-fiskta --continue --input contacts.txt \
-    find:re "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+" take to match-end print "\n"
 ```
 
 ### Extract from specific section
@@ -706,7 +641,7 @@ fiskta --continue --input photo.jpg \
 ```
 Program        = Clause { ( "THEN" | "OR" ) Clause } .
 Clause         = { Op } .
-Op             = Find | FindRegex | FindBinary | Skip | Take | Label
+Op             = Find | FindRegex | FindBinary | Skip | Take | Label | ClearLabel
                | View | ClearView | Print | Fail .
 Find           = "find" [ "to" LocationExpr ] String .
 FindRegex      = "find" ":" "re" [ "to" LocationExpr ] String .
@@ -718,6 +653,7 @@ Take           = "take" ( SignedNumber Unit
                           | "until" ":" "re" String [ "at" AtExpr ]
                           | "until" ":" "bin" String [ "at" AtExpr ] ) .
 Label          = "label" Name .
+ClearLabel     = "clear" Name .
 View           = "view" LocationExpr LocationExpr .
 ClearView      = "clear" "view" .
 Print          = ( "print" | "echo" ) String .
@@ -740,5 +676,66 @@ UpperLetter    = "A" | "B" | "C" | "D" | "E" | "F" | "G"
                | "V" | "W" | "X" | "Y" | "Z" .
 Digit          = "0" | "1" | "2" | "3" | "4" | "5"
                | "6" | "7" | "8" | "9" .
-ShellString    = shell-quoted non-empty byte string .
+ShellString    = shell-quoted byte string (may be empty for print/echo) .
+```
+
+## Library API
+
+fiskta can be embedded as a C library. Include `fiskta.h` (the single public header) and link against `libfiskta.a`.
+
+### Three-phase execution
+
+```c
+#include "fiskta.h"
+
+// 1. Measure memory requirements (no allocation, no side effects)
+FisktaBuildOptions opts = {0};  // use defaults
+FisktaRuntimeRequirements req;
+fiskta_program_requirements(token_count, tokens, &opts, &req);
+
+// 2. Allocate arena and build program
+void* arena = malloc(req.arena_bytes);
+FisktaProgram prog;
+FisktaRuntimeBuffers buffers;
+fiskta_build_program(token_count, tokens, &opts, &prog, arena, req.arena_bytes, &buffers);
+
+// 3. Execute against a file (or in-memory buffer)
+FisktaRuntimeConfig config = {0};
+int rc = fiskta_runtime_execute(&prog, "input.txt", &buffers, &config);
+// or: fiskta_runtime_execute_buffer(&prog, data, len, &buffers, &config);
+
+free(arena);
+```
+
+All functions return `int` `FISKTA_EXIT_*` codes. Detailed error information is available via `fiskta_error_code()`, `fiskta_error_message()`, and `fiskta_error_position()`.
+
+### Configuration
+
+`FisktaBuildOptions` controls regex engine resource limits:
+- `regex_budget_bytes` — total memory for regex VM (default: 2 MiB)
+- `regex_work_budget` — max thread enqueues per search (default: 50M)
+
+`FisktaRuntimeConfig` controls execution behavior:
+- `loop_enabled` / `loop_ms` — continue mode with delay
+- `ignore_loop_failures` — suppress program-failure exits while looping
+- `idle_timeout_ms` / `exec_timeout_ms` — timeouts
+- `error_callback` / `output_callback` — intercept errors and output instead of stderr/stdout
+
+### Memory model
+
+- All memory is allocated once at startup via a single arena (`req.arena_bytes`)
+- Zero allocations during execution; memory usage is independent of input size
+- The caller owns the arena and frees it when done
+- `FisktaRuntimeBuffers` may be reused across calls but is not thread-safe
+
+### Building the library
+
+```bash
+make release    # produces dist/lib/libfiskta.a and dist/include/fiskta.h
+```
+
+Or with zig:
+
+```bash
+zig build release    # produces shared and static libraries per platform
 ```
