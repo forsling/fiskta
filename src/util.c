@@ -266,7 +266,7 @@ size_t calculate_escaped_string_length(FisktaString str)
     return dst_len;
 }
 
-FisktaString parse_string_to_bytes(FisktaString str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum FisktaErr* err_out, i32* cursor_marks_out, i16* cursor_offsets_out)
+FisktaString parse_string_to_bytes(FisktaString str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum FisktaErr* err_out, i32* cursor_marks_out, i32* cursor_offsets_out)
 {
     FisktaString out = { 0 };
     if (err_out) {
@@ -353,7 +353,7 @@ FisktaString parse_string_to_bytes(FisktaString str, char* str_pool, size_t* str
             if (esc == 'c' || esc == 'C') {
                 // Track offset where cursor should be inserted
                 if (cursor_marks_out && cursor_offsets_out) {
-                    cursor_offsets_out[*cursor_marks_out] = (i16)dst_pos;
+                    cursor_offsets_out[*cursor_marks_out] = (i32)dst_pos;
                     (*cursor_marks_out)++;
                 }
                 i++;

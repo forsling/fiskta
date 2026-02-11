@@ -775,7 +775,7 @@ FISKTA_API int fiskta_build_program(i32 token_count, const FisktaString* tokens,
     ReInst* re_ins = arena_alloc(&arena, re_ins_bytes, alignof(ReInst));
     ReClass* re_cls = arena_alloc(&arena, re_cls_bytes, alignof(ReClass));
     char* str_pool = arena_alloc(&arena, str_pool_bytes, alignof(char));
-    i16* offset_pool = (plan.sum_inline_lits > 0) ? arena_alloc(&arena, (size_t)plan.sum_inline_lits * sizeof(i16), alignof(i16)) : NULL;
+    i32* offset_pool = (plan.sum_inline_lits > 0) ? arena_alloc(&arena, (size_t)plan.sum_inline_lits * sizeof(i32), alignof(i32)) : NULL;
     FisktaRange* clause_ranges = (plan.sum_take_ops > 0) ? arena_alloc(&arena, (size_t)plan.sum_take_ops * sizeof(FisktaRange), alignof(FisktaRange)) : NULL;
     LabelWrite* clause_labels = (plan.sum_label_ops > 0) ? arena_alloc(&arena, (size_t)plan.sum_label_ops * sizeof(LabelWrite), alignof(LabelWrite)) : NULL;
     char* clause_inline = (plan.sum_inline_lits > 0) ? arena_alloc(&arena, (size_t)plan.sum_inline_lits * FISKTA_MAX_INLINE_LIT, alignof(char)) : NULL;

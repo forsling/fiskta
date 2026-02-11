@@ -19,4 +19,4 @@ typedef struct ParsePlan {
 // Two-phase parsing: preflight to measure, build to construct
 enum FisktaErr parse_preflight(i32 token_count, const FisktaString* tokens, const char* in_path, ParsePlan* plan, const char** in_path_out);
 enum FisktaErr parse_build(i32 token_count, const FisktaString* tokens, const char* in_path, FisktaProgram* prg, const char** in_path_out,
-    FisktaClause* clauses_buf, FisktaOp* ops_buf, char* str_pool, size_t str_pool_cap, i16* offset_pool);
+    FisktaClause* clauses_buf, FisktaOp* ops_buf, char* str_pool, size_t str_pool_cap, i32* offset_pool);

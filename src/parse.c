@@ -191,7 +191,7 @@ static inline bool is_keyword(FisktaString token, const FisktaString* kw)
 static enum FisktaErr parse_op(const FisktaString* tokens, i32* idx, i32 token_count, FisktaOp* op, FisktaProgram* prg,
     LabelTable* labels,
     char* str_pool, size_t* str_pool_off, size_t str_pool_cap,
-    i16* offset_pool, i32* offset_pool_off);
+    i32* offset_pool, i32* offset_pool_off);
 static enum FisktaErr parse_loc_expr(const FisktaString* tokens, i32* idx, i32 token_count, FisktaLocExpr* loc, FisktaProgram* prg, LabelTable* labels);
 static enum FisktaErr parse_at_expr(const FisktaString* tokens, i32* idx, i32 token_count, FisktaLocExpr* at);
 static enum FisktaErr parse_offset(FisktaString token, i64* offset, FisktaUnit* unit);
@@ -938,7 +938,7 @@ static bool has_empty_quantified_group(const char* pattern, size_t len)
 }
 
 enum FisktaErr parse_build(i32 token_count, const FisktaString* tokens, const char* in_path, FisktaProgram* prg, const char** in_path_out,
-    FisktaClause* clauses_buf, FisktaOp* ops_buf, char* str_pool, size_t str_pool_cap, i16* offset_pool)
+    FisktaClause* clauses_buf, FisktaOp* ops_buf, char* str_pool, size_t str_pool_cap, i32* offset_pool)
 {
     memset(prg, 0, sizeof(*prg));
 
@@ -1467,7 +1467,7 @@ static enum FisktaErr parse_op_dry_run(const FisktaString* tokens, i32* idx, i32
 
 static enum FisktaErr parse_op(const FisktaString* tokens, i32* idx, i32 token_count, FisktaOp* op, FisktaProgram* prg, LabelTable* labels,
     char* str_pool, size_t* str_pool_off, size_t str_pool_cap,
-    i16* offset_pool, i32* offset_pool_off)
+    i32* offset_pool, i32* offset_pool_off)
 {
     if (*idx >= token_count) {
         error_set(FISKTA_E_PARSE, token_count, "unexpected end of input while reading operation");
@@ -1807,7 +1807,7 @@ static enum FisktaErr parse_op(const FisktaString* tokens, i32* idx, i32 token_c
         i32 parsed_marks = 0;
 
         // Allocate offset array if there are cursor marks
-        i16* offsets = NULL;
+        i32* offsets = NULL;
         if (offset_pool && offset_pool_off) {
             offsets = offset_pool + *offset_pool_off;
         }

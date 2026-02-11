@@ -35,7 +35,7 @@ bool string_eq_cstr(FisktaString s, const char* literal);
 char string_first(FisktaString s);
 FisktaString string_from_cstr(const char* s);
 
-FisktaString parse_string_to_bytes(FisktaString str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum FisktaErr* err_out, i32* cursor_marks_out, i16* cursor_offsets_out);
+FisktaString parse_string_to_bytes(FisktaString str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum FisktaErr* err_out, i32* cursor_marks_out, i32* cursor_offsets_out);
 FisktaString parse_hex_to_bytes(FisktaString hex_str, char* str_pool, size_t* str_pool_off, size_t str_pool_cap, enum FisktaErr* err_out);
 
 // Parser-specific string helpers

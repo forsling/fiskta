@@ -172,7 +172,7 @@ typedef struct {
         } view_clear;
         struct {
             FisktaString string;
-            i16* cursor_offsets;
+            i32* cursor_offsets;
             i32 cursor_marks;
             i32 literal_segments;
         } print;
