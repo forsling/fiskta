@@ -112,11 +112,6 @@ static bool parse_cli_args(int argc, char** argv,
             argi++;
             continue;
         }
-        if (strcmp(arg, "--every") == 0 || strncmp(arg, "--every=", 8) == 0) {
-            fprintf(stderr, "fiskta: --every has been removed. Use '--continue <time>' (or just '--continue' for tight loop).\n");
-            *exit_code_out = FISKTA_EXIT_USAGE;
-            return false;
-        }
         if (strcmp(arg, "-u") == 0 || strcmp(arg, "--until-idle") == 0) {
             if (argi + 1 >= argc) {
                 fprintf(stderr, "fiskta: -u/--until-idle requires a value\n");
@@ -213,7 +208,7 @@ static bool parse_cli_args(int argc, char** argv,
             argi++;
             continue;
         }
-        if (strcmp(arg, "-k") == 0 || strcmp(arg, "--ignore-failures") == 0 || strcmp(arg, "--continue-on-fail") == 0) {
+        if (strcmp(arg, "-C") == 0 || strcmp(arg, "--continue-on-fail") == 0) {
             cfg.ignore_loop_failures = true;
             argi++;
             continue;

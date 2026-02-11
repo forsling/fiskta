@@ -120,8 +120,7 @@ static inline void print_usage(void)
     printf("      --ops-file <path>       Operations from file\n");
     printf("      --                      Treat subsequent arguments as operations\n");
     printf("      --for <time>            Halt execution after set duration\n");
-    printf("      --continue-on-fail      Suppress exit code 1 when clauses fail (useful with looping)\n");
-    printf("  -k, --ignore-failures       Alias for --continue-on-fail (deprecated)\n");
+    printf("  -C, --continue-on-fail      Suppress exit code 1 when clauses fail (useful with looping)\n");
     printf("  -h, --help                  Show this help message\n");
     printf("  -v, --version               Show version information\n");
     printf("\n");

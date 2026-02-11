@@ -2757,7 +2757,7 @@ def tests():
 
         dict(id="loop-011-ignore-failures-rescan-emulation",
              tokens=["clear","view","THEN","skip","to","BOF","THEN","find","MISSING","THEN","skip","to","EOF"], input_file="empty.txt",
-             extra_args=["--until-idle","0","--ignore-failures"],
+             extra_args=["--until-idle","0","--continue-on-fail"],
              expect=dict(stdout="", exit=0)),
 
         dict(id="loop-012-naked-every-continue",
@@ -2854,7 +2854,7 @@ def tests():
         # Rescan emulation with ignore-failures: keeps running despite failures (monitor recipe)
         dict(id="loop-slow-rescan-003-ignore-failures",
              tokens=["clear","view","THEN","skip","to","BOF","THEN","find","NOTHERE","THEN","skip","to","EOF"], input_file="overlap.txt",
-             extra_args=["--continue","20ms","-u","80ms","--ignore-failures"],
+             extra_args=["--continue","20ms","-u","80ms","--continue-on-fail"],
              expect=dict(stdout="", exit=0),
              slow=True),
 
