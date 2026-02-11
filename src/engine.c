@@ -402,7 +402,6 @@ static enum FisktaErr skip_op(
         apply_delta_with_clamp(&cur, op->u.skip.by_offset.offset, c_view, io, CLAMP_VIEW);
         *c_cursor = cur;
     } else if (op->u.skip.by_offset.unit == FISKTA_UNIT_LINES) {
-        // Skip by lines
         i64 current_line_start;
         enum FisktaErr err = io_line_start(io, *c_cursor, &current_line_start);
         if (err != FISKTA_E_OK) {
@@ -414,8 +413,7 @@ static enum FisktaErr skip_op(
             current_line_start = view_bof(c_view);
         }
 
-        err = io_step_lines(io, current_line_start,
-            (i32)op->u.skip.by_offset.offset, c_cursor);
+        err = io_step_lines(io, current_line_start, op->u.skip.by_offset.offset, c_cursor);
         if (err != FISKTA_E_OK) {
             return err;
         }
@@ -426,7 +424,7 @@ static enum FisktaErr skip_op(
         if (err != FISKTA_E_OK) {
             return err;
         }
-        err = io_step_chars(io, char_start, (i32)op->u.skip.by_offset.offset, c_cursor);
+        err = io_step_chars(io, char_start, op->u.skip.by_offset.offset, c_cursor);
         if (err != FISKTA_E_OK) {
             return err;
         }
@@ -513,22 +511,14 @@ static enum FisktaErr take_len_op(
 
         if (op->u.take_len.offset > 0) {
             start = line_start;
-            if (op->u.take_len.offset > INT_MAX) {
-                return FISKTA_E_PARSE;
-            }
-            err = io_step_lines(io, line_start,
-                (i32)op->u.take_len.offset, &end);
+            err = io_step_lines(io, line_start, op->u.take_len.offset, &end);
             if (err != FISKTA_E_OK) {
                 return err;
             }
             end = view_clamp(c_view, io, end);
         } else {
             end = line_start;
-            if (op->u.take_len.offset < -INT_MAX) {
-                return FISKTA_E_PARSE;
-            }
-            err = io_step_lines(io, line_start,
-                (i32)op->u.take_len.offset, &start);
+            err = io_step_lines(io, line_start, op->u.take_len.offset, &start);
             if (err != FISKTA_E_OK) {
                 return err;
             }
@@ -542,7 +532,7 @@ static enum FisktaErr take_len_op(
         }
         if (op->u.take_len.offset > 0) {
             start = cstart;
-            err = io_step_chars(io, cstart, (i32)op->u.take_len.offset, &end);
+            err = io_step_chars(io, cstart, op->u.take_len.offset, &end);
             if (err != FISKTA_E_OK) {
                 return err;
             }
@@ -550,7 +540,7 @@ static enum FisktaErr take_len_op(
         } else {
             end = cstart;
             i64 s;
-            err = io_step_chars(io, cstart, (i32)op->u.take_len.offset, &s);
+            err = io_step_chars(io, cstart, op->u.take_len.offset, &s);
             if (err != FISKTA_E_OK) {
                 return err;
             }
@@ -925,25 +915,17 @@ static enum FisktaErr resolve_location(
         if (loc->unit == FISKTA_UNIT_BYTES) {
             apply_delta_with_clamp(&base, loc->offset, c_view, io, clamp == CLAMP_FILE ? CLAMP_FILE : clamp);
         } else if (loc->unit == FISKTA_UNIT_LINES) {
-            if (loc->offset > INT_MAX || loc->offset < -INT_MAX) {
-                return FISKTA_E_PARSE;
-            }
-            i32 d = (i32)loc->offset;
-            enum FisktaErr e = io_step_lines(io, base, d, &base);
+            enum FisktaErr e = io_step_lines(io, base, loc->offset, &base);
             if (e != FISKTA_E_OK) {
                 return e;
             }
         } else { // FISKTA_UNIT_CHARS
-            if (loc->offset > INT_MAX || loc->offset < -INT_MAX) {
-                return FISKTA_E_PARSE;
-            }
             i64 cs;
             enum FisktaErr e = io_prev_char_start(io, base, &cs);
             if (e != FISKTA_E_OK) {
                 return e;
             }
-            i32 d = (i32)loc->offset;
-            e = io_step_chars(io, cs, d, &cs);
+            e = io_step_chars(io, cs, loc->offset, &cs);
             if (e != FISKTA_E_OK) {
                 return e;
             }

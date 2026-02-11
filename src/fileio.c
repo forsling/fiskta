@@ -421,7 +421,7 @@ enum FisktaErr io_line_end(File* io, i64 pos, i64* out)
     return FISKTA_E_OK;
 }
 
-enum FisktaErr io_step_lines(File* io, i64 start_line_start, i32 delta, i64* out_line_start)
+enum FisktaErr io_step_lines(File* io, i64 start_line_start, i64 delta, i64* out_line_start)
 {
     if (start_line_start < 0 || start_line_start > io->size) {
         return FISKTA_E_LOC_RESOLVE;
@@ -431,7 +431,7 @@ enum FisktaErr io_step_lines(File* io, i64 start_line_start, i32 delta, i64* out
 
     if (delta > 0) {
         // Move forward by delta lines
-        for (i32 i = 0; i < delta; i++) {
+        for (i64 i = 0; i < delta; i++) {
             i64 line_end;
             enum FisktaErr err = io_line_end(io, current, &line_end);
             if (err != FISKTA_E_OK) {
@@ -445,8 +445,8 @@ enum FisktaErr io_step_lines(File* io, i64 start_line_start, i32 delta, i64* out
             current = line_end;
         }
     } else if (delta < 0) {
-        // Move backward by |delta| lines
-        for (i32 i = 0; i < -delta; i++) {
+        // Move backward — count up from delta to avoid negating INT64_MIN
+        for (i64 i = delta; i < 0; i++) {
             if (current == 0) {
                 *out_line_start = 0;
                 return FISKTA_E_OK;
@@ -524,7 +524,7 @@ enum FisktaErr io_prev_char_start(File* io, i64 pos, i64* out)
     return FISKTA_E_OK;
 }
 
-enum FisktaErr io_step_chars(File* io, i64 start, i32 delta, i64* out)
+enum FisktaErr io_step_chars(File* io, i64 start, i64 delta, i64* out)
 {
     if (start < 0) {
         start = 0;
@@ -537,7 +537,7 @@ enum FisktaErr io_step_chars(File* io, i64 start, i32 delta, i64* out)
 
     if (delta >= 0) {
         // forward
-        for (i32 i = 0; i < delta; ++i) {
+        for (i64 i = 0; i < delta; ++i) {
             if (cur >= io->size) {
                 *out = io->size;
                 return FISKTA_E_OK;
@@ -583,9 +583,8 @@ enum FisktaErr io_step_chars(File* io, i64 start, i32 delta, i64* out)
         return FISKTA_E_OK;
     }
 
-    // backward
-    i32 steps = -delta;
-    for (i32 i = 0; i < steps; ++i) {
+    // backward — count up from delta to avoid negating INT64_MIN
+    for (i64 i = delta; i < 0; ++i) {
         if (cur <= 0) {
             *out = 0;
             return FISKTA_E_OK;

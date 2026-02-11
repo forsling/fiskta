@@ -173,8 +173,8 @@ static inline i64 io_size(const File* io) { return io->size; }
 // This means: line content with newline = [line_start, line_end)
 enum FisktaErr io_line_start(File* io, i64 pos, i64* out);
 enum FisktaErr io_line_end(File* io, i64 pos, i64* out);
-enum FisktaErr io_step_lines(File* io, i64 start_line_start, i32 delta, i64* out_line_start);
+enum FisktaErr io_step_lines(File* io, i64 start_line_start, i64 delta, i64* out_line_start);
 
 // UTF-8 character navigation
 enum FisktaErr io_prev_char_start(File* io, i64 pos, i64* out_char_start); // snap to start of the char containing/after pos
-enum FisktaErr io_step_chars(File* io, i64 start_char_start, i32 delta, i64* out_char_start);
+enum FisktaErr io_step_chars(File* io, i64 start_char_start, i64 delta, i64* out_char_start);
