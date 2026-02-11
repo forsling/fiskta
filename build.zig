@@ -140,6 +140,13 @@ pub fn build(b: *std.Build) !void {
     test_cli_cmd.step.dependOn(host_step);
     test_step.dependOn(&test_cli_cmd.step);
 
+    const fuzz_step = b.step("fuzz", "Run fuzzer (uses ASAN build, 100K cases by default)");
+    const fuzz_cmd = b.addSystemCommand(&.{ "sh", "-c", "python3 tools/fuzz.py --fiskta-path zig-out/bin/fiskta-asan --cases 100000" });
+    fuzz_cmd.setCwd(b.path("."));
+    fuzz_cmd.setEnvironmentVariable("ZIG_GLOBAL_CACHE_DIR", global_cache);
+    fuzz_cmd.step.dependOn(asan_step);
+    fuzz_step.dependOn(&fuzz_cmd.step);
+
     const test_lib_step = b.step("test-lib", "Run test suite through library wrapper");
     const test_lib_cmd = b.addSystemCommand(&.{ "sh", "-c", "python3 tools/test.py --exe zig-out/bin/fiskta_library_wrapper | grep -v '\\[PASS\\]'" });
     test_lib_cmd.setCwd(b.path("."));
