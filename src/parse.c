@@ -141,12 +141,12 @@ static bool compute_print_stats(FisktaString token, size_t* out_len, i32* out_se
 // This must stay in sync with parse_offset().
 //
 // Returns pointer to '+' or '-' that begins offset suffix, or NULL if none.
-static const char* find_inline_offset_start(const char* s)
+static const char* find_inline_offset_start(FisktaString s)
 {
     // Skip the first char to avoid treating a leading sign as part of the base token
-    for (const char* p = s + 1; *p; ++p) {
-        if ((*p == '+' || *p == '-') && isdigit(p[1])) {
-            return p;
+    for (size_t i = 1; i < s.len; ++i) {
+        if ((s.bytes[i] == '+' || s.bytes[i] == '-') && i + 1 < s.len && isdigit(s.bytes[i + 1])) {
+            return s.bytes + i;
         }
     }
     return NULL;
@@ -836,6 +836,9 @@ enum FisktaErr parse_preflight(i32 token_count, const FisktaString* tokens, cons
             } else if (is_keyword(cmd_tok, &kw_clear)) {
                 idx++;
                 if (idx < token_count) {
+                    if (!is_keyword(tokens[idx], &kw_view)) {
+                        plan->sum_label_ops++; // clear <LABEL> needs a LabelWrite slot
+                    }
                     idx++;
                 }
             } else if (is_keyword(cmd_tok, &kw_print) || is_keyword(cmd_tok, &kw_echo)) {
@@ -1854,14 +1857,13 @@ static enum FisktaErr parse_loc_expr(const FisktaString* tokens, i32* idx, i32 t
 
     i32 loc_idx = *idx;
     FisktaString token_tok = tokens[*idx];
-    const char* token = token_tok.bytes;
     (*idx)++;
 
-    const char* offset_start = find_inline_offset_start(token);
+    const char* offset_start = find_inline_offset_start(token_tok);
     FisktaString base_tok;
     if (offset_start) {
         // Parse base part
-        size_t base_len = (size_t)(offset_start - token);
+        size_t base_len = (size_t)(offset_start - token_tok.bytes);
         if (base_len == 0) {
             error_set(FISKTA_E_PARSE, loc_idx, "location '%.*s' missing base before offset", token_tok.len, token_tok.bytes);
             return FISKTA_E_PARSE;
@@ -1872,7 +1874,7 @@ static enum FisktaErr parse_loc_expr(const FisktaString* tokens, i32* idx, i32 t
         }
 
         // Parse offset part
-        size_t offset_len = token_tok.len - (size_t)(offset_start - token_tok.bytes);
+        size_t offset_len = token_tok.len - base_len;
         FisktaString offset_str = { offset_start, offset_len };
         enum FisktaErr err = parse_offset(offset_str, &loc->offset, &loc->unit);
         if (err != FISKTA_E_OK) {
@@ -1946,14 +1948,13 @@ static enum FisktaErr parse_at_expr(const FisktaString* tokens, i32* idx, i32 to
 
     i32 at_idx = *idx;
     FisktaString token_tok = tokens[*idx];
-    const char* token = token_tok.bytes;
     (*idx)++;
 
-    const char* offset_start = find_inline_offset_start(token);
+    const char* offset_start = find_inline_offset_start(token_tok);
     FisktaString base_tok;
     if (offset_start) {
         // Parse base part
-        size_t base_len = (size_t)(offset_start - token);
+        size_t base_len = (size_t)(offset_start - token_tok.bytes);
         if (base_len == 0) {
             error_set(FISKTA_E_PARSE, at_idx, "location '%.*s' missing base before offset", token_tok.len, token_tok.bytes);
             return FISKTA_E_PARSE;
@@ -1964,8 +1965,7 @@ static enum FisktaErr parse_at_expr(const FisktaString* tokens, i32* idx, i32 to
         }
 
         // Parse offset part
-        // Create String for offset part - compute length directly
-        size_t offset_len = token_tok.len - (size_t)(offset_start - token_tok.bytes);
+        size_t offset_len = token_tok.len - base_len;
         FisktaString offset_str = { offset_start, offset_len };
         enum FisktaErr err = parse_offset(offset_str, &at->offset, &at->unit);
         if (err != FISKTA_E_OK) {
