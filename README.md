@@ -215,21 +215,25 @@ fiskta --continue 1s --until-idle 0 --input service.log find "ERROR" take to lin
 
 ## Installation
 
-### Using build.sh (simple local builds)
+### Pre-built binaries
+
+Pre-built binaries for Linux x86_64 (glibc and musl), macOS aarch64, and Windows x86_64 are available from the [GitHub releases page](https://github.com/forsling/fiskta/releases).
+
+### Using Make
 
 ```bash
-./build.sh              # Build optimized binary (./fiskta)
-./build.sh --debug      # Build with debug symbols
-python3 test.py             # Run test suite
-./benchmark.sh ./fiskta     # Run performance benchmark
+make                                # Build optimized binary (./fiskta)
+make debug                          # Build with debug symbols
+make release                        # Build stripped binary + static library in dist/
+make test                           # Run test suite
 ```
 
-### Using Zig (easy cross-compilation)
+### Using Zig (cross-compilation)
 
 ```bash
-zig build                    # Build for host platform (zig-out/bin/fiskta)
-zig build test               # Build and run test suite
-zig build release            # Build for all platforms (Linux, macOS, Windows)
+zig build                           # Build for host platform (zig-out/bin/fiskta)
+zig build test                      # Build and run test suite
+zig build release                   # Cross-compile for all platforms
 ```
 
 ## Command Reference

@@ -94,7 +94,7 @@ def auto_detect_binary() -> tuple[Path, bool]:
     if Path("zig-out/bin/fiskta").exists():
         return Path("zig-out/bin/fiskta").absolute(), False
 
-    print("Error: No fiskta binary found. Run ./build.sh or zig build first", file=sys.stderr)
+    print("Error: No fiskta binary found. Run make or zig build first", file=sys.stderr)
     sys.exit(2)
 
 def setup_asan_env():

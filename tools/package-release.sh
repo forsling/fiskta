@@ -23,6 +23,9 @@ else
     VERSION=$(git describe --tags --dirty --always 2>/dev/null || echo "unknown")
     VERSION="${VERSION#v}"
     echo "Auto-detected version: $VERSION"
+    if echo "$VERSION" | grep -qE '(-|dirty)'; then
+        echo "warning: version '$VERSION' is not a clean tag. Pass explicit version for release." >&2
+    fi
 fi
 
 echo "Packaging fiskta $VERSION"
@@ -84,6 +87,30 @@ for platform in fiskta-linux-x86_64 fiskta-linux-x86_64-musl fiskta-macos-arm64 
     done
 done
 echo "Headers verified."
+
+# Verify libraries are present
+echo "Verifying libraries..."
+for platform in fiskta-linux-x86_64 fiskta-linux-x86_64-musl fiskta-macos-arm64 fiskta-windows-x86_64; do
+    lib_dir="$RELEASE_DIR/$platform/lib"
+    if [ ! -d "$lib_dir" ]; then
+        echo "  MISSING: $lib_dir/" >&2
+        FAIL=1
+        continue
+    fi
+    lib_count=$(find "$lib_dir" -type f | wc -l)
+    if [ "$lib_count" -eq 0 ]; then
+        echo "  EMPTY: $lib_dir/" >&2
+        FAIL=1
+    else
+        echo "  OK: $platform/lib/ ($lib_count files)"
+    fi
+done
+
+if [ "$FAIL" -ne 0 ]; then
+    echo ""
+    echo "error: library verification failed" >&2
+    exit 1
+fi
 echo ""
 
 # Create dist directory
@@ -106,6 +133,9 @@ package_tar() {
         cp "$f" "$staging/$rel"
     done
 
+    # Include LICENSE
+    cp LICENSE "$staging/"
+
     tar -czf "$DIST_DIR/${archive_name}.tar.gz" -C "$DIST_DIR/.staging" "$archive_name"
 }
 
@@ -123,6 +153,9 @@ package_zip() {
         cp "$f" "$staging/$rel"
     done
 
+    # Include LICENSE
+    cp LICENSE "$staging/"
+
     (cd "$DIST_DIR/.staging" && zip -qr "../${archive_name}.zip" "$archive_name")
 }
 
@@ -134,8 +167,14 @@ package_zip  "fiskta-windows-x86_64"    "fiskta-${VERSION}-windows-x86_64"
 # Clean up staging
 rm -rf "$DIST_DIR/.staging"
 
+# Generate checksums
+echo "Generating checksums..."
+(cd "$DIST_DIR" && (sha256sum *.tar.gz *.zip 2>/dev/null || shasum -a 256 *.tar.gz *.zip) > sha256sums.txt)
 echo ""
+
 echo "Release artifacts:"
 ls -lh "$DIST_DIR/"
+echo ""
+cat "$DIST_DIR/sha256sums.txt"
 echo ""
 echo "Ready for: gh release create v${VERSION} ${DIST_DIR}/*"
