@@ -1,309 +1,302 @@
 # (fi)nd (sk)ip (ta)ke
 
-**fiskta** is a cursor-oriented data extraction tool that operates on bytes, lines, and UTF-8 characters.
+**fiskta** is a cursor-oriented data extraction tool that operates on bytes, lines or UTF-u characters. With straightforward imperative operations you can find a pattern, skip around, and extract what you need. 
 
-Instead of writing complex pattern pipelines, you move a cursor through data with simple imperative operations: find something, skip around, take what you need. It is small (~100KB), zero-dependency (libc only), and allocation-averse (memory independent of input size).
+It is small (~100KB), dependency free (libc only), and allocation-averse (memory use independent of input size).
 
-## Quick Start
+## Examples
 
-### Install
+Extract the first 5 bytes:
 
-Pre-built binaries for Linux x86_64 (glibc and musl), macOS aarch64, and Windows x86_64 are available on the [GitHub releases page](https://github.com/forsling/fiskta/releases).
-
-### Build from source
-
-```bash
-make                # Build optimized binary (./fiskta)
-make debug          # Build with -O0 -g -DDEBUG
-make release        # Build stripped binary + static library in dist/
-make test           # Run test suite
-
-zig build           # Build for host platform (zig-out/bin/fiskta)
-zig build test      # Build and run test suite
-zig build release   # Cross-compile for all platforms
+```
+$ echo "hello world" \
+| fiskta take 5b
+hello
 ```
 
-### First commands
+Find a pattern and take the rest of the line:
 
-```bash
-# Skip one line, then emit 7 UTF-8 characters
-printf "Starting text\nMiddle line\nEnding line" | fiskta skip 1l take 7c
-
-# Find a marker and emit to end of line
-echo 'Connecting... ERROR: timeout' | fiskta find "ERROR:" take to line-end
-
-# Extract text between delimiters
-echo 'start: [content here] end' | fiskta find "[" skip 1b take until "]"
+```
+$ echo 'Connecting... ERROR: connection failed' \
+| fiskta find "ERROR:" take to line-end
+ERROR: connection failed
 ```
 
-## CLI Usage
+Skip lines, take lines:
 
-```bash
-fiskta [options] <operations>
+```
+$ fiskta --input data.txt skip 2l take 5l
 ```
 
-### Input and program source
+Extract text between delimiters:
 
-- `-i, --input <path>`: read from file instead of stdin
-- `--ops <string>`: provide operations as a single string
-- `--ops-file <path>`: load operations from a file
-- `--`: treat remaining arguments as operations
+```
+$ echo 'start: [content here] end' | fiskta find "[" skip 1b take until "]"
+content here
+```
 
-### Looping and timing
+Try multiple strategies — first success wins:
 
-- `-c, --continue [delay]`: loop execution (`ms`, `s`, `m`, `h`; default `0`)
-- `-C, --continue-on-fail [delay]`: continue looping even when no clause succeeds
-- `--for <time>`: stop after total elapsed wall-clock time
-- `-u, --until-idle <time>`: stop once the input window is empty for a duration (`0` exits immediately on idle)
+```
+$ echo 'id=12345 role=admin' | fiskta find "user=" skip 5b take until " " OR find "id=" skip 3b take until " "
+12345
+```
 
-### Other
+## How it works
 
-- `-h, --help`: show help
-- `-v, --version`: show version
+fiskta maintains a **cursor** — a byte position in the input. Every operation reads or moves this cursor. A program is a sequence of operations evaluated left to right.
 
-## Core Concepts
+There are three units for movement and extraction:
 
-### Units
+| Unit | Meaning |
+|------|---------|
+| `b` | Bytes |
+| `l` | Lines |
+| `c` | UTF-8 code points |
 
-- `b`: bytes
-- `l`: lines
-- `c`: UTF-8 code points
+### Operations
+
+| Operation | Description |
+|-----------|-------------|
+| `find [to <loc>] <string>` | Search for literal string; move cursor to match. Default direction: toward EOF |
+| `find:re [to <loc>] <regex>` | Search using regular expression |
+| `find:bin [to <loc>] <hex>` | Search for binary pattern (e.g., `"89 50 4E 47"`) |
+| `take <n><unit>` | Extract n units from cursor. Negative goes backward |
+| `take to <loc>` | Extract from cursor to location (order-normalized) |
+| `take until <string>` | Extract forward until pattern is found (excluded by default) |
+| `take until:re <regex>` | Same, with regex |
+| `take until:bin <hex>` | Same, with binary pattern |
+| `skip <n><unit>` | Move cursor without output. Negative goes backward |
+| `skip to <loc>` | Move cursor to location without output |
+| `label <NAME>` | Mark current cursor position |
+| `clear <NAME>` | Unset a label (allows relabeling) |
+| `view <loc> <loc>` | Restrict all operations to a region |
+| `clear view` | Remove view restriction |
+| `print <string>` | Emit literal string (alias: `echo`). Supports `\n \t \r \0 \\ \xHH \c` |
+| `fail <message>` | Write message to stderr and fail the current clause |
 
 ### Locations
 
-- `cursor`: current cursor position
-- `BOF`: beginning of file
-- `EOF`: end of file
-- `match-start`: start of last match
-- `match-end`: end of last match
-- `line-start`: start of current line
-- `line-end`: end of current line
-- `<LABEL>`: named label position
+Locations are used with `to`, `skip to`, `take to`, `view`, and as label targets.
 
-Note: `line-start` / `line-end` in location expressions are relative to the cursor. In `take until ... at ...`, they are relative to the match.
+| Location | Meaning |
+|----------|---------|
+| `cursor` | Current position |
+| `BOF` | Beginning of file |
+| `EOF` | End of file |
+| `match-start` | Start of last match |
+| `match-end` | End of last match |
+| `line-start` | Start of current line (relative to cursor, or to match in `at` clauses) |
+| `line-end` | End of current line (relative to cursor, or to match in `at` clauses) |
+| `<LABEL>` | A named label position |
 
-### Offsets
+Locations accept offsets: `EOF-10b`, `match-end+1b`, `BOF+100b`.
 
-- `<location> +<n><unit>`
-- `<location> -<n><unit>`
+### Clauses and atomicity
 
-Inline forms like `BOF+100b` are valid.
+Operations are grouped into **clauses** connected by `THEN` or `OR`. Each clause is atomic: either all operations in it succeed (output emitted, cursor moved, labels committed) or the entire clause rolls back as if it never ran. If a program has no `THEN` or `OR`, the whole program is a single clause.
+
+`THEN` always runs the next clause. `OR` runs the next clause only if the current one failed.
+
+```
+# One atomic clause: if find fails, the skip and take never happened
+find "user=" skip 5b take until " "
+
+# OR: try first strategy, fall back to second
+find "user=" skip 5b take until " " OR find "id=" skip 3b take until " "
+
+# THEN: take line regardless of whether find succeeded
+find "Section:" THEN take to line-end
+```
+
+Rollback means staged output is discarded on failure, not just cursor position:
+
+```
+$ echo 'START hello' | fiskta find "START" skip 6b take 5b find "END" OR print "END missing\n"
+END missing
+```
+
+Here `take 5b` stages "hello", but when `find "END"` fails, the entire clause rolls back — "hello" is never emitted. The `OR` clause runs instead.
+
+## Searching
+
+### Literal search (`find`)
+
+```
+find "ERROR"              # search forward from cursor
+find to BOF "START"       # search backward
+```
+
+`find` searches within `[min(cursor, location), max(cursor, location))` and picks the match closest to the cursor.
+
+### Regex search (`find:re`)
+
+```
+find:re "ERROR|WARN"
+find:re "[0-9]{1,3}\.[0-9]{1,3}"
+find:re "<.*?>"                         # lazy matching
+```
+
+Supported syntax: character classes (`\d`, `\w`, `\s`, `[a-z]`, `[^0-9]`), quantifiers (`*`, `+`, `?`, `{n}`, `{n,m}`, `{n,}`) with greedy (default) and lazy (`*?`, `+?`, `??`, `{n,m}?`) variants, grouping `(...)`, alternation `|`, anchors `^` `$`, and `.` (any char except newline).
+
+### Binary search (`find:bin`)
+
+```
+find:bin "89504E470D0A1A0A"       # PNG header
+find:bin "50 4B 03 04"            # ZIP signature (spaces ignored)
+```
+
+Hex digits are case-insensitive and whitespace is ignored. Must have an even number of digits.
+
+## Extracting
+
+### `take until` and the `at` clause
+
+By default, `take until` excludes the matched pattern. The `at` clause controls where extraction stops:
+
+| `at` value | Behavior |
+|------------|----------|
+| `match-start` | Stop before the match (default) |
+| `match-end` | Stop after the match (include it) |
+| `line-start` | Stop at start of the line containing the match |
+| `line-end` | Stop at end of the line containing the match |
+
+Note: `line-start` and `line-end` in `at` clauses are relative to the **match**, not the cursor.
+
+```
+take until ";"                        # up to semicolon (excluded)
+take until "END" at match-end         # up to and including END
+take until "---" at line-start        # up to start of line containing ---
+```
+
+`take until:re` and `take until:bin` support the same `at` clause.
+
+## Navigation and state
 
 ### Labels
 
-- Must be uppercase names: first char `A-Z`, then `[A-Z0-9_-]`
-- Max length: 15 chars
-- Max labels: 128
-- Labels are write-once until cleared (`clear <NAME>`)
+Mark positions for later reference:
 
-## Command Reference
-
-### Finding
-
-#### `find [to <location>] <string>`
-
-Searches in `[min(cursor, L), max(cursor, L))` where `L` is `to <location>` (default `EOF`).
-
-- Forward search: `find "x"`
-- Backward search: `find to BOF "x"`
-- If multiple matches exist, picks the match closest to cursor
-
-#### `find:re [to <location>] <regex>`
-
-Same search semantics as `find`, but with regex pattern matching.
-
-#### `find:bin [to <location>] <hex-string>`
-
-Same search semantics as `find`, but with binary hex patterns.
-
-Hex rules:
-
-- Pairs of hex digits (`00`-`FF`)
-- Case-insensitive
-- Whitespace ignored (`DEADBEEF` and `DE AD BE EF` are equivalent)
-- Must contain an even number of hex digits
-
-### Extracting
-
-#### `take <n><unit>`
-
-Emit `n` units from cursor and move cursor. Negative values emit backward.
-
-```bash
-take 10b
-take -2l
-take 20c
+```
+label START
+find "end of header"
+take to START               # extract from START to here
 ```
 
-#### `take to <location>`
+Labels must be UPPERCASE (`[A-Z][A-Z0-9_-]`, max 15 chars, max 128 labels). Labels are write-once — setting one that already exists fails the clause. Use `clear <NAME>` to unset it first.
 
-Order-normalized extraction: emits `[min(cursor, L), max(cursor, L))` and moves cursor to the high end.
+### Views
 
-```bash
-take to EOF
-take to line-end
-take to cursor+100b
+Restrict all operations to a region of the file:
+
+```
+view BOF+100b EOF-100b        # ignore first and last 100 bytes
+find "secret"                 # only searches within the view
+clear view                    # back to full file
 ```
 
-#### `take until <string> [at match-start|match-end|line-start|line-end]`
+## Looping
 
-Forward-only search from cursor. Emits `[cursor, B)` where `B` is derived from the match. Cursor moves only if `B > cursor`.
+The `--continue` flag re-runs the program in a loop with an optional delay between iterations. In continue mode, cursor and labels persist across iterations. Each iteration starts with an implicit view `[cursor, EOF)`.
 
-- Default `at match-start`: exclude delimiter
-- `at match-end`: include delimiter
-- `at line-start` / `at line-end`: relative to the matched line
-
-#### `take until:re <regex> [at ...]`
-
-Same behavior as `take until`, using regex matching.
-
-#### `take until:bin <hex-string> [at ...]`
-
-Same behavior as `take until`, using binary hex matching (same hex rules as `find:bin`).
-
-### Movement and state
-
-#### `skip <n><unit>`
-
-Move cursor without output. Negative values move backward.
-
-#### `skip to <location>`
-
-Move cursor directly to a location without output.
-
-#### `label <NAME>`
-
-Set label at current cursor (fails if already set).
-
-#### `clear <NAME>`
-
-Unset a label so it can be assigned again.
-
-#### `view <L1> <L2>`
-
-Restrict subsequent operations to `[min(L1, L2), max(L1, L2))`.
-
-Inside a view:
-
-- Finds only search within view
-- Cursor movement/extraction cannot leave view
-- `skip to` fails if target is outside view
-- View changes are clause-atomic
-- View remains active until `clear view` or program end
-
-#### `clear view`
-
-Remove view restrictions.
-
-### Output and control
-
-#### `print <string>` (alias: `echo`)
-
-Emit literal bytes (staged with clause atomicity).
-
-Supported escapes: `\n`, `\t`, `\r`, `\0`, `\\`, `\xHH`, `\c` (cursor offset when staged).
-
-#### `fail <message>`
-
-Write message to stderr and fail the current clause.
-
-Unlike staged output, this message is written immediately.
-Supports the same escapes as `print`.
-
-## Program Flow
-
-Operations execute left-to-right against one cursor.
-
-If a program has no `THEN` or `OR`, the entire program is a single clause.
-
-### Clause atomicity
-
-Each clause commits as a unit:
-
-- If all ops succeed: staged output/state changes commit
-- If any op fails: clause rolls back (no staged output, no cursor/label/view changes)
-
-Example:
-
-```bash
-echo 'START hello' | fiskta find "START" skip 6b take 5b find "END" OR print "END missing\n"
+```
+fiskta --continue 200ms --input metrics.log find "latency=" take until " " print "\n"
 ```
 
-`take 5b` stages `hello`, but `find "END"` fails, so `hello` is rolled back and only the fallback clause runs.
+Since the cursor is saved between iterations, appending `THEN skip to EOF` gives tail-like semantics — each iteration only processes newly appended data:
 
-### Clause operators
-
-- `THEN`: always run the next clause
-- `OR`: run the next clause only if the current clause fails
-
-Evaluation is strictly left-to-right (no operator precedence).
-
-## Regex Syntax
-
-Supported in `find:re` and `take until:re`:
-
-- Character classes: `\d`, `\D`, `\w`, `\W`, `\s`, `\S`, `[a-z]`, `[^0-9]`
-- Quantifiers: `*`, `+`, `?`, `{n}`, `{n,m}`, `{n,}`
-- Lazy quantifiers: `*?`, `+?`, `??`, `{n,m}?`, `{n,}?`
-- Grouping: `( ... )`
-- Alternation: `|`
-- Anchors: `^`, `$`
-- Escapes: `\n`, `\t`, `\r`, `\f`, `\v`, `\0`
-- Dot: `.` (any char except newline)
-
-Limits:
-
-- Max 16 distinct `{n,m}` counters per pattern
-- Max 256 alternations
-
-## Looping (Continue Mode)
-
-Loop mode resumes from the last cursor position and preserves label/view state across iterations.
-
-Append `THEN skip to EOF`:
-
-```bash
-fiskta --continue 1s --until-idle 0 --input service.log \
-  find "WARNING:" take to line-end THEN skip to EOF
+```
+fiskta --continue 1s --until-idle 0 --input service.log find "ERROR" take to line-end THEN skip to EOF
 ```
 
-For files rewritten in place (not only appended), reset before scanning:
+| Flag | Description |
+|------|-------------|
+| `-c, --continue [delay]` | Loop with optional delay (`ms`, `s`, `m`, `h`). Default: tight loop |
+| `-C, --continue-on-fail [delay]` | Like `-c`, but keeps looping even when all clauses fail |
+| `--for <time>` | Stop after total wall-clock time elapses |
+| `-u, --until-idle <time>` | Stop when input has been empty for the given duration (`0` = exit immediately on idle) |
 
-- Prefix with `clear view THEN skip to BOF`
-- Keep `THEN skip to EOF` at the end
+## CLI reference
 
-## More Examples
-
-### Skip header, extract body
-
-```bash
-fiskta --input report.txt skip 5l take 20l
+```
+fiskta [options] <operations>
 ```
 
-### Conditional extraction
+| Option | Description |
+|--------|-------------|
+| `-i, --input <path>` | Read from file (default: stdin) |
+| `--ops <string>` | Operations as inline string |
+| `--ops-file <path>` | Load operations from a file |
+| `--` | Treat remaining args as operations |
+| `-c`, `-C`, `--for`, `-u` | Looping options (see [Looping](#looping)) |
+| `-h, --help` | Show help |
+| `-v, --version` | Show version |
 
-```bash
-fiskta --input auth.log \
-  find "login success" skip to line-end skip -1l find "user=" skip 5b take until " "
+## Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | Program failure (no clause succeeded) |
+| 2 | Execution timeout (`--for` elapsed) |
+| 7 | Usage error (bad flags, missing values) |
+| 8 | Parse error (grammar or regex syntax) |
+| 9 | Capacity exceeded (pattern too complex, too many labels/ops) |
+| 10 | I/O error (file not found, permission denied) |
+| 11 | Resource exhaustion (out of memory) |
+
+## Installation
+
+### Pre-built binaries
+
+Available for Linux x86_64 (glibc and musl), macOS aarch64, and Windows x86_64 from the [releases page](https://github.com/forsling/fiskta/releases).
+
+### Build from source
+
+```
+make                    # optimized binary (./fiskta)
+make debug              # with debug symbols
+make test               # run test suite
 ```
 
-### Binary file detection
+Or with Zig for cross-compilation:
 
-```bash
-fiskta --input image.bin \
-  find:bin "89 50 4E 47 0D 0A 1A 0A" print "PNG" OR fail "Not a PNG file"
+```
+zig build               # host platform
+zig build release       # all platforms
+zig build test          # run tests
 ```
 
-## Exit Codes
+## Library API
 
-- `0`: success (includes normal `--until-idle` stop)
-- `1`: program failure (no clause succeeded in final iteration)
-- `2`: timeout (`--for` elapsed)
-- `7`: CLI usage error
-- `8`: parse error (program grammar or regex syntax)
-- `9`: capacity exceeded (limits hit)
-- `10`: I/O error
-- `11`: resource exhaustion (allocation failure/OOM)
+fiskta can be embedded as a C library. Include `fiskta.h` and link against `libfiskta.a`.
+
+
+```c
+#include "fiskta.h"
+
+// 1. Measure memory requirements (no allocation, no side effects)
+FisktaBuildOptions opts = {0};
+FisktaRuntimeRequirements req;
+fiskta_program_requirements(token_count, tokens, &opts, &req);
+
+// 2. Allocate arena and build program
+void* arena = malloc(req.arena_bytes);
+FisktaProgram prog;
+FisktaRuntimeBuffers buffers;
+fiskta_build_program(token_count, tokens, &opts, &prog, arena, req.arena_bytes, &buffers);
+
+// 3. Execute
+FisktaRuntimeConfig config = {0};
+int rc = fiskta_runtime_execute(&prog, "input.txt", &buffers, &config);
+// or: fiskta_runtime_execute_buffer(&prog, data, len, &buffers, &config);
+
+free(arena);
+```
+
+All memory is allocated once at startup via a single arena. Zero allocations during execution — memory usage is independent of input size. The caller owns the arena and frees it when done.
+
+`FisktaBuildOptions` controls regex engine limits (`regex_budget_bytes`, `regex_work_budget`). `FisktaRuntimeConfig` controls loop behavior, timeouts, and error/output callbacks. All functions return `FISKTA_EXIT_*` codes; detailed errors via `fiskta_error_code()`, `fiskta_error_message()`, and `fiskta_error_position()`.
 
 ## Limits
 
@@ -314,12 +307,12 @@ fiskta --input image.bin \
 | Search pattern size | 16 KB |
 | Regex `{n,m}` counters | 16 per pattern |
 | Regex alternations | 256 per group |
-| Regex VM memory | 2 MiB (configurable via `FisktaBuildOptions`) |
+| Regex VM memory | 2 MiB (configurable) |
 | Regex work budget | 50M thread enqueues per search |
 
 ## Grammar
 
-```ebnf
+```
 Program        = Clause { ( "THEN" | "OR" ) Clause } .
 Clause         = { Op } .
 Op             = Find | FindRegex | FindBinary | Skip | Take | Label | ClearLabel
@@ -351,15 +344,8 @@ Unit           = "b" | "l" | "c" .
 Number         = Digit { Digit } .
 Name           = UpperLetter { UpperLetter | Digit | "_" | "-" } .
 String         = ShellString .
-UpperLetter    = "A" | "B" | "C" | "D" | "E" | "F" | "G"
-               | "H" | "I" | "J" | "K" | "L" | "M" | "N"
-               | "O" | "P" | "Q" | "R" | "S" | "T" | "U"
-               | "V" | "W" | "X" | "Y" | "Z" .
-Digit          = "0" | "1" | "2" | "3" | "4" | "5"
-               | "6" | "7" | "8" | "9" .
+UpperLetter    = "A" .. "Z" .
+Digit          = "0" .. "9" .
 ShellString    = shell-quoted byte string (may be empty for print/echo) .
 ```
 
-## Library Embedding
-
-If you need to embed fiskta as a C library, see `docs/library-api.md`.
