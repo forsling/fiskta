@@ -1,13 +1,14 @@
 # (fi)nd (sk)ip (ta)ke
 
-**fiskta** is a cursor-oriented data extraction tool. Move through the input data with imperative operations: find a pattern, skip past it, take what you need. No cryptic syntax — just straightforward sequential commands.
+**fiskta** is a cursor-oriented data extraction tool for text and binary data. Instead of squeezing logic into one dense pattern, you move through input step by step: `find`, `skip`, `take`. 
 
 ## How it works
 
-fiskta maintains a **cursor**, a byte position in the input. Every operation reads or moves this cursor. A program is a sequence of operations evaluated left to right.
+fiskta maintains a **cursor** (a byte position in the input). Every operation reads or moves that cursor, and programs execute left to right. Each step updates state for the next one.
 
 ```
-$ echo 'Connecting... ERROR: connection failed' | fiskta find "ERROR:" take to line-end
+$ echo 'Connecting... ERROR: connection failed' | \
+    fiskta find "ERROR:" take to line-end
 ERROR: connection failed
 ```
 
@@ -26,15 +27,15 @@ There are three units for movement and extraction:
 | `find [to <loc>] <string>` | Search for literal string; move cursor to match. Default direction: toward EOF |
 | `find:re [to <loc>] <regex>` | Search using regular expression |
 | `find:bin [to <loc>] <hex>` | Search for binary pattern (e.g., `"89 50 4E 47"`) |
-| `take <n><unit>` | Extract n units from cursor. Negative goes backward |
+| `take <n><unit>` | Extract n units from cursor. Negative outputs data behind the cursor, but in regular order |
 | `take to <loc>` | Extract cursor to location (order-normalized) |
 | `take until <string>` | Extract forward until pattern is found |
 | `take until:re <regex>` | take until with regex matching |
 | `take until:bin <hex>` | take until with binary pattern |
 | `skip <n><unit>` | Move cursor without output. Negative goes backward |
 | `skip to <loc>` | Move cursor to location without output |
-| `label <n>` | Mark current cursor position |
-| `clear <n>` | Unset a label (allows relabeling) |
+| `label <NAME>` | Mark current cursor position |
+| `clear <NAME>` | Unset a label (allows relabeling) |
 | `view <loc> <loc>` | Restrict all operations to a region |
 | `clear view` | Remove view restriction |
 | `print <string>` | Emit literal string (alias: `echo`). Supports `\n \t \r \0 \\ \xHH \c` |
@@ -77,7 +78,8 @@ find "Section:" THEN take to line-end
 Rollback means staged output is discarded on failure, not just cursor position:
 
 ```
-$ echo 'START hello' | fiskta find "START" skip 6b take 5b find "END" OR print "END missing\n"
+$ echo 'START hello' | \
+    fiskta find "START" skip 6b take 5b find "END" OR print "END missing\n"
 END missing
 ```
 
@@ -90,7 +92,8 @@ Here `take 5b` stages "hello", but when `find "END"` fails, the entire clause ro
 `find` moves the cursor to the first match of a literal string. By default it searches forward toward EOF. Use `find to <location>` to set a search boundary — the direction is inferred from whether the boundary is before or after the cursor.
 
 ```
-$ echo 'Connecting... ERROR: connection failed' | fiskta find "ERROR:" take to line-end
+$ echo 'Connecting... ERROR: connection failed' | \
+    fiskta find "ERROR:" take to line-end
 ERROR: connection failed
 ```
 
@@ -107,7 +110,8 @@ find to cursor+500b "x"  # search forward, but only within 500 bytes
 Same behavior as `find`, but with regular expression patterns.
 
 ```
-$ echo 'Contact: john@example.com or jane@test.org' | fiskta find:re "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+" take to match-end
+$ echo 'Contact: john@example.com or jane@test.org' | \
+    fiskta find:re "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+" take to match-end
 john@example.com
 ```
 
@@ -141,7 +145,8 @@ find:bin to BOF "FFFE"                  # backward search for UTF-16 BOM
 Extract a fixed number of units from the current cursor position. Positive goes forward, negative goes backward.
 
 ```
-$ printf "Starting text\nMiddle line\nEnding line" | fiskta skip 1l take 7c
+$ printf "Starting text\nMiddle line\nEnding line" | \
+    fiskta skip 1l take 7c
 Middle
 ```
 
@@ -172,11 +177,12 @@ take to MYLABEL          # from cursor to labeled position
 Search forward from the cursor and extract everything up to the match. By default the matched pattern is excluded.
 
 ```
-$ echo 'start: [content here] end' | fiskta find "[" skip 1b take until "]"
+$ echo 'start: [content here] end' | \
+    fiskta find "[" skip 1b take until "]"
 content here
 ```
 
-The `at` clause controls where extraction stops relative to the match:
+The optional `at <location>` modifier controls where extraction stops relative to the match:
 
 | `at` value | Behavior |
 |------------|----------|
@@ -186,12 +192,12 @@ The `at` clause controls where extraction stops relative to the match:
 | `line-end` | Stop at end of the line containing the match |
 
 ```
-take until ";"                        # up to semicolon (excluded)
+take until ";"                        # up to, but not including, the semicolon
 take until "END" at match-end         # up to and including END
 take until "---" at line-start        # up to start of line containing ---
 ```
 
-`take until:re` and `take until:bin` support the same `at` clause.
+`take until:re` and `take until:bin` support the same `at <location>` modifier.
 
 ## Navigation and state
 
@@ -209,10 +215,11 @@ skip to MYLABEL # jump to labeled position
 
 ### Labels
 
-Mark positions for later reference. Labels must be UPPERCASE (`[A-Z][A-Z0-9_-]`, max 15 chars, max 128 labels). Labels are write-once — setting one that already exists fails the clause. Use `clear <n>` to unset it first.
+Mark positions for later reference. Labels must be UPPERCASE (`[A-Z][A-Z0-9_-]*`, max 15 chars, max 128 labels). Labels are write-once — setting one that already exists fails the clause. Use `clear <NAME>` to unset it first.
 
 ```
-$ echo 'header: data: footer:' | fiskta find "data:" label START skip to line-end take to START
+$ echo 'header: data: footer:' | \
+    fiskta find "data:" label START skip to line-end take to START
 data: footer:
 ```
 
@@ -348,7 +355,7 @@ make release        # produces dist/lib/libfiskta.a and dist/include/fiskta.h
 
 ```
 Program        = Clause { ( "THEN" | "OR" ) Clause } .
-Clause         = { Op } .
+Clause         = Op { Op } .
 Op             = Find | FindRegex | FindBinary | Skip | Take | Label | ClearLabel
                | View | ClearView | Print | Fail .
 Find           = "find" [ "to" LocationExpr ] String .
