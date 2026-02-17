@@ -1,50 +1,15 @@
 # (fi)nd (sk)ip (ta)ke
 
-**fiskta** is a cursor-oriented data extraction tool that operates on bytes, lines or UTF-u characters. With straightforward imperative operations you can find a pattern, skip around, and extract what you need. 
-
-It is small (~100KB), dependency free (libc only), and allocation-averse (memory use independent of input size).
-
-## Examples
-
-Extract the first 5 bytes:
-
-```
-$ echo "hello world" \
-| fiskta take 5b
-hello
-```
-
-Find a pattern and take the rest of the line:
-
-```
-$ echo 'Connecting... ERROR: connection failed' \
-| fiskta find "ERROR:" take to line-end
-ERROR: connection failed
-```
-
-Skip lines, take lines:
-
-```
-$ fiskta --input data.txt skip 2l take 5l
-```
-
-Extract text between delimiters:
-
-```
-$ echo 'start: [content here] end' | fiskta find "[" skip 1b take until "]"
-content here
-```
-
-Try multiple strategies — first success wins:
-
-```
-$ echo 'id=12345 role=admin' | fiskta find "user=" skip 5b take until " " OR find "id=" skip 3b take until " "
-12345
-```
+**fiskta** is a cursor-oriented data extraction tool. Move through the input data with imperative operations: find a pattern, skip past it, take what you need. No cryptic syntax — just straightforward sequential commands.
 
 ## How it works
 
-fiskta maintains a **cursor** — a byte position in the input. Every operation reads or moves this cursor. A program is a sequence of operations evaluated left to right.
+fiskta maintains a **cursor**, a byte position in the input. Every operation reads or moves this cursor. A program is a sequence of operations evaluated left to right.
+
+```
+$ echo 'Connecting... ERROR: connection failed' | fiskta find "ERROR:" take to line-end
+ERROR: connection failed
+```
 
 There are three units for movement and extraction:
 
@@ -62,14 +27,14 @@ There are three units for movement and extraction:
 | `find:re [to <loc>] <regex>` | Search using regular expression |
 | `find:bin [to <loc>] <hex>` | Search for binary pattern (e.g., `"89 50 4E 47"`) |
 | `take <n><unit>` | Extract n units from cursor. Negative goes backward |
-| `take to <loc>` | Extract from cursor to location (order-normalized) |
-| `take until <string>` | Extract forward until pattern is found (excluded by default) |
-| `take until:re <regex>` | Same, with regex |
-| `take until:bin <hex>` | Same, with binary pattern |
+| `take to <loc>` | Extract cursor to location (order-normalized) |
+| `take until <string>` | Extract forward until pattern is found |
+| `take until:re <regex>` | take until with regex matching |
+| `take until:bin <hex>` | take until with binary pattern |
 | `skip <n><unit>` | Move cursor without output. Negative goes backward |
 | `skip to <loc>` | Move cursor to location without output |
-| `label <NAME>` | Mark current cursor position |
-| `clear <NAME>` | Unset a label (allows relabeling) |
+| `label <n>` | Mark current cursor position |
+| `clear <n>` | Unset a label (allows relabeling) |
 | `view <loc> <loc>` | Restrict all operations to a region |
 | `clear view` | Remove view restriction |
 | `print <string>` | Emit literal string (alias: `echo`). Supports `\n \t \r \0 \\ \xHH \c` |
@@ -86,8 +51,8 @@ Locations are used with `to`, `skip to`, `take to`, `view`, and as label targets
 | `EOF` | End of file |
 | `match-start` | Start of last match |
 | `match-end` | End of last match |
-| `line-start` | Start of current line (relative to cursor, or to match in `at` clauses) |
-| `line-end` | End of current line (relative to cursor, or to match in `at` clauses) |
+| `line-start` | Start of current line (relative to cursor, or to match after an `at`) |
+| `line-end` | End of current line (relative to cursor, or to match after an `at`) |
 | `<LABEL>` | A named label position |
 
 Locations accept offsets: `EOF-10b`, `match-end+1b`, `BOF+100b`.
@@ -122,37 +87,96 @@ Here `take 5b` stages "hello", but when `find "END"` fails, the entire clause ro
 
 ### Literal search (`find`)
 
+`find` moves the cursor to the first match of a literal string. By default it searches forward toward EOF. Use `find to <location>` to set a search boundary — the direction is inferred from whether the boundary is before or after the cursor.
+
 ```
-find "ERROR"              # search forward from cursor
-find to BOF "START"       # search backward
+$ echo 'Connecting... ERROR: connection failed' | fiskta find "ERROR:" take to line-end
+ERROR: connection failed
+```
+
+```
+find "ERROR"              # search forward from cursor toward EOF
+find to BOF "START"       # search backward from cursor toward BOF
+find to cursor+500b "x"  # search forward, but only within 500 bytes
 ```
 
 `find` searches within `[min(cursor, location), max(cursor, location))` and picks the match closest to the cursor.
 
 ### Regex search (`find:re`)
 
+Same behavior as `find`, but with regular expression patterns.
+
 ```
-find:re "ERROR|WARN"
-find:re "[0-9]{1,3}\.[0-9]{1,3}"
-find:re "<.*?>"                         # lazy matching
+$ echo 'Contact: john@example.com or jane@test.org' | fiskta find:re "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+" take to match-end
+john@example.com
+```
+
+```
+find:re "ERROR|WARN"                    # alternation
+find:re "[0-9]{1,3}\.[0-9]{1,3}"       # IP address fragment
+find:re "<.*?>"                         # lazy: match minimal content
 ```
 
 Supported syntax: character classes (`\d`, `\w`, `\s`, `[a-z]`, `[^0-9]`), quantifiers (`*`, `+`, `?`, `{n}`, `{n,m}`, `{n,}`) with greedy (default) and lazy (`*?`, `+?`, `??`, `{n,m}?`) variants, grouping `(...)`, alternation `|`, anchors `^` `$`, and `.` (any char except newline).
 
 ### Binary search (`find:bin`)
 
+Search for binary patterns specified as hexadecimal. Case-insensitive, whitespace ignored. Must have an even number of hex digits.
+
 ```
-find:bin "89504E470D0A1A0A"       # PNG header
-find:bin "50 4B 03 04"            # ZIP signature (spaces ignored)
+$ fiskta -i image.bin find:bin "89 50 4E 47 0D 0A 1A 0A" print "PNG\n" OR fail "Not a PNG file"
+PNG
 ```
 
-Hex digits are case-insensitive and whitespace is ignored. Must have an even number of digits.
+```
+find:bin "504B0304"                     # ZIP file signature
+find:bin "CAFEBABE"                     # Java class file magic number
+find:bin to BOF "FFFE"                  # backward search for UTF-16 BOM
+```
 
 ## Extracting
 
-### `take until` and the `at` clause
+### `take` by count
 
-By default, `take until` excludes the matched pattern. The `at` clause controls where extraction stops:
+Extract a fixed number of units from the current cursor position. Positive goes forward, negative goes backward.
+
+```
+$ printf "Starting text\nMiddle line\nEnding line" | fiskta skip 1l take 7c
+Middle
+```
+
+```
+take 10b       # 10 bytes forward
+take -5b       # 5 bytes backward
+take 3l        # 3 lines forward
+take 20c       # 20 UTF-8 characters forward
+```
+
+### `take to` location
+
+Extract from the cursor to a location. Order-normalized: always emits `[min(cursor, loc), max(cursor, loc))`, so it works regardless of whether the location is before or after the cursor.
+
+```
+$ fiskta --input data.file take to EOF-10b
+```
+
+```
+take to EOF              # everything from cursor to end
+take to BOF              # everything from cursor to beginning
+take to match-end        # from cursor to end of last match
+take to MYLABEL          # from cursor to labeled position
+```
+
+### `take until` pattern
+
+Search forward from the cursor and extract everything up to the match. By default the matched pattern is excluded.
+
+```
+$ echo 'start: [content here] end' | fiskta find "[" skip 1b take until "]"
+content here
+```
+
+The `at` clause controls where extraction stops relative to the match:
 
 | `at` value | Behavior |
 |------------|----------|
@@ -160,8 +184,6 @@ By default, `take until` excludes the matched pattern. The `at` clause controls 
 | `match-end` | Stop after the match (include it) |
 | `line-start` | Stop at start of the line containing the match |
 | `line-end` | Stop at end of the line containing the match |
-
-Note: `line-start` and `line-end` in `at` clauses are relative to the **match**, not the cursor.
 
 ```
 take until ";"                        # up to semicolon (excluded)
@@ -173,21 +195,30 @@ take until "---" at line-start        # up to start of line containing ---
 
 ## Navigation and state
 
+### `skip`
+
+Move the cursor without producing output. Same unit and direction semantics as `take`.
+
+```
+skip 100b       # skip forward 100 bytes
+skip -2l        # skip backward 2 lines
+skip to EOF     # jump to end of file
+skip to BOF     # jump to beginning
+skip to MYLABEL # jump to labeled position
+```
+
 ### Labels
 
-Mark positions for later reference:
+Mark positions for later reference. Labels must be UPPERCASE (`[A-Z][A-Z0-9_-]`, max 15 chars, max 128 labels). Labels are write-once — setting one that already exists fails the clause. Use `clear <n>` to unset it first.
 
 ```
-label START
-find "end of header"
-take to START               # extract from START to here
+$ echo 'header: data: footer:' | fiskta find "data:" label START skip to line-end take to START
+data: footer:
 ```
-
-Labels must be UPPERCASE (`[A-Z][A-Z0-9_-]`, max 15 chars, max 128 labels). Labels are write-once — setting one that already exists fails the clause. Use `clear <NAME>` to unset it first.
 
 ### Views
 
-Restrict all operations to a region of the file:
+Restrict all operations to a region of the file. Operations cannot read, search, or move outside the view.
 
 ```
 view BOF+100b EOF-100b        # ignore first and last 100 bytes
@@ -200,13 +231,13 @@ clear view                    # back to full file
 The `--continue` flag re-runs the program in a loop with an optional delay between iterations. In continue mode, cursor and labels persist across iterations. Each iteration starts with an implicit view `[cursor, EOF)`.
 
 ```
-fiskta --continue 200ms --input metrics.log find "latency=" take until " " print "\n"
+$ fiskta --continue 200ms --input metrics.log find "latency=" take until " " print "\n"
 ```
 
 Since the cursor is saved between iterations, appending `THEN skip to EOF` gives tail-like semantics — each iteration only processes newly appended data:
 
 ```
-fiskta --continue 1s --until-idle 0 --input service.log find "ERROR" take to line-end THEN skip to EOF
+$ fiskta --continue 1s --until-idle 0 --input service.log find "ERROR" take to line-end THEN skip to EOF
 ```
 
 | Flag | Description |
@@ -271,7 +302,6 @@ zig build test          # run tests
 
 fiskta can be embedded as a C library. Include `fiskta.h` and link against `libfiskta.a`.
 
-
 ```c
 #include "fiskta.h"
 
@@ -297,6 +327,10 @@ free(arena);
 All memory is allocated once at startup via a single arena. Zero allocations during execution — memory usage is independent of input size. The caller owns the arena and frees it when done.
 
 `FisktaBuildOptions` controls regex engine limits (`regex_budget_bytes`, `regex_work_budget`). `FisktaRuntimeConfig` controls loop behavior, timeouts, and error/output callbacks. All functions return `FISKTA_EXIT_*` codes; detailed errors via `fiskta_error_code()`, `fiskta_error_message()`, and `fiskta_error_position()`.
+
+```
+make release        # produces dist/lib/libfiskta.a and dist/include/fiskta.h
+```
 
 ## Limits
 
@@ -349,3 +383,6 @@ Digit          = "0" .. "9" .
 ShellString    = shell-quoted byte string (may be empty for print/echo) .
 ```
 
+## License
+
+[Zlib](LICENSE)
