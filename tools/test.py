@@ -2740,6 +2740,21 @@ def tests():
              tokens=["--version"], input_file=None,
              expect=dict(stdout=VERSION_LINE, exit=0)),
 
+        dict(id="cli-002-ops-inline-string",
+             tokens=[], input_file="overlap.txt",
+             extra_args=["--ops", "take +2b"],
+             expect=dict(stdout="ab", exit=0)),
+
+        dict(id="cli-003-ops-file-shortopt",
+             tokens=[], input_file="overlap.txt",
+             extra_args=["-f", str(FIX / "commands_take_plus_2b.txt")],
+             expect=dict(stdout="ab", exit=0)),
+
+        dict(id="cli-004-ops-and-ops-file-conflict",
+             tokens=[], input_file="overlap.txt",
+             extra_args=["--ops", "take +2b", "-f", str(FIX / "commands_take_plus_2b.txt")],
+             expect=dict(stdout="", stderr_contains="conflicts with previous", exit=USAGE_EXIT)),
+
         dict(id="cli-005-ops-file",
              tokens=[], input_file="overlap.txt",
              extra_args=["--ops-file", str(FIX / "commands_take_plus_2b.txt")],
@@ -2756,6 +2771,36 @@ def tests():
         dict(id="cli-007-max-tokens-overflow",
              tokens=["print", "X"] * 513, input_file="overlap.txt",
              expect=dict(stdout="", exit=CAPACITY_EXIT)),
+
+        dict(id="cli-008-ops-inline-missing-value",
+             tokens=[], input_file=None,
+             extra_args=["--ops"],
+             expect=dict(stdout="", stderr_contains="--ops requires a string", exit=USAGE_EXIT)),
+
+        dict(id="cli-009-ops-file-missing-value",
+             tokens=[], input_file=None,
+             extra_args=["--ops-file"],
+             expect=dict(stdout="", stderr_contains="--ops-file requires a path", exit=USAGE_EXIT)),
+
+        dict(id="cli-010-ops-file-shortopt-missing-value",
+             tokens=[], input_file=None,
+             extra_args=["-f"],
+             expect=dict(stdout="", stderr_contains="-f requires a path", exit=USAGE_EXIT)),
+
+        dict(id="cli-011-ops-inline-assignment-rejected",
+             tokens=[], input_file=None,
+             extra_args=["--ops=take"],
+             expect=dict(stdout="", stderr_contains="unknown option --ops=take", exit=USAGE_EXIT)),
+
+        dict(id="cli-012-ops-file-assignment-rejected",
+             tokens=[], input_file=None,
+             extra_args=[f"--ops-file={str(FIX / 'commands_take_plus_2b.txt')}"],
+             expect=dict(stdout="", stderr_contains="unknown option --ops-file=", exit=USAGE_EXIT)),
+
+        dict(id="cli-013-ops-inline-conflicts-positional",
+             tokens=["take", "+1b"], input_file="overlap.txt",
+             extra_args=["--ops", "take +2b"],
+             expect=dict(stdout="", stderr_contains="cannot be combined with positional operations", exit=USAGE_EXIT)),
 
 
         dict(id="loop-001-basic",
