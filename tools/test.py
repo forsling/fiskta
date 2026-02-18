@@ -1307,6 +1307,19 @@ def tests():
              tokens=["skip","3b","print", r"\c\n"], input_file="overlap.txt",
              expect=dict(stdout="3\n", exit=0)),
 
+        dict(id="cursor-007-negative-take-bytes-high-end",
+             tokens=["skip","5b","take","-2b","THEN","print", r"\c"], input_file="overlap.txt",
+             expect=dict(stdout="de5", exit=0)),
+
+        dict(id="cursor-008-negative-take-lines-high-end",
+             tokens=["skip","4b","take","-1l","THEN","print", r"\c"], input_file="-",
+             stdin=b"ab\ncd\nef\n",
+             expect=dict(stdout="ab\n3", exit=0)),
+
+        dict(id="cursor-009-negative-take-chars-high-end",
+             tokens=["skip","5b","take","-2c","THEN","print", r"\c"], input_file="overlap.txt",
+             expect=dict(stdout="de5", exit=0)),
+
         dict(id="edge-feedback-001-inline-offset-label-resolution",
              tokens=["label","HERE","THEN","skip","to","HERE+1l","take","1l"], input_file="-", stdin=b"a\nb\nX\n",
              expect=dict(stdout="b\n", exit=0)),
