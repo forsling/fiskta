@@ -227,11 +227,6 @@ static bool parse_cli_args(int argc, char** argv,
             argi += 2;
             continue;
         }
-        if (strncmp(arg, "--ops=", 6) == 0) {
-            fprintf(stderr, "fiskta: --ops must use a space-separated value (use --ops <string>)\n");
-            *exit_code_out = FISKTA_EXIT_USAGE;
-            return false;
-        }
         if (strcmp(arg, "--ops-file") == 0) {
             if (ops_arg || ops_file) {
                 fprintf(stderr, "fiskta: --ops-file conflicts with previous --ops/--ops-file\n");
@@ -246,11 +241,6 @@ static bool parse_cli_args(int argc, char** argv,
             ops_file = argv[argi + 1];
             argi += 2;
             continue;
-        }
-        if (strncmp(arg, "--ops-file=", 11) == 0) {
-            fprintf(stderr, "fiskta: --ops-file must use a space-separated value (use --ops-file <path>)\n");
-            *exit_code_out = FISKTA_EXIT_USAGE;
-            return false;
         }
         if (arg[0] == '-') {
             if (arg[1] == '\0' || isdigit((unsigned char)arg[1])) {
