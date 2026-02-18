@@ -4,6 +4,7 @@
 # Options:
 #   -s, --summary-only    Show only summary (suppress individual test output)
 #   -n, --iterations N    Run benchmark N times and show aggregate statistics
+#   --allow-failures      Continue on benchmark command failures (record zero metrics)
 
 set -e
 
@@ -11,6 +12,8 @@ set -e
 SUMMARY_ONLY=0
 FISKTA=""
 ITERATIONS=1
+ALLOW_FAILURES=0
+BENCH_FAILURE_COUNT=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
     -s|--summary-only)
@@ -20,6 +23,10 @@ while [[ $# -gt 0 ]]; do
     -n|--iterations)
         ITERATIONS="$2"
         shift 2
+        ;;
+    --allow-failures)
+        ALLOW_FAILURES=1
+        shift
         ;;
     *)
         if [[ -z "$FISKTA" ]]; then
@@ -106,37 +113,51 @@ EOF
 }
 
 # Run benchmark with detailed timing and memory stats
+bench_command_failed() {
+    local name="$1"
+    shift
+    echo "ERROR: $*" >&2
+    if [ "$ALLOW_FAILURES" -eq 1 ]; then
+        BENCH_FAILURE_COUNT=$((BENCH_FAILURE_COUNT + 1))
+        echo "$name|0|0|0|0"
+        return 0
+    fi
+    return 1
+}
+
 run_bench() {
     local name="$1"
     shift
 
     local TIME="/usr/bin/time"
 
-    {
-        local t0_ns t1_ns elapsed_ns elapsed_ms max_rss
-        t0_ns=$(now_ns)
+    local t0_ns t1_ns elapsed_ns elapsed_ms max_rss
+    t0_ns=$(now_ns)
 
-        if ! LC_ALL=C LANG=C "$TIME" -f "%M" "$@" > "$BENCH_DIR/out.txt" 2> "$BENCH_DIR/time_basic.txt"; then
-            echo "ERROR: Command failed: $*" >&2
-            echo "$name|0|0|0|0"
-            exit 0
+    if ! LC_ALL=C LANG=C "$TIME" -f "%M" "$@" > "$BENCH_DIR/out.txt" 2> "$BENCH_DIR/time_basic.txt"; then
+        if ! bench_command_failed "$name" "Command failed: $*"; then
+            return 1
         fi
+        return 0
+    fi
 
-        t1_ns=$(now_ns)
-        elapsed_ns=$((t1_ns - t0_ns))
-        elapsed_ms=$(echo "scale=3; $elapsed_ns / 1000000" | bc)
+    t1_ns=$(now_ns)
+    elapsed_ns=$((t1_ns - t0_ns))
+    elapsed_ms=$(echo "scale=3; $elapsed_ns / 1000000" | bc)
 
-        read -r max_rss < "$BENCH_DIR/time_basic.txt"
+    read -r max_rss < "$BENCH_DIR/time_basic.txt"
 
-        LC_ALL=C LANG=C "$TIME" -v "$@" > /dev/null 2> "$BENCH_DIR/time_v.txt"
-        local minor_faults major_faults
-        minor_faults=$(grep "Minor.*page faults" "$BENCH_DIR/time_v.txt" | awk '{print $NF}')
-        major_faults=$(grep "Major.*page faults" "$BENCH_DIR/time_v.txt" | awk '{print $NF}')
+    if ! LC_ALL=C LANG=C "$TIME" -v "$@" > /dev/null 2> "$BENCH_DIR/time_v.txt"; then
+        if ! bench_command_failed "$name" "Command failed: $*"; then
+            return 1
+        fi
+        return 0
+    fi
+    local minor_faults major_faults
+    minor_faults=$(grep "Minor.*page faults" "$BENCH_DIR/time_v.txt" | awk '{print $NF}')
+    major_faults=$(grep "Major.*page faults" "$BENCH_DIR/time_v.txt" | awk '{print $NF}')
 
-        echo "$name|$elapsed_ms|$max_rss|$minor_faults|$major_faults"
-    } || {
-        echo "$name|0|0|0|0"
-    }
+    echo "$name|$elapsed_ms|$max_rss|$minor_faults|$major_faults"
 }
 
 # Print section header
@@ -359,7 +380,7 @@ skip 1b
 skip to LOOP
 label DONE
 FISPROG
-complex+=("$(run_bench "500 section extraction" "$FISKTA" --input "$BENCH_DIR/services.conf" --ops "$BENCH_DIR/loop.fis")")
+complex+=("$(run_bench "500 section extraction" "$FISKTA" --input "$BENCH_DIR/services.conf" --ops-file "$BENCH_DIR/loop.fis")")
 IFS='|' read -r name time mem f1 f2 <<< "${complex[-1]}"
 if [ "$SUMMARY_ONLY" -eq 0 ]; then
     print_result "Complex" "$name" "$time" "$mem" "$f1"
@@ -378,7 +399,7 @@ find "port="
 skip 5b
 take to line-end
 FISPROG
-complex+=("$(run_bench "View-scoped extraction" "$FISKTA" --input "$BENCH_DIR/services.conf" --ops "$BENCH_DIR/view.fis")")
+complex+=("$(run_bench "View-scoped extraction" "$FISKTA" --input "$BENCH_DIR/services.conf" --ops-file "$BENCH_DIR/view.fis")")
 IFS='|' read -r name time mem f1 f2 <<< "${complex[-1]}"
 if [ "$SUMMARY_ONLY" -eq 0 ]; then
     print_result "Complex" "$name" "$time" "$mem" "$f1"
@@ -501,4 +522,8 @@ if [ "$ITERATIONS" -gt 1 ]; then
     printf "║   %-20s %-35s ║\n" "Min:" "$min_total"
     printf "║   %-20s %-35s ║\n" "Max:" "$max_total"
     echo "╚════════════════════════════════════════════════════════════╝"
+fi
+
+if [ "$ALLOW_FAILURES" -eq 1 ] && [ "$BENCH_FAILURE_COUNT" -gt 0 ]; then
+    echo "WARNING: $BENCH_FAILURE_COUNT benchmark command(s) failed and were recorded as zero metrics" >&2
 fi
