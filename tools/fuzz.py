@@ -104,6 +104,14 @@ def setup_asan_env():
     if "UBSAN_OPTIONS" not in os.environ:
         os.environ["UBSAN_OPTIONS"] = "print_stacktrace=1"
 
+def default_corpus_dir() -> Path:
+    """Pick sensible default corpus location for this repository layout."""
+    if Path("fixtures").exists():
+        return Path("fixtures")
+    if Path("tests/fixtures").exists():
+        return Path("tests/fixtures")
+    return Path("fixtures")
+
 # ========= Argument parsing =========
 
 def parse_args() -> Config:
@@ -114,13 +122,14 @@ def parse_args() -> Config:
 
     cpu_count = get_cpu_count()
     default_workers = max(1, cpu_count // 2)
+    corpus_default = default_corpus_dir()
 
     parser = argparse.ArgumentParser(
         description="fiskta fuzzer - Find crashes, hangs, and memory errors",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Strategy:
-  • Commands: 50%% pure random generation, 50%% mutated (13 mutation types)
+  • Commands: 40%% pure random generation, 40%% mutated (13 mutation types), 20%% targeted mismatches
   • Input data: 80%% corpus mutations from seed files, 20%% pure random
   • Parallel workers scale to CPU count
   • Auto crash minimization
@@ -151,8 +160,8 @@ Examples:
                         help="Use corpus mutations (default: enabled)")
     parser.add_argument("--no-corpus", action="store_false", dest="corpus",
                         help="Pure random generation only")
-    parser.add_argument("--corpus-dir", type=Path, default=Path("tests/fixtures"),
-                        help="Corpus directory (default: tests/fixtures/)")
+    parser.add_argument("--corpus-dir", type=Path, default=corpus_default,
+                        help=f"Corpus directory (default: {corpus_default}/)")
     parser.add_argument("--timeout-ms", type=int, default=1500, metavar="N",
                         help="Per-case timeout in milliseconds (default: 1500)")
     parser.add_argument("--seed", type=int, default=int(time.time()),
