@@ -123,7 +123,7 @@ static inline void print_usage(void)
     printf("OPTIONS:\n");
     printf("  -i, --input <path>          Read input from path (default: stdin)\n");
     printf("      --ops <string>          Operations as inline string\n");
-    printf("      --ops-file <path>       Operations from file\n");
+    printf("  -f, --ops-file <path>       Operations from file\n");
     printf("      --                      Treat subsequent arguments as operations\n");
     printf("      --for <time>            Halt execution after set duration\n");
     printf("  -h, --help                  Show this help message\n");

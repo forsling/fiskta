@@ -337,10 +337,10 @@ int main(int argc, char** argv)
             argi += 2;
             continue;
         }
-        // --ops-file FILE (operations from file)
-        if (strcmp(arg, "--ops-file") == 0) {
+        // --ops-file FILE / -f FILE (operations from file)
+        if (strcmp(arg, "--ops-file") == 0 || strcmp(arg, "-f") == 0) {
             if (argi + 1 >= argc) {
-                fprintf(stderr, "fiskta_library_wrapper: --ops-file requires a value\n");
+                fprintf(stderr, "fiskta_library_wrapper: %s requires a value\n", arg);
                 return 7;
             }
             ops_file = argv[argi + 1];

@@ -227,14 +227,14 @@ static bool parse_cli_args(int argc, char** argv,
             argi += 2;
             continue;
         }
-        if (strcmp(arg, "--ops-file") == 0) {
+        if (strcmp(arg, "--ops-file") == 0 || strcmp(arg, "-f") == 0) {
             if (ops_arg || ops_file) {
-                fprintf(stderr, "fiskta: --ops-file conflicts with previous --ops/--ops-file\n");
+                fprintf(stderr, "fiskta: %s conflicts with previous --ops/--ops-file/-f\n", arg);
                 *exit_code_out = FISKTA_EXIT_USAGE;
                 return false;
             }
             if (argi + 1 >= argc) {
-                fprintf(stderr, "fiskta: --ops-file requires a path\n");
+                fprintf(stderr, "fiskta: %s requires a path\n", arg);
                 *exit_code_out = FISKTA_EXIT_USAGE;
                 return false;
             }

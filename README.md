@@ -263,7 +263,7 @@ fiskta [options] <operations>
 |--------|-------------|
 | `-i, --input <path>` | Read from file (default: stdin) |
 | `--ops <string>` | Operations as inline string |
-| `--ops-file <path>` | Load operations from a file |
+| `-f, --ops-file <path>` | Load operations from a file |
 | `--` | Treat remaining args as operations |
 | `-c`, `-C`, `--for`, `-u` | Looping options (see [Looping](#looping)) |
 | `-h, --help` | Show help |
