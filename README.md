@@ -35,9 +35,8 @@ There are three units for movement and extraction:
 | `skip <n><unit>` | Move cursor without output. Negative goes backward |
 | `skip to <loc>` | Move cursor to location without output |
 | `label <NAME>` | Mark current cursor position |
-| `clear <NAME>` | Unset a label (allows relabeling) |
+| `clear <NAME|view>` | Clear a label or view restriction |
 | `view <loc> <loc>` | Restrict all operations to a region |
-| `clear view` | Remove view restriction |
 | `print <string>` | Emit literal string (alias: `echo`). Supports `\n \t \r \0 \\ \xHH \c` |
 | `fail <message>` | Write message to stderr and fail the current clause |
 
@@ -356,8 +355,8 @@ make release        # produces dist/lib/libfiskta.a and dist/include/fiskta.h
 ```
 Program        = Clause { ( "THEN" | "OR" ) Clause } .
 Clause         = Op { Op } .
-Op             = Find | FindRegex | FindBinary | Skip | Take | Label | ClearLabel
-               | View | ClearView | Print | Fail .
+Op             = Find | FindRegex | FindBinary | Skip | Take | Label | Clear
+               | View | Print | Fail .
 Find           = "find" [ "to" LocationExpr ] String .
 FindRegex      = "find" ":" "re" [ "to" LocationExpr ] String .
 FindBinary     = "find" ":" "bin" [ "to" LocationExpr ] String .
@@ -368,9 +367,8 @@ Take           = "take" ( SignedNumber Unit
                           | "until" ":" "re" String [ "at" AtExpr ]
                           | "until" ":" "bin" String [ "at" AtExpr ] ) .
 Label          = "label" Name .
-ClearLabel     = "clear" Name .
+Clear          = "clear" ( Name | "view" ) .
 View           = "view" LocationExpr LocationExpr .
-ClearView      = "clear" "view" .
 Print          = ( "print" | "echo" ) String .
 Fail           = "fail" String .
 LocationExpr   = Location [ Offset ] .

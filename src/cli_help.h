@@ -53,9 +53,8 @@ static inline void print_usage(void)
     printf("                              Case-insensitive, whitespace ignored\n");
     printf("  label <NAME>                Mark current position with label\n");
     printf("                              Fails if label already set (use 'clear <NAME>' first)\n");
-    printf("  clear <NAME>                Unset a label (allows relabeling)\n");
+    printf("  clear <NAME|view>           Unset a label or clear view restriction\n");
     printf("  view <L1> <L2>              Limit all ops to [min(L1,L2), max(L1,L2))\n");
-    printf("  clear view                  Clear view; return to full file\n");
     printf("  print <string>              Emit literal bytes (alias: echo)\n");
     printf("                              Supports escape sequences: \\n \\t \\r \\0 \\\\ \\xHH \\c (cursor offset)\n");
     printf("                              Participates in clause atomicity\n");
