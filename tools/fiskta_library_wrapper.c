@@ -338,9 +338,8 @@ int main(int argc, char** argv)
             continue;
         }
         if (strncmp(arg, "--ops=", 6) == 0) {
-            ops_string = arg + 6;
-            argi++;
-            continue;
+            fprintf(stderr, "fiskta_library_wrapper: --ops must use a space-separated value (use --ops <string>)\n");
+            return 7;
         }
 
         // --ops-file FILE (operations from file)
@@ -354,9 +353,8 @@ int main(int argc, char** argv)
             continue;
         }
         if (strncmp(arg, "--ops-file=", 11) == 0) {
-            ops_file = arg + 11;
-            argi++;
-            continue;
+            fprintf(stderr, "fiskta_library_wrapper: --ops-file must use a space-separated value (use --ops-file <path>)\n");
+            return 7;
         }
 
         // Unknown option, stop parsing
