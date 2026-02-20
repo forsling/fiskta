@@ -362,7 +362,7 @@ static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, 
     if (ops_file) {
         // Load operations from file
         if (ops_index < argc) {
-            fprintf(stderr, "fiskta: --ops cannot be combined with positional operations\n");
+            fprintf(stderr, "fiskta: --ops-file/-f cannot be combined with positional operations\n");
             return FISKTA_EXIT_USAGE;
         }
 
