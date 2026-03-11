@@ -239,8 +239,13 @@ size_t calculate_escaped_string_length(FisktaString str)
     for (size_t i = 0; i < src_len; i++) {
         if (str.bytes[i] == '\\' && i + 1 < src_len) {
             char esc = str.bytes[i + 1];
-            if (esc == 'n' || esc == 't' || esc == 'r' || esc == '0' || esc == '\\' || esc == 'c' || esc == 'C') {
+            if (esc == 'n' || esc == 't' || esc == 'r' || esc == '0' || esc == '\\') {
                 dst_len++;
+                i++;
+                continue;
+            }
+            if (esc == 'c' || esc == 'C') {
+                // Cursor marks do not emit bytes; keep sizing aligned with parse_string_to_bytes().
                 i++;
                 continue;
             }
