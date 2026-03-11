@@ -474,6 +474,12 @@ static i32 estimate_regex_instructions(FisktaString pattern)
     return estimate;
 }
 
+static bool is_detached_offset_token(FisktaString tok)
+{
+    char first = string_first(tok);
+    return first == '+' || first == '-' || isdigit((unsigned char)first);
+}
+
 enum FisktaErr parse_preflight(i32 token_count, const FisktaString* tokens, const char* in_path, ParsePlan* plan, const char** in_path_out)
 {
     memset(plan, 0, sizeof(*plan));
@@ -499,11 +505,8 @@ enum FisktaErr parse_preflight(i32 token_count, const FisktaString* tokens, cons
                     if (idx < token_count) {
                         idx++;
                     }
-                    if (idx < token_count) {
-                        char first = string_first(tokens[idx]);
-                        if (first == '+' || first == '-') {
-                            idx++;
-                        }
+                    if (idx < token_count && is_detached_offset_token(tokens[idx])) {
+                        idx++;
                     }
                 }
                 if (idx < token_count) {
@@ -519,11 +522,8 @@ enum FisktaErr parse_preflight(i32 token_count, const FisktaString* tokens, cons
                     if (idx < token_count) {
                         idx++;
                     }
-                    if (idx < token_count) {
-                        char first = string_first(tokens[idx]);
-                        if (first == '+' || first == '-') {
-                            idx++;
-                        }
+                    if (idx < token_count && is_detached_offset_token(tokens[idx])) {
+                        idx++;
                     }
                 }
                 if (idx < token_count) {
@@ -606,11 +606,8 @@ enum FisktaErr parse_preflight(i32 token_count, const FisktaString* tokens, cons
                     if (idx < token_count) {
                         idx++;
                     }
-                    if (idx < token_count) {
-                        char first = string_first(tokens[idx]);
-                        if (first == '+' || first == '-') {
-                            idx++;
-                        }
+                    if (idx < token_count && is_detached_offset_token(tokens[idx])) {
+                        idx++;
                     }
                 }
                 if (idx < token_count) {
@@ -633,11 +630,8 @@ enum FisktaErr parse_preflight(i32 token_count, const FisktaString* tokens, cons
                     if (idx < token_count) {
                         idx++;
                     }
-                    if (idx < token_count) {
-                        char first = string_first(tokens[idx]);
-                        if (first == '+' || first == '-') {
-                            idx++;
-                        }
+                    if (idx < token_count && is_detached_offset_token(tokens[idx])) {
+                        idx++;
                     }
                 } else if (idx < token_count) {
                     idx++; // skip offset
@@ -652,11 +646,8 @@ enum FisktaErr parse_preflight(i32 token_count, const FisktaString* tokens, cons
                         if (idx < token_count) {
                             idx++;
                         }
-                        if (idx < token_count) {
-                            char first = string_first(tokens[idx]);
-                            if (first == '+' || first == '-') {
-                                idx++;
-                            }
+                        if (idx < token_count && is_detached_offset_token(tokens[idx])) {
+                            idx++;
                         }
                     } else if (is_keyword(next_tok, &kw_until_re)) {
                         plan->sum_take_ops++;
@@ -742,11 +733,8 @@ enum FisktaErr parse_preflight(i32 token_count, const FisktaString* tokens, cons
                             if (idx < token_count) {
                                 idx++;
                             }
-                            if (idx < token_count) {
-                                char first = string_first(tokens[idx]);
-                                if (first == '+' || first == '-') {
-                                    idx++;
-                                }
+                            if (idx < token_count && is_detached_offset_token(tokens[idx])) {
+                                idx++;
                             }
                         }
                     } else if (is_keyword(next_tok, &kw_until_bin)) {
@@ -770,11 +758,8 @@ enum FisktaErr parse_preflight(i32 token_count, const FisktaString* tokens, cons
                             if (idx < token_count) {
                                 idx++;
                             }
-                            if (idx < token_count) {
-                                char first = string_first(tokens[idx]);
-                                if (first == '+' || first == '-') {
-                                    idx++;
-                                }
+                            if (idx < token_count && is_detached_offset_token(tokens[idx])) {
+                                idx++;
                             }
                         }
                     } else if (is_keyword(next_tok, &kw_until)) {
@@ -790,11 +775,8 @@ enum FisktaErr parse_preflight(i32 token_count, const FisktaString* tokens, cons
                             if (idx < token_count) {
                                 idx++;
                             }
-                            if (idx < token_count) {
-                                char first = string_first(tokens[idx]);
-                                if (first == '+' || first == '-') {
-                                    idx++;
-                                }
+                            if (idx < token_count && is_detached_offset_token(tokens[idx])) {
+                                idx++;
                             }
                         }
                     } else {
@@ -824,20 +806,14 @@ enum FisktaErr parse_preflight(i32 token_count, const FisktaString* tokens, cons
                 if (idx < token_count) {
                     idx++;
                 }
-                if (idx < token_count) {
-                    char first = string_first(tokens[idx]);
-                    if (first == '+' || first == '-') {
-                        idx++;
-                    }
+                if (idx < token_count && is_detached_offset_token(tokens[idx])) {
+                    idx++;
                 }
                 if (idx < token_count) {
                     idx++;
                 }
-                if (idx < token_count) {
-                    char first = string_first(tokens[idx]);
-                    if (first == '+' || first == '-') {
-                        idx++;
-                    }
+                if (idx < token_count && is_detached_offset_token(tokens[idx])) {
+                    idx++;
                 }
             } else if (is_keyword(cmd_tok, &kw_clear)) {
                 idx++;
