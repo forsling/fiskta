@@ -189,10 +189,6 @@ typedef struct {
     size_t regex_ins_bytes; // ReInst instruction pool
     size_t regex_cls_bytes; // ReClass character class pool
     size_t str_pool_bytes; // String literal pool
-
-    // FisktaProgram-level regex characteristics (fast-path selection hints)
-    bool any_lazy_quantifiers; // True if any regex has lazy quantifiers
-    bool any_counters; // True if any regex has {n,m} quantifiers
 } FisktaRuntimeRequirements;
 
 // Analyze program and compute memory requirements WITHOUT allocating

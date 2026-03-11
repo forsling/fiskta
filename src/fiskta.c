@@ -641,11 +641,6 @@ FISKTA_API int fiskta_program_requirements(i32 token_count, const FisktaString* 
     out->regex_cls_bytes = re_cls_bytes;
     out->str_pool_bytes = str_pool_bytes;
 
-    // Regex characteristics (would need additional tracking in ParsePlan)
-    // For now, conservatively assume both are present if there are any regexes
-    out->any_lazy_quantifiers = (plan.sum_findr_ops > 0);
-    out->any_counters = (plan.sum_findr_ops > 0);
-
     /****************************************************
      * PHASE 3: COMPUTE TOTAL ARENA SIZE WITH ALIGNMENT *
      ****************************************************/
