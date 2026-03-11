@@ -109,9 +109,9 @@ typedef struct {
     void* output_userdata;
 } FisktaRuntimeConfig;
 
-/***************************
- * TWO-PHASE EXECUTION API *
- ***************************/
+/*****************************
+ * THREE-PHASE EXECUTION API *
+ *****************************/
 // FisktaRuntimeBuffers: All execution-time working memory for one FisktaProgram.
 //
 // Lifetime:
