@@ -257,7 +257,7 @@ static u64 now_millis(void)
     return (u64)GetTickCount64();
 #else
     struct timespec ts;
-    timespec_get(&ts, TIME_UTC);
+    clock_gettime(CLOCK_MONOTONIC, &ts);
     return (u64)ts.tv_sec * 1000ULL + (u64)ts.tv_nsec / 1000000ULL;
 #endif
 }
