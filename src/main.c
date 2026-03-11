@@ -354,10 +354,9 @@ static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, 
         return FISKTA_EXIT_PARSE;
     }
 
-    // Static buffers for operations loading
-    static char file_content_buf[MAX_NEEDLE_BYTES];
-    static FisktaString tokens_view[MAX_TOKENS];
-    static char tokenize_scratch[MAX_NEEDLE_BYTES];
+    char file_content_buf[MAX_NEEDLE_BYTES];
+    FisktaString tokens_view[MAX_TOKENS];
+    char tokenize_scratch[MAX_NEEDLE_BYTES];
 
     if (ops_file) {
         // Load operations from file
