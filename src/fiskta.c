@@ -39,6 +39,13 @@ _Thread_local static char tl_message[ERROR_MESSAGE_MAX] = { 0 };
 _Thread_local static FisktaErrorCallback tl_callback = NULL;
 _Thread_local static void* tl_userdata = NULL;
 
+static void error_clear(void)
+{
+    tl_err = FISKTA_E_OK;
+    tl_position = -1;
+    tl_message[0] = '\0';
+}
+
 void error_set(enum FisktaErr err, i32 position, const char* fmt, ...)
 {
     tl_err = err;
@@ -568,6 +575,8 @@ FISKTA_API int fiskta_program_requirements(i32 token_count, const FisktaString* 
     const FisktaBuildOptions* options,
     FisktaRuntimeRequirements* out)
 {
+    error_clear();
+
     if (!tokens || !out) {
         return FISKTA_EXIT_PARSE;
     }
@@ -707,6 +716,8 @@ FISKTA_API int fiskta_build_program(i32 token_count, const FisktaString* tokens,
     void* arena_block, size_t arena_size,
     FisktaRuntimeBuffers* buffers_out)
 {
+    error_clear();
+
     if (!tokens || !prog_out || !buffers_out || !arena_block) {
         return FISKTA_EXIT_PARSE;
     }
@@ -889,6 +900,8 @@ FISKTA_API int fiskta_runtime_execute(const FisktaProgram* prog,
     FisktaRuntimeBuffers* buffers,
     const FisktaRuntimeConfig* config)
 {
+    error_clear();
+
     if (!prog || !file_path || !buffers || !config) {
         return FISKTA_EXIT_PARSE;
     }
@@ -1004,6 +1017,8 @@ FISKTA_API int fiskta_runtime_execute_buffer(const FisktaProgram* prog,
     FisktaRuntimeBuffers* buffers,
     const FisktaRuntimeConfig* config)
 {
+    error_clear();
+
     if (!prog || !data || !buffers || !config) {
         return FISKTA_EXIT_PARSE;
     }
