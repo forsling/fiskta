@@ -895,35 +895,13 @@ FISKTA_API int fiskta_build_program(i32 token_count, const FisktaString* tokens,
 /***********************************
  * EXECUTE PROGRAM (RUNTIME PHASE) *
  ***********************************/
-FISKTA_API int fiskta_runtime_execute(const FisktaProgram* prog,
-    const char* file_path,
+static int run_loop(const FisktaProgram* prog, File* io,
     FisktaRuntimeBuffers* buffers,
     const FisktaRuntimeConfig* config)
 {
-    error_clear();
-
-    if (!prog || !file_path || !buffers || !config) {
-        return FISKTA_EXIT_PARSE;
-    }
-
-    /*********************************************
-     * PHASE 6: OPEN FILE I/O                    *
-     * Initialize file handle and search buffers *
-     *********************************************/
-    File io = { 0 };
-    enum FisktaErr e = io_open(&io, file_path, buffers->search_buf, buffers->search_buf_cap);
-    if (e != FISKTA_E_OK) {
-        error_set(e, -1, "failed to open file '%s'", file_path ? file_path : "stdin");
-        return err_to_exit_code(e);
-    }
-
-    io_set_regex_scratch(&io, buffers->re_curr, buffers->re_next, buffers->re_thread_cap,
+    io_set_regex_scratch(io, buffers->re_curr, buffers->re_next, buffers->re_thread_cap,
         buffers->regex_work_budget, buffers->seen_curr, buffers->seen_next, buffers->seen_bytes);
 
-    /**********************************************
-     * PHASE 7: EXECUTE PROGRAM                   *
-     * Run operations with optional continue loop *
-     **********************************************/
     LoopState loop_state;
     loop_init(&loop_state, config);
 
@@ -938,7 +916,7 @@ FISKTA_API int fiskta_runtime_execute(const FisktaProgram* prog,
 
         i64 lo;
         i64 hi;
-        loop_compute_window(&loop_state, &io, &lo, &hi, NULL);
+        loop_compute_window(&loop_state, io, &lo, &hi, NULL);
 
         // Detect idle condition: empty window [lo, hi)
         bool no_new_data = (lo >= hi);
@@ -962,7 +940,7 @@ FISKTA_API int fiskta_runtime_execute(const FisktaProgram* prog,
         }
 
         // Continue mode: pass saved FisktaVM to preserve cursor and labels
-        IterResult iteration = execute_program_iteration(prog, &io, &loop_state.vm,
+        IterResult iteration = execute_program_iteration(prog, io, &loop_state.vm,
             buffers->clause_ranges, buffers->clause_labels,
             buffers->clause_inline, buffers->sum_inline_lits,
             lo, hi, config);
@@ -985,8 +963,6 @@ FISKTA_API int fiskta_runtime_execute(const FisktaProgram* prog,
             break;
         }
     }
-
-    io_close(&io);
 
     if (loop_state.exit_code) {
         return loop_state.exit_code;
@@ -1012,6 +988,34 @@ FISKTA_API int fiskta_runtime_execute(const FisktaProgram* prog,
     }
 }
 
+FISKTA_API int fiskta_runtime_execute(const FisktaProgram* prog,
+    const char* file_path,
+    FisktaRuntimeBuffers* buffers,
+    const FisktaRuntimeConfig* config)
+{
+    error_clear();
+
+    if (!prog || !file_path || !buffers || !config) {
+        return FISKTA_EXIT_PARSE;
+    }
+
+    /*********************************************
+     * PHASE 6: OPEN FILE I/O                    *
+     * Initialize file handle and search buffers *
+     *********************************************/
+    File io = { 0 };
+    enum FisktaErr e = io_open(&io, file_path, buffers->search_buf, buffers->search_buf_cap);
+    if (e != FISKTA_E_OK) {
+        error_set(e, -1, "failed to open file '%s'", file_path ? file_path : "stdin");
+        return err_to_exit_code(e);
+    }
+
+    int ret = run_loop(prog, &io, buffers, config);
+
+    io_close(&io);
+    return ret;
+}
+
 FISKTA_API int fiskta_runtime_execute_buffer(const FisktaProgram* prog,
     const unsigned char* data, size_t len,
     FisktaRuntimeBuffers* buffers,
@@ -1030,84 +1034,8 @@ FISKTA_API int fiskta_runtime_execute_buffer(const FisktaProgram* prog,
         return err_to_exit_code(e);
     }
 
-    io_set_regex_scratch(&io, buffers->re_curr, buffers->re_next, buffers->re_thread_cap,
-        buffers->regex_work_budget, buffers->seen_curr, buffers->seen_next, buffers->seen_bytes);
-
-    LoopState loop_state;
-    loop_init(&loop_state, config);
-
-    for (;;) {
-        int reason = 0;
-        (void)loop_should_wait_or_stop(&loop_state, /*no_new_data=*/false, &reason);
-        if (reason == FISKTA_EXIT_TIMEOUT) {
-            loop_state.exit_reason = reason;
-            break;
-        }
-
-        i64 lo;
-        i64 hi;
-        loop_compute_window(&loop_state, &io, &lo, &hi, NULL);
-
-        bool no_new_data = (lo >= hi);
-
-        if (loop_state.enabled && no_new_data) {
-            if (loop_state.idle_timeout_ms == 0) {
-                loop_state.exit_reason = 0;
-                break;
-            }
-            if (loop_state.idle_timeout_ms > 0) {
-                reason = 0;
-                if (loop_should_wait_or_stop(&loop_state, /*no_new_data=*/true, &reason)) {
-                    continue;
-                }
-                loop_state.exit_reason = reason;
-                break;
-            }
-        }
-
-        IterResult iteration = execute_program_iteration(prog, &io, &loop_state.vm,
-            buffers->clause_ranges, buffers->clause_labels,
-            buffers->clause_inline, buffers->sum_inline_lits,
-            lo, hi, config);
-
-        loop_commit(&loop_state, hi, iteration, config->ignore_loop_failures);
-        fflush(stdout);
-
-        if (!loop_state.enabled || loop_state.exit_code) {
-            break;
-        }
-
-        if (loop_state.loop_ms > 0) {
-            sleep_msec(loop_state.loop_ms);
-        }
-        reason = 0;
-        (void)loop_should_wait_or_stop(&loop_state, /*no_new_data=*/false, &reason);
-        if ((loop_state.exit_reason = reason) != 0) {
-            break;
-        }
-    }
+    int ret = run_loop(prog, &io, buffers, config);
 
     io_close(&io);
-
-    if (loop_state.exit_code) {
-        return loop_state.exit_code;
-    }
-    if (loop_state.exit_reason == FISKTA_EXIT_TIMEOUT) {
-        return FISKTA_EXIT_TIMEOUT;
-    }
-
-    switch (loop_state.last_result.status) {
-    case ITER_OK:
-        return FISKTA_EXIT_OK;
-    case ITER_IO_ERROR:
-        return FISKTA_EXIT_IO;
-    case ITER_RESOURCE_ERROR:
-        return FISKTA_EXIT_RESOURCE;
-    case ITER_CAPACITY_ERROR:
-        return FISKTA_EXIT_CAPACITY;
-    case ITER_PROGRAM_FAIL:
-        return FISKTA_EXIT_PROGRAM_FAIL;
-    default:
-        return FISKTA_EXIT_IO;
-    }
+    return ret;
 }
