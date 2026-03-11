@@ -6,6 +6,7 @@
 
 #include "fiskta.h"
 #include "util.h"
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -175,6 +176,11 @@ int main(int argc, char** argv)
     while (argi < argc) {
         const char* arg = argv[argi];
 
+        if (strcmp(arg, "--") == 0) {
+            argi++;
+            break;
+        }
+
         // Stop at first non-option
         if (arg[0] != '-') {
             break;
@@ -186,10 +192,15 @@ int main(int argc, char** argv)
             return 0;
         }
 
+        if (strcmp(arg, "--version") == 0 || strcmp(arg, "-v") == 0) {
+            printf("fiskta - (fi)nd (sk)ip (ta)ke v%s\n", FISKTA_VERSION);
+            return 0;
+        }
+
         // --input PATH or --input=PATH
         if (strcmp(arg, "--input") == 0 || strcmp(arg, "-i") == 0) {
             if (argi + 1 >= argc) {
-                fprintf(stderr, "fiskta_library_wrapper: --input requires a value\n");
+                fprintf(stderr, "fiskta_library_wrapper: --input requires a path\n");
                 return 7;
             }
             input_path = argv[argi + 1];
@@ -197,6 +208,10 @@ int main(int argc, char** argv)
             continue;
         }
         if (strncmp(arg, "--input=", 8) == 0) {
+            if (arg[8] == '\0') {
+                fprintf(stderr, "fiskta_library_wrapper: --input requires a path\n");
+                return 7;
+            }
             input_path = arg + 8;
             argi++;
             continue;
@@ -223,28 +238,6 @@ int main(int argc, char** argv)
             argi++;
             continue;
         }
-        if (strncmp(arg, "--continue=", 11) == 0) {
-            loop_enabled = true;
-            loop_ms = parse_time_ms(arg + 11);
-            if (loop_ms < 0) {
-                fprintf(stderr, "fiskta_library_wrapper: invalid time format: %s\n", arg + 11);
-                return 7;
-            }
-            argi++;
-            continue;
-        }
-        if (strncmp(arg, "--continue-on-fail=", 19) == 0) {
-            loop_enabled = true;
-            ignore_loop_failures = true;
-            loop_ms = parse_time_ms(arg + 19);
-            if (loop_ms < 0) {
-                fprintf(stderr, "fiskta_library_wrapper: invalid time format: %s\n", arg + 19);
-                return 7;
-            }
-            argi++;
-            continue;
-        }
-
         // --until-idle N or --until-idle=N
         if (strcmp(arg, "--until-idle") == 0 || strcmp(arg, "-u") == 0) {
             if (argi + 1 >= argc) {
@@ -302,17 +295,14 @@ int main(int argc, char** argv)
             continue;
         }
 
-        // --ignore-failures or -k
-        if (strcmp(arg, "--ignore-failures") == 0 || strcmp(arg, "-k") == 0) {
-            ignore_loop_failures = true;
-            argi++;
-            continue;
-        }
-
         // --ops STRING (inline operations)
         if (strcmp(arg, "--ops") == 0) {
+            if (ops_string || ops_file) {
+                fprintf(stderr, "fiskta_library_wrapper: --ops specified multiple times\n");
+                return 7;
+            }
             if (argi + 1 >= argc) {
-                fprintf(stderr, "fiskta_library_wrapper: --ops requires a value\n");
+                fprintf(stderr, "fiskta_library_wrapper: --ops requires a string\n");
                 return 7;
             }
             ops_string = argv[argi + 1];
@@ -321,15 +311,27 @@ int main(int argc, char** argv)
         }
         // --ops-file FILE / -f FILE (operations from file)
         if (strcmp(arg, "--ops-file") == 0 || strcmp(arg, "-f") == 0) {
+            if (ops_string || ops_file) {
+                fprintf(stderr, "fiskta_library_wrapper: %s conflicts with previous --ops/--ops-file/-f\n", arg);
+                return 7;
+            }
             if (argi + 1 >= argc) {
-                fprintf(stderr, "fiskta_library_wrapper: %s requires a value\n", arg);
+                fprintf(stderr, "fiskta_library_wrapper: %s requires a path\n", arg);
                 return 7;
             }
             ops_file = argv[argi + 1];
             argi += 2;
             continue;
         }
-        // Unknown option, stop parsing
+
+        if (arg[0] == '-') {
+            if (arg[1] == '\0' || isdigit((unsigned char)arg[1])) {
+                break;
+            }
+            fprintf(stderr, "fiskta_library_wrapper: unknown option %s\n", arg);
+            return 7;
+        }
+
         break;
     }
 
