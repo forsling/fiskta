@@ -57,6 +57,7 @@ extern "C" {
 #endif
 
 // Callback types
+// `context` is reserved for future use and is currently always NULL.
 typedef void (*FisktaErrorCallback)(enum FisktaErr err, const char* context,
     i32 position, const char* message, void* userdata);
 typedef void (*FisktaOutputCallback)(const void* data, size_t len, void* userdata);
@@ -296,7 +297,9 @@ FISKTA_API int fiskta_runtime_execute_buffer(const FisktaProgram* prog,
 // Set error handler for this thread (optional)
 //
 // If set, errors will invoke the callback with diagnostic information.
-// If not set, errors print to stderr (default behavior).
+// If not set, errors remain available via fiskta_error_code(),
+// fiskta_error_message(), and fiskta_error_position(). The library itself
+// does not print to stderr.
 //
 // Thread-local: each thread can have its own error handler.
 // Safe to call multiple times to change handler.
