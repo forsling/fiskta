@@ -47,7 +47,9 @@ typedef struct {
 
 // Forward declarations
 static int parse_time_option(const char* value, const char* opt_name, i32* out);
-static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, int ops_index, int argc, char** argv, Operations* out);
+static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, int ops_index, int argc, char** argv,
+    FisktaString* tokens_view, char* file_content_buf, char* tokenize_scratch,
+    Operations* out);
 static int parse_until_idle_option(const char* value, i32* out);
 
 static bool parse_cli_args(int argc, char** argv,
@@ -348,15 +350,13 @@ static int parse_until_idle_option(const char* value, i32* out)
 
 // Load operations from CLI options (--ops string, --ops-file, or positional args)
 // Returns exit code on error, 0 on success
-static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, int ops_index, int argc, char** argv, Operations* out)
+static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, int ops_index, int argc, char** argv,
+    FisktaString* tokens_view, char* file_content_buf, char* tokenize_scratch,
+    Operations* out)
 {
-    if (!out) {
+    if (!tokens_view || !file_content_buf || !tokenize_scratch || !out) {
         return FISKTA_EXIT_PARSE;
     }
-
-    char file_content_buf[MAX_NEEDLE_BYTES];
-    FisktaString tokens_view[MAX_TOKENS];
-    char tokenize_scratch[MAX_NEEDLE_BYTES];
 
     if (ops_file) {
         // Load operations from file
@@ -371,7 +371,7 @@ static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, 
             return FISKTA_EXIT_IO;
         }
 
-        size_t total = fread(file_content_buf, 1, sizeof(file_content_buf) - 1, cf);
+        size_t total = fread(file_content_buf, 1, MAX_NEEDLE_BYTES - 1, cf);
         if (ferror(cf)) {
             fclose(cf);
             fprintf(stderr, "fiskta: error reading ops file %s\n", ops_file);
@@ -390,7 +390,7 @@ static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, 
             return FISKTA_EXIT_USAGE;
         }
 
-        i32 n = tokenize_ops_string(file_content_buf, tokens_view, MAX_TOKENS, tokenize_scratch, sizeof(tokenize_scratch));
+        i32 n = tokenize_ops_string(file_content_buf, tokens_view, MAX_TOKENS, tokenize_scratch, MAX_NEEDLE_BYTES);
         if (n == -1) {
             fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
             return FISKTA_EXIT_CAPACITY;
@@ -411,7 +411,7 @@ static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, 
             return FISKTA_EXIT_USAGE;
         }
 
-        i32 n = tokenize_ops_string(ops_arg, tokens_view, MAX_TOKENS, tokenize_scratch, sizeof(tokenize_scratch));
+        i32 n = tokenize_ops_string(ops_arg, tokens_view, MAX_TOKENS, tokenize_scratch, MAX_NEEDLE_BYTES);
         if (n == -1) {
             fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
             return FISKTA_EXIT_CAPACITY;
@@ -437,7 +437,7 @@ static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, 
         char** tokens = argv + ops_index;
         if (token_count == 1 && strchr(tokens[0], ' ')) {
             // Single token with spaces - use optimized tokenizer
-            i32 n = tokenize_ops_string(tokens[0], tokens_view, MAX_TOKENS, tokenize_scratch, sizeof(tokenize_scratch));
+            i32 n = tokenize_ops_string(tokens[0], tokens_view, MAX_TOKENS, tokenize_scratch, MAX_NEEDLE_BYTES);
             if (n == -1) {
                 fprintf(stderr, "fiskta: operations string too long (max %d bytes)\n", MAX_NEEDLE_BYTES);
                 return FISKTA_EXIT_CAPACITY;
@@ -487,8 +487,12 @@ int main(int argc, char** argv)
     /***************************
      * OPERATION TOKEN PARSING *
      ***************************/
+    FisktaString tokens_view[MAX_TOKENS];
+    char file_content_buf[MAX_NEEDLE_BYTES];
+    char tokenize_scratch[MAX_NEEDLE_BYTES];
     Operations ops;
-    int ops_result = load_ops_from_cli_options(ops_arg, ops_file, ops_index, argc, argv, &ops);
+    int ops_result = load_ops_from_cli_options(ops_arg, ops_file, ops_index, argc, argv,
+        tokens_view, file_content_buf, tokenize_scratch, &ops);
     if (ops_result != FISKTA_EXIT_OK) {
         return ops_result;
     }
