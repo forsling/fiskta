@@ -102,9 +102,6 @@ typedef struct {
     bool ignore_loop_failures; // Keep looping even when clauses fail
     i32 idle_timeout_ms; // Stop after idle period: -1 = disabled, 0 = immediate, >0 = ms
     i32 exec_timeout_ms; // Stop after total time: -1 = disabled, >=0 = ms
-
-    FisktaErrorCallback error_callback; // Optional error handler (NULL = use stderr)
-    void* error_userdata;
     FisktaOutputCallback output_callback; // Optional output handler (NULL = use stdout)
     void* output_userdata;
 } FisktaRuntimeConfig;

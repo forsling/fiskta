@@ -478,8 +478,6 @@ int main(int argc, char** argv)
         .ignore_loop_failures = ignore_loop_failures,
         .idle_timeout_ms = idle_timeout_ms,
         .exec_timeout_ms = exec_timeout_ms,
-        .error_callback = error_to_stderr,
-        .error_userdata = NULL,
         .output_callback = output_to_stdout,
         .output_userdata = NULL
     };

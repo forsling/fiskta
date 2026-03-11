@@ -334,7 +334,7 @@ free(arena);
 
 All memory is allocated once at startup via a single arena. Zero allocations during execution — memory usage is independent of input size. The caller owns the arena and frees it when done.
 
-`FisktaBuildOptions` controls regex engine limits (`regex_budget_bytes`, `regex_work_budget`). `FisktaRuntimeConfig` controls loop behavior, timeouts, and error/output callbacks. All functions return `FISKTA_EXIT_*` codes; detailed errors via `fiskta_error_code()`, `fiskta_error_message()`, and `fiskta_error_position()`.
+`FisktaBuildOptions` controls regex engine limits (`regex_budget_bytes`, `regex_work_budget`). `FisktaRuntimeConfig` controls loop behavior, timeouts, and output callbacks. Error routing is configured per thread with `fiskta_set_error_handler()`. All functions return `FISKTA_EXIT_*` codes; detailed errors via `fiskta_error_code()`, `fiskta_error_message()`, and `fiskta_error_position()`.
 
 ```
 make release        # produces dist/lib/libfiskta.a and dist/include/fiskta.h
