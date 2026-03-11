@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.1 (2026-03-12
+
+### Compatibility notes
+
+**Library API:**
+- Removed dead `FisktaRuntimeConfig.error_callback` / `.error_userdata` fields. Error routing now goes through `fiskta_set_error_handler()`; `FisktaRuntimeConfig` only controls runtime behavior and output callbacks.
+- Removed misleading `FisktaRuntimeRequirements.any_lazy_quantifiers` / `.any_counters` fields.
+
+### Bug fixes
+
+- Fixed the thread-local library error callback path so handlers registered with `fiskta_set_error_handler()` are actually invoked.
+- Fixed stale thread-local error state: successful public API calls now clear prior `fiskta_error_*()` values.
+
 ## 2.0 (2026-02-11)
 
 ### Breaking changes
@@ -32,8 +45,6 @@
 - **In-memory buffer execution**: library API supports operating on byte buffers without file I/O.
 - **Error/output callbacks**: library users can intercept error messages and output instead of relying on stderr/stdout.
 - **Cross-compilation**: `zig build release` cross-compiles for Linux x86_64 (glibc and musl), macOS aarch64, and Windows x86_64.
-- **Makefile**: alternative build system for environments without zig.
-- **Release packaging**: `tools/package-release.sh` produces versioned platform archives with binary size validation.
 
 ### Bug fixes
 
@@ -52,14 +63,6 @@
 - Fixed Windows stdin CRLF translation (now set to binary mode).
 - Replaced hard exit in alignment helper with proper error propagation.
 
-### Internal
-
-- Modular source structure: `iosearch` split into `fileio`, `search_literal`, `regex_vm`, and `regex_prog`.
-- Two-phase parsing (preflight + build) with single arena allocation.
-- Centralized error handling via internal `error.h`.
-- Parser cleanup: removed dead code, replaced manual token-skipping with parse-then-materialize pattern.
-- Standardized header documentation and section comment style.
-
 ## 1.3 (2025-10-22)
 
 ### Features
@@ -68,8 +71,6 @@
 - Added 16KB maximum search pattern limit across all search operations. Exceeding returns exit 14.
 - Improved error messages: `skip to <location>` now reports a clear error when the target is out of bounds.
 - Automatic version strings from `git describe`.
-- Separated parser-only label metadata from `Program` struct.
-- Unified CLI and runtime configuration structs.
 
 ### Bug fixes
 
