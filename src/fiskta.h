@@ -311,13 +311,17 @@ FISKTA_API int fiskta_runtime_execute_buffer(const FisktaProgram* prog,
 //   fiskta_set_error_handler(my_handler, NULL);
 FISKTA_API void fiskta_set_error_handler(FisktaErrorCallback callback, void* userdata);
 
-// Get last error code (thread-local)
+// Get last error code for the most recent library call on this thread.
+// Successful calls clear prior error state. Argument-contract failures may
+// return non-zero without populating detailed error state.
 FISKTA_API enum FisktaErr fiskta_error_code(void);
 
-// Get last error message (thread-local, may be NULL)
+// Get last error message for the most recent library call on this thread
+// (may be NULL).
 FISKTA_API const char* fiskta_error_message(void);
 
-// Get last error token position (thread-local, -1 if not set)
+// Get last error token position for the most recent library call on this
+// thread (-1 if not set).
 FISKTA_API i32 fiskta_error_position(void);
 
 // Get human-readable string for error code

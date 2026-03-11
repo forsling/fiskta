@@ -259,6 +259,8 @@ $ fiskta --continue 1s --until-idle 0 --input service.log find "ERROR" take to l
 fiskta [options] <operations>
 ```
 
+When operations are provided through `--ops` or `--ops-file`, fiskta tokenizes that string itself. Single quotes are literal and cannot contain an embedded single quote. Double quotes support `\"` and `\\`. If you need a literal single quote inside one token, use double quotes instead.
+
 | Option | Description |
 |--------|-------------|
 | `-i, --input <path>` | Read from file (default: stdin) |
