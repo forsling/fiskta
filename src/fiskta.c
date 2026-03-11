@@ -52,6 +52,10 @@ void error_set(enum FisktaErr err, i32 position, const char* fmt, ...)
     } else {
         tl_message[0] = '\0';
     }
+
+    if (tl_callback) {
+        tl_callback(err, NULL, position, tl_message[0] ? tl_message : NULL, tl_userdata);
+    }
 }
 
 FISKTA_API enum FisktaErr fiskta_error_code(void)

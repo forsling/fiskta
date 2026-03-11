@@ -38,24 +38,6 @@ static void error_to_stderr(enum FisktaErr err, const char* context,
     fprintf(stderr, "\n");
 }
 
-// Print last error in the same format as CLI (used when a call returns non-OK)
-static void print_last_error_cli_like(void)
-{
-    enum FisktaErr e = fiskta_error_code();
-    if (e == FISKTA_E_OK) return;
-    i32 position = fiskta_error_position();
-    const char* message = fiskta_error_message();
-    fprintf(stderr, "fiskta: %s", fiskta_err_str(e));
-    if (message && fiskta_error_code() == e) {
-        if (position >= 0) {
-            fprintf(stderr, ": %s (token %d)", message, position + 1);
-        } else {
-            fprintf(stderr, ": %s", message);
-        }
-    }
-    fputc('\n', stderr);
-}
-
 // Read entire file into memory
 static unsigned char* read_file_to_memory(const char* path, size_t* len_out)
 {
@@ -452,7 +434,8 @@ int main(int argc, char** argv)
         }
     }
 
-    // Set up error callback (used by runtime path when engine reports errors)
+    // Route library errors through the callback path so parse/build/runtime
+    // failures all use the same reporting mechanism.
     fiskta_set_error_handler(error_to_stderr, NULL);
 
     // Get program requirements
@@ -460,7 +443,6 @@ int main(int argc, char** argv)
     FisktaRuntimeRequirements reqs;
     int result = fiskta_program_requirements(token_count, tokens, &opts, &reqs);
     if (result != FISKTA_EXIT_OK) {
-        print_last_error_cli_like();
         return result;
     }
 
@@ -476,7 +458,6 @@ int main(int argc, char** argv)
     FisktaRuntimeBuffers buffers = {0};
     result = fiskta_build_program(token_count, tokens, &opts, &prog, arena, reqs.arena_bytes, &buffers);
     if (result != FISKTA_EXIT_OK) {
-        print_last_error_cli_like();
         free(arena);
         return result;
     }
@@ -505,9 +486,6 @@ int main(int argc, char** argv)
 
     // Execute on in-memory buffer
     result = fiskta_runtime_execute_buffer(&prog, input_data, input_len, &buffers, &config);
-    if (result != FISKTA_EXIT_OK && result != FISKTA_EXIT_PROGRAM_FAIL) {
-        print_last_error_cli_like();
-    }
 
     // Cleanup
     free(input_data);
