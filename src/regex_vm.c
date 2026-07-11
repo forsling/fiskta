@@ -293,7 +293,7 @@ enum FisktaErr regex_search_window(File* io, i64 win_lo, i64 win_hi,
     if (win_hi > io->size) {
         win_hi = io->size;
     }
-    if (win_lo >= win_hi) {
+    if (win_lo > win_hi) {
         return FISKTA_E_NO_MATCH;
     }
 
@@ -417,10 +417,15 @@ enum FisktaErr regex_search_window(File* io, i64 win_lo, i64 win_hi,
 
         unsigned char prev_char = have_prev ? prev_c : 0;
 
-        // Compute anchor booleans once per loop
+        // Anchor state at the current position, before consuming curr_c.
         int at_bol = (pos == win_lo) || (have_prev && prev_c == '\n');
-        int at_eol = (pos == win_hi) || (pos + 1 == win_hi) || // at last character of file
-            (next1 == '\n') || (next1 == '\r' && next2 == '\n'); // CRLF-aware
+        int at_eol = (pos == win_hi) || (curr_c == '\n')
+            || (curr_c == '\r' && next1 == '\n');
+
+        // Anchor state after consuming curr_c, at position pos + 1.
+        int next_at_bol = curr_c == '\n';
+        int next_at_eol = (pos + 1 == win_hi) || (next1 == '\n')
+            || (next1 == '\r' && next2 == '\n');
 
         // If no active threads, start a new leftmost attempt at pos
         if (curr.n == 0) {
@@ -582,7 +587,7 @@ enum FisktaErr regex_search_window(File* io, i64 win_lo, i64 win_hi,
             switch (inst->op) {
             case RI_CHAR:
                 if (c == inst->ch) {
-                    enum FisktaErr err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol, curr.v[i].counters, curr.v[i].priority, 0,
+                    enum FisktaErr err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, next1, c, next_at_bol, next_at_eol, curr.v[i].counters, curr.v[i].priority, 0,
                         &work_count, work_budget);
                     if (err != FISKTA_E_OK) {
                         return err;
@@ -591,7 +596,7 @@ enum FisktaErr regex_search_window(File* io, i64 win_lo, i64 win_hi,
                 break;
             case RI_ANY:
                 if (c != '\n') { // dot ≠ newline
-                    enum FisktaErr err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol, curr.v[i].counters, curr.v[i].priority, 0,
+                    enum FisktaErr err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, next1, c, next_at_bol, next_at_eol, curr.v[i].counters, curr.v[i].priority, 0,
                         &work_count, work_budget);
                     if (err != FISKTA_E_OK) {
                         return err;
@@ -600,7 +605,7 @@ enum FisktaErr regex_search_window(File* io, i64 win_lo, i64 win_hi,
                 break;
             case RI_CLASS:
                 if (inst->cls_idx >= 0 && inst->cls_idx < re->nclasses && cls_has(&re->classes[inst->cls_idx], c)) {
-                    enum FisktaErr err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, c, prev_char, at_bol, at_eol, curr.v[i].counters, curr.v[i].priority, 0,
+                    enum FisktaErr err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, next1, c, next_at_bol, next_at_eol, curr.v[i].counters, curr.v[i].priority, 0,
                         &work_count, work_budget);
                     if (err != FISKTA_E_OK) {
                         return err;

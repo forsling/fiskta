@@ -1573,6 +1573,22 @@ def tests():
              tokens=["find:re","def$","take","+3b"], input_file="-", stdin=b"abc def\n",
              expect=dict(stdout="def", exit=0)),  # $ matches before newline (line end behavior)
 
+        dict(id="regex-anchor-eol-only-at-eof",
+             tokens=["find:re","$","skip","to","match-start","print", r"\c"], input_file="-", stdin=b"abc",
+             expect=dict(stdout="3", exit=0)),
+
+        dict(id="regex-anchor-eol-only-before-newline",
+             tokens=["find:re","$","skip","to","match-start","print", r"\c"], input_file="-", stdin=b"a\nb",
+             expect=dict(stdout="1", exit=0)),
+
+        dict(id="regex-anchor-bol-after-consumed-newline",
+             tokens=["find:re","\n^b","skip","to","match-start","take","to","match-end"], input_file="-", stdin=b"a\nb",
+             expect=dict(stdout="\nb", exit=0)),
+
+        dict(id="regex-anchor-empty-input",
+             tokens=["find:re","^$"], input_file="empty.txt",
+             expect=dict(stdout="", exit=0)),
+
         # Anchor comprehensive tests (verify anchors enforce constraints)
         dict(id="regex-anchor-bol-rejects-middle",
              tokens=["find:re","^def","skip","to","match-start","take","to","match-end"], input_file="-", stdin=b"abc def",
