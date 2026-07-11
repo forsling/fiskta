@@ -630,6 +630,7 @@ FISKTA_API int fiskta_program_requirements(i32 token_count, const FisktaString* 
     // Staging buffers
     size_t ranges_bytes = (plan.sum_take_ops > 0) ? (size_t)plan.sum_take_ops * sizeof(FisktaRange) : 0;
     size_t labels_bytes = (plan.sum_label_ops > 0) ? (size_t)plan.sum_label_ops * sizeof(LabelWrite) : 0;
+    size_t offsets_bytes = (plan.sum_inline_lits > 0) ? (size_t)plan.sum_inline_lits * sizeof(i32) : 0;
     size_t inline_bytes = (plan.sum_inline_lits > 0) ? (size_t)plan.sum_inline_lits * FISKTA_MAX_INLINE_LIT : 0;
     out->staging_bytes = ranges_bytes + labels_bytes + inline_bytes;
 
@@ -672,8 +673,13 @@ FISKTA_API int fiskta_program_requirements(i32 token_count, const FisktaString* 
         return FISKTA_EXIT_RESOURCE;
     }
 
-    // Staging buffers (already computed above, but need alignment)
-    size_t ranges_size = 0, labels_size = 0, inline_size = 0;
+    // Print offset metadata and staging buffers (already computed above, but need alignment)
+    size_t offsets_size = 0, ranges_size = 0, labels_size = 0, inline_size = 0;
+    if (plan.sum_inline_lits > 0) {
+        if (align_or_fail(offsets_bytes, alignof(i32), &offsets_size) != 0) {
+            return FISKTA_EXIT_RESOURCE;
+        }
+    }
     if (plan.sum_take_ops > 0) {
         if (align_or_fail(ranges_bytes, alignof(FisktaRange), &ranges_size) != 0) {
             return FISKTA_EXIT_RESOURCE;
@@ -692,7 +698,7 @@ FISKTA_API int fiskta_program_requirements(i32 token_count, const FisktaString* 
 
     // Sum everything with overflow checking
     size_t total = search_buf_size;
-    if (add_overflow(total, clauses_size, &total) || add_overflow(total, ops_size, &total) || add_overflow(total, re_prog_size, &total) || add_overflow(total, re_ins_size, &total) || add_overflow(total, re_cls_size, &total) || add_overflow(total, str_pool_size, &total) || add_overflow(total, re_thrbufs_size, &total) || add_overflow(total, re_seen_size, &total) || add_overflow(total, ranges_size, &total) || add_overflow(total, labels_size, &total) || add_overflow(total, inline_size, &total) || add_overflow(total, 64, &total)) { // small cushion
+    if (add_overflow(total, clauses_size, &total) || add_overflow(total, ops_size, &total) || add_overflow(total, re_prog_size, &total) || add_overflow(total, re_ins_size, &total) || add_overflow(total, re_cls_size, &total) || add_overflow(total, str_pool_size, &total) || add_overflow(total, re_thrbufs_size, &total) || add_overflow(total, re_seen_size, &total) || add_overflow(total, offsets_size, &total) || add_overflow(total, ranges_size, &total) || add_overflow(total, labels_size, &total) || add_overflow(total, inline_size, &total) || add_overflow(total, 64, &total)) { // small cushion
         error_set(FISKTA_E_OOM, -1, "arena size overflow");
         return FISKTA_EXIT_RESOURCE;
     }

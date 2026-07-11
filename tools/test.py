@@ -1320,6 +1320,10 @@ def tests():
              tokens=["skip","5b","take","-2c","THEN","print", r"\c"], input_file="overlap.txt",
              expect=dict(stdout="de5", exit=0)),
 
+        dict(id="cursor-010-many-inline-expansions",
+             tokens=["print", r"\c"] * 17, input_file="overlap.txt",
+             expect=dict(stdout="0" * 17, exit=0)),
+
         dict(id="edge-feedback-001-inline-offset-label-resolution",
              tokens=["label","HERE","THEN","skip","to","HERE+1l","take","1l"], input_file="-", stdin=b"a\nb\nX\n",
              expect=dict(stdout="b\n", exit=0)),
