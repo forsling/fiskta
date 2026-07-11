@@ -1999,78 +1999,20 @@ static enum FisktaErr parse_at_expr(const FisktaString* tokens, i32* idx, i32 to
 
 static enum FisktaErr parse_offset(FisktaString token, i64* offset, FisktaUnit* unit)
 {
-    if (token.len <= 0) {
+    i64 parsed;
+    FisktaUnit parsed_unit;
+
+    if (!string_try_parse_signed(token, &parsed, &parsed_unit)) {
         return FISKTA_E_PARSE;
-    }
-
-    const char* p = token.bytes;
-
-    // Parse sign
-    i32 sign = 1;
-    if (*p == '+') {
-        sign = 1;
-        p++;
-    } else if (*p == '-') {
-        sign = -1;
-        p++;
-    }
-
-    // Parse number
-    if (!isdigit(*p)) {
-        return FISKTA_E_PARSE;
-    }
-
-    u64 num = 0;
-    while (isdigit(*p)) {
-        u64 new_num = num * 10 + (u64)(*p - '0');
-        if (new_num < num) {
-            return FISKTA_E_PARSE; // Overflow
-        }
-        num = new_num;
-        p++;
-    }
-
-    // Parse unit
-    if (*p == 'b') {
-        *unit = FISKTA_UNIT_BYTES;
-        p++;
-    } else if (*p == 'l') {
-        *unit = FISKTA_UNIT_LINES;
-        p++;
-    } else if (*p == 'c') {
-        *unit = FISKTA_UNIT_CHARS;
-        p++;
-    } else {
-        return FISKTA_E_PARSE;
-    }
-
-    // Check if we consumed the entire token
-    if (p != token.bytes + token.len) {
-        return FISKTA_E_PARSE; // Extra characters
     }
 
     // Validate character unit limits
-    if (*unit == FISKTA_UNIT_CHARS && num > INT_MAX) {
+    if (parsed_unit == FISKTA_UNIT_CHARS && (parsed > INT_MAX || parsed < -INT_MAX)) {
         return FISKTA_E_PARSE; // Character count exceeds INT_MAX
     }
 
-    // Convert to signed and apply sign
-    if (sign < 0) {
-        u64 limit = (u64)INT64_MAX + 1;
-        if (num > limit) {
-            return FISKTA_E_PARSE; // Overflow
-        }
-        if (num == limit) {
-            *offset = INT64_MIN;
-        } else {
-            *offset = -(i64)num;
-        }
-    } else {
-        if (num > (u64)INT64_MAX) {
-            return FISKTA_E_PARSE; // Overflow
-        }
-        *offset = (i64)num;
-    }
+    *offset = parsed;
+    *unit = parsed_unit;
     return FISKTA_E_OK;
 }
 
