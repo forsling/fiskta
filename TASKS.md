@@ -366,11 +366,12 @@ actionable task, so position is priority.
 
 ### Library error reporting
 
-- [x] (or-error-state-leak) Suppress errors from recovered clause alternatives
+- [H] (or-error-state-leak) Suppress errors from recovered clause alternatives
   Context: operations call `error_set()` while clauses are still being evaluated. A failing `OR` branch can therefore invoke the public error callback and leave thread-local error details set even when a later alternative succeeds and the runtime call returns 0. This contradicts the API contract that successful calls clear error state and makes ordinary fallback control flow appear erroneous to embedders.
   Repro gate: `zig build wrapper` followed by `zig-out/bin/fiskta_library_wrapper --input fixtures/overlap.txt view BOF+2b EOF-2b skip to BOF-1b OR take +1b` exits 0 and emits `a`, but also invokes the callback and prints `fiskta: location not resolvable...` to stderr.
   Files: `src/fiskta.c` (final outcome and error-state lifecycle), `src/engine.c` (recoverable diagnostic staging if needed), `src/fiskta.h` (contract only if clarification is necessary), `tools/test.py` and `tools/fiskta_library_wrapper.c` (library regressions)
   Acceptance: errors from failed alternatives are reported only if they determine the final call outcome; a successful recovered call invokes no error callback and leaves `fiskta_error_code()` as `FISKTA_E_OK`, `fiskta_error_message()` as `NULL`, and position as `-1`; terminal failures retain their diagnostics; `zig build test` and `zig build test-lib` pass.
+  Evidence: Clause diagnostics are now captured with callbacks deferred, cleared on successful or ignored outcomes, and published once with message and position on terminal failures through the shared file/buffer finalization path; run `zig build wrapper && python3 tools/test.py --exe zig-out/bin/fiskta_library_wrapper --filter error-006`, with `zig build test` and `zig build test-lib` as full gates. Judge whether recovered failures are completely invisible while terminal diagnostics remain useful and occur exactly once. Independent review did not fault-inject post-open disk I/O or resource exhaustion; source inspection confirmed fatal runtime statuses use the same finalization mapping.
 
 ### CLI robustness
 
