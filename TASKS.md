@@ -348,12 +348,6 @@ actionable task, so position is priority.
 
 ### Regex correctness
 
-- [x] (regex-overlap-starts) Retry regex matches at overlapping candidate starts
-  Context: `regex_search_window()` starts a new attempt only when the active thread list is empty at the beginning of an input position. If an attempt dies while consuming that position, the VM advances before starting again and skips a viable overlapping start. On input `aab`, `find:re "ab"` incorrectly reports no match instead of matching bytes 1–3. The fix must preserve bounded, input-size-independent scratch usage.
-  Repro gate: `printf aab | zig-out/bin/fiskta --input - find:re ab print found` exits 1 with no output on the current tree; it should print `found` and exit 0.
-  Files: `src/regex_vm.c` (search-start scheduling), `tools/test.py` (overlapping-start regressions)
-  Acceptance: forward regex search finds the earliest valid match when a candidate begins at the byte where a prior partial attempt fails; backward search still returns the rightmost valid match; regressions cover literal, optional-prefix, and self-overlapping patterns; `zig build test` passes.
-
 - [ ] (regex-zero-min-bounds) Honor zero occurrences in bounded regex quantifiers
   Context: atom and grouped `{0,n}` quantifiers are marked nullable, but their counter-based programs emit the quantified atom once before reaching the loop/exit split. Consequently `a{0,2}` and `(a){0,2}` cannot take the zero-occurrence path, and lazy variants consume when they should prefer an empty match.
   Repro gate: `zig-out/bin/fiskta --input fixtures/empty.txt find:re 'a{0,2}' print found` exits 1 on the current tree after `zig build test` creates fixtures; it should print `found` and exit 0.
@@ -392,4 +386,9 @@ Items requiring user input before implementation. Design tasks are never
 completed directly — once decisions are made, they are promoted to one or more
 [Auto](#auto) tasks with implementation notes, then removed from this section.
 
-_None currently._
+### Retry regex matches at overlapping candidate starts (regex-overlap-starts)
+
+Context: Concurrent candidate starts fixed simple overlap misses, but two independent review rounds found that the current scheduling still cannot satisfy earliest-forward/rightmost-backward semantics within the fixed work budget for long counted repeats. The first rework stopped retaining input-proportional counted-repeat candidates, but backward `a{2,}` over `aaa` still returns start 0 instead of the rightmost start 1, while forward `a{20000}b` after a 10,000-byte failed prefix still exhausts the 50M work budget before reaching a valid later match.
+Questions:
+- Which bounded scheduling strategy should replace serial retry/concurrent-state heuristics so every viable start is considered without input-proportional memory or quadratic work?
+- Should backward search use a distinct reverse/rightmost algorithm, or can one forward scan provide rightmost results for live unbounded repeats without delaying later candidate starts?
