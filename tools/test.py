@@ -2981,6 +2981,56 @@ def tests():
              extra_args=["--continue","1ms","-u","2ms"],
              expect=dict(stdout="a", exit=0)),
 
+        dict(id="loop-016-continue-long-oversized-interval",
+             tokens=["take", "+1b"], input_file="overlap.txt",
+             extra_args=["--continue", "999999999999999999999h"],
+             expect=dict(stdout="", stderr_contains="--continue value too large", exit=USAGE_EXIT)),
+
+        dict(id="loop-017-continue-short-oversized-interval",
+             tokens=["take", "+1b"], input_file="overlap.txt",
+             extra_args=["-c", "999999999999999999999ms"],
+             expect=dict(stdout="", stderr_contains="-c value too large", exit=USAGE_EXIT)),
+
+        dict(id="loop-018-continue-on-fail-long-oversized-interval",
+             tokens=["take", "+1b"], input_file="overlap.txt",
+             extra_args=["--continue-on-fail", "999999999999999999999s"],
+             expect=dict(stdout="", stderr_contains="--continue-on-fail value too large", exit=USAGE_EXIT)),
+
+        dict(id="loop-019-continue-on-fail-short-oversized-interval",
+             tokens=["take", "+1b"], input_file="overlap.txt",
+             extra_args=["-C", "999999999999999999999m"],
+             expect=dict(stdout="", stderr_contains="-C value too large", exit=USAGE_EXIT)),
+
+        dict(id="loop-020-continue-does-not-consume-operation",
+             tokens=["take"], input_file=None,
+             extra_args=["-c"],
+             expect=dict(stdout="", stderr_contains="missing argument for 'take'", exit=PARSE_EXIT)),
+
+        dict(id="loop-021-continue-on-fail-zero-interval",
+             tokens=[], input_file=None,
+             extra_args=["-C", "0"],
+             expect=dict(stdout="", stderr_contains="missing operations", exit=USAGE_EXIT)),
+
+        dict(id="loop-022-continue-ms-interval",
+             tokens=[], input_file=None,
+             extra_args=["-c", "1ms"],
+             expect=dict(stdout="", stderr_contains="missing operations", exit=USAGE_EXIT)),
+
+        dict(id="loop-023-continue-seconds-interval",
+             tokens=[], input_file=None,
+             extra_args=["--continue", "1s"],
+             expect=dict(stdout="", stderr_contains="missing operations", exit=USAGE_EXIT)),
+
+        dict(id="loop-024-continue-on-fail-minutes-interval",
+             tokens=[], input_file=None,
+             extra_args=["-C", "1m"],
+             expect=dict(stdout="", stderr_contains="missing operations", exit=USAGE_EXIT)),
+
+        dict(id="loop-025-continue-on-fail-hours-interval",
+             tokens=[], input_file=None,
+             extra_args=["--continue-on-fail", "1h"],
+             expect=dict(stdout="", stderr_contains="missing operations", exit=USAGE_EXIT)),
+
         # ---------- Slow iterative mode tests ----------
         # Follow emulation: processes existing data first (using THEN skip to EOF)
         dict(id="loop-slow-follow-001-existing-data",

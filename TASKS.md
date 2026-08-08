@@ -375,7 +375,7 @@ actionable task, so position is priority.
 
 ### CLI robustness
 
-- [ ] (continue-time-lookahead-overflow) Parse optional continue intervals without signed overflow
+- [x] (continue-time-lookahead-overflow) Parse optional continue intervals without signed overflow
   Context: the `--continue` optional-value lookahead accumulates its numeric prefix in a signed `int` without bounds checks before passing accepted values to the checked time parser. A long numeric token therefore invokes undefined behavior during CLI parsing instead of producing a usage error.
   Repro gate: `zig build asan` followed by `zig-out/bin/fiskta-asan --continue 999999999999999999999h --input fixtures/overlap.txt take +1b` aborts with signed integer overflow at `src/main.c:191` on the current tree.
   Files: `src/main.c` (overflow-free optional-value recognition), `tools/test.py` (oversized interval regression)

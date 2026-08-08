@@ -47,6 +47,7 @@ typedef struct {
 
 // Forward declarations
 static int parse_time_option(const char* value, const char* opt_name, i32* out);
+static bool is_optional_time_value(const char* value);
 static int load_ops_from_cli_options(const char* ops_arg, const char* ops_file, int ops_index, int argc, char** argv,
     FisktaString* tokens_view, char* file_content_buf, char* tokenize_scratch,
     Operations* out);
@@ -182,25 +183,7 @@ static bool parse_cli_args(int argc, char** argv,
             // Optional time value follows. Only consume if it looks like a time token.
             if (argi + 1 < argc) {
                 const char* val = argv[argi + 1];
-                // Quick lookahead without emitting parse errors
-                bool ok = false;
-                if (val && *val) {
-                    const unsigned char* p = (const unsigned char*)val;
-                    int base = 0;
-                    while (*p >= '0' && *p <= '9') {
-                        base = base * 10 + (int)(*p - '0');
-                        p++;
-                    }
-                    if (p != (const unsigned char*)val) {
-                        const char* suf = (const char*)p;
-                        if (*suf == '\0') {
-                            ok = (base == 0);
-                        } else if (strcmp(suf, "ms") == 0 || strcmp(suf, "s") == 0 || strcmp(suf, "m") == 0 || strcmp(suf, "h") == 0) {
-                            ok = true;
-                        }
-                    }
-                }
-                if (ok) {
+                if (is_optional_time_value(val)) {
                     if (parse_time_option(val, arg, &cfg.loop_ms) != 0) {
                         *exit_code_out = FISKTA_EXIT_USAGE;
                         return false;
@@ -267,6 +250,32 @@ enum {
     MAX_TOKENS = 1024,
     MAX_NEEDLE_BYTES = 16384
 };
+
+static bool is_optional_time_value(const char* value)
+{
+    if (!value || *value == '\0') {
+        return false;
+    }
+
+    const unsigned char* p = (const unsigned char*)value;
+    bool all_zero = true;
+    while (*p >= '0' && *p <= '9') {
+        if (*p != '0') {
+            all_zero = false;
+        }
+        p++;
+    }
+    if (p == (const unsigned char*)value) {
+        return false;
+    }
+
+    const char* suffix = (const char*)p;
+    if (*suffix == '\0') {
+        return all_zero;
+    }
+    return strcmp(suffix, "ms") == 0 || strcmp(suffix, "s") == 0
+        || strcmp(suffix, "m") == 0 || strcmp(suffix, "h") == 0;
+}
 
 static int parse_time_option(const char* value, const char* opt_name, i32* out)
 {
