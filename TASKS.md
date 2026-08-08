@@ -348,11 +348,12 @@ actionable task, so position is priority.
 
 ### Regex correctness
 
-- [x] (regex-zero-min-bounds) Honor zero occurrences in bounded regex quantifiers
+- [H] (regex-zero-min-bounds) Honor zero occurrences in bounded regex quantifiers
   Context: atom and grouped `{0,n}` quantifiers are marked nullable, but their counter-based programs emit the quantified atom once before reaching the loop/exit split. Consequently `a{0,2}` and `(a){0,2}` cannot take the zero-occurrence path, and lazy variants consume when they should prefer an empty match.
   Repro gate: `zig-out/bin/fiskta --input fixtures/empty.txt find:re 'a{0,2}' print found` exits 1 on the current tree after `zig build test` creates fixtures; it should print `found` and exit 0.
   Files: `src/regex_prog.c` (counter-program construction for atoms and groups), `tools/test.py` (zero-minimum greedy and lazy regressions)
   Acceptance: atom and grouped `{0,n}` patterns match empty input and positions where the atom is absent; greedy variants still prefer the longest permitted match while lazy variants prefer the shortest; exact and positive-minimum bounds remain unchanged; `zig build test` passes.
+  Evidence: The compiler now gives atom and grouped `{0,n}` programs an ordered entry split that can bypass the bounded loop; `python3 tools/test.py --filter regex-zero-min` exercises eight empty, absent, greedy, lazy, atom, and group cases, while `zig build test` covers the full suite. Judge whether ordinary greedy-longest/lazy-shortest behavior is intended when a following atom forces backtracking. Independent review did not run a standalone memory benchmark, but verified the change adds one fixed NFA instruction per affected quantifier with no runtime allocation or input-dependent storage.
 
 ### View boundaries
 
