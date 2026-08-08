@@ -366,7 +366,7 @@ actionable task, so position is priority.
 
 ### Library error reporting
 
-- [ ] (or-error-state-leak) Suppress errors from recovered clause alternatives
+- [x] (or-error-state-leak) Suppress errors from recovered clause alternatives
   Context: operations call `error_set()` while clauses are still being evaluated. A failing `OR` branch can therefore invoke the public error callback and leave thread-local error details set even when a later alternative succeeds and the runtime call returns 0. This contradicts the API contract that successful calls clear error state and makes ordinary fallback control flow appear erroneous to embedders.
   Repro gate: `zig build wrapper` followed by `zig-out/bin/fiskta_library_wrapper --input fixtures/overlap.txt view BOF+2b EOF-2b skip to BOF-1b OR take +1b` exits 0 and emits `a`, but also invokes the callback and prints `fiskta: location not resolvable...` to stderr.
   Files: `src/fiskta.c` (final outcome and error-state lifecycle), `src/engine.c` (recoverable diagnostic staging if needed), `src/fiskta.h` (contract only if clarification is necessary), `tools/test.py` and `tools/fiskta_library_wrapper.c` (library regressions)

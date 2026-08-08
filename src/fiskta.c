@@ -38,6 +38,13 @@ _Thread_local static i32 tl_position = -1;
 _Thread_local static char tl_message[ERROR_MESSAGE_MAX] = { 0 };
 _Thread_local static FisktaErrorCallback tl_callback = NULL;
 _Thread_local static void* tl_userdata = NULL;
+_Thread_local static i32 tl_callback_suppressed = 0;
+
+typedef struct {
+    enum FisktaErr err;
+    i32 position;
+    char message[ERROR_MESSAGE_MAX];
+} ErrorDetail;
 
 static void error_clear(void)
 {
@@ -60,8 +67,41 @@ void error_set(enum FisktaErr err, i32 position, const char* fmt, ...)
         tl_message[0] = '\0';
     }
 
-    if (tl_callback) {
+    if (tl_callback && tl_callback_suppressed == 0) {
         tl_callback(err, NULL, position, tl_message[0] ? tl_message : NULL, tl_userdata);
+    }
+}
+
+static void error_detail_clear(ErrorDetail* detail)
+{
+    detail->err = FISKTA_E_OK;
+    detail->position = -1;
+    detail->message[0] = '\0';
+}
+
+static void error_detail_capture(ErrorDetail* detail)
+{
+    if (tl_err == FISKTA_E_OK) {
+        return;
+    }
+    detail->err = tl_err;
+    detail->position = tl_position;
+    memcpy(detail->message, tl_message, sizeof detail->message);
+}
+
+static void error_detail_publish(const ErrorDetail* detail)
+{
+    error_clear();
+    if (!detail || detail->err == FISKTA_E_OK) {
+        return;
+    }
+
+    tl_err = detail->err;
+    tl_position = detail->position;
+    memcpy(tl_message, detail->message, sizeof tl_message);
+    if (tl_callback) {
+        tl_callback(tl_err, NULL, tl_position,
+            tl_message[0] ? tl_message : NULL, tl_userdata);
     }
 }
 
@@ -139,6 +179,7 @@ typedef struct {
     IterStatus status;
     enum FisktaErr last_err;
     i32 emitted_ranges;
+    ErrorDetail error_detail;
 } IterResult;
 
 // Loop state (internal to runtime)
@@ -312,7 +353,8 @@ static void loop_init(LoopState* state, const FisktaRuntimeConfig* config)
     state->last_result = (IterResult) {
         .status = ITER_OK,
         .last_err = FISKTA_E_OK,
-        .emitted_ranges = 0
+        .emitted_ranges = 0,
+        .error_detail = { .err = FISKTA_E_OK, .position = -1 }
     };
 
     // Initialize last_size to -1 so first iteration sees file as "changed"
@@ -392,6 +434,7 @@ static void loop_commit(LoopState* state, i64 data_hi, IterResult result, bool i
             state->last_result.status = ITER_OK;
             state->last_result.last_err = FISKTA_E_OK;
             state->last_result.emitted_ranges = 0;
+            error_detail_clear(&state->last_result.error_detail);
             state->exit_code = FISKTA_EXIT_OK;
         } else {
             state->exit_code = FISKTA_EXIT_PROGRAM_FAIL; // program failed (no clause succeeded)
@@ -446,7 +489,8 @@ static IterResult execute_program_iteration(const FisktaProgram* prg, File* io, 
     IterResult iter_result = {
         .status = ITER_OK,
         .last_err = FISKTA_E_OK,
-        .emitted_ranges = 0
+        .emitted_ranges = 0,
+        .error_detail = { .err = FISKTA_E_OK, .position = -1 }
     };
 
     StagedResult result;
@@ -474,10 +518,17 @@ static IterResult execute_program_iteration(const FisktaProgram* prg, File* io, 
             inline_cursor += (size_t)ic * FISKTA_MAX_INLINE_LIT;
         }
 
+        // Clause failures are control flow until the whole iteration outcome is
+        // known. Keep their diagnostics thread-local but defer public reporting.
+        error_clear();
+        tl_callback_suppressed++;
         enum FisktaErr e = stage_clause(&prg->clauses[ci], io, vm_exec,
             r_tmp, rc, lw_tmp, lc,
             inline_tmp, ic,
             &result);
+        tl_callback_suppressed--;
+        error_detail_capture(&iter_result.error_detail);
+        error_clear();
         if (e == FISKTA_E_OK) {
             // Commit staged ranges to stdout / file as appropriate
             for (i32 i = 0; i < result.range_count; i++) {
@@ -561,6 +612,7 @@ static IterResult execute_program_iteration(const FisktaProgram* prg, File* io, 
     if (any_success) {
         iter_result.status = ITER_OK;
         iter_result.last_err = FISKTA_E_OK;
+        error_detail_clear(&iter_result.error_detail);
     } else {
         iter_result.status = ITER_PROGRAM_FAIL;
         iter_result.last_err = (last_err != FISKTA_E_OK) ? last_err : FISKTA_E_FAIL_OP;
@@ -965,28 +1017,42 @@ static int run_loop(const FisktaProgram* prog, File* io,
         }
     }
 
+    int ret;
     if (loop_state.exit_code) {
-        return loop_state.exit_code;
-    }
-    if (loop_state.exit_reason == FISKTA_EXIT_TIMEOUT) {
-        return FISKTA_EXIT_TIMEOUT;
+        ret = loop_state.exit_code;
+    } else if (loop_state.exit_reason == FISKTA_EXIT_TIMEOUT) {
+        ret = FISKTA_EXIT_TIMEOUT;
+    } else {
+        // Otherwise evaluate last iteration outcome
+        switch (loop_state.last_result.status) {
+        case ITER_OK:
+            ret = FISKTA_EXIT_OK;
+            break;
+        case ITER_IO_ERROR:
+            ret = FISKTA_EXIT_IO;
+            break;
+        case ITER_RESOURCE_ERROR:
+            ret = FISKTA_EXIT_RESOURCE;
+            break;
+        case ITER_CAPACITY_ERROR:
+            ret = FISKTA_EXIT_CAPACITY;
+            break;
+        case ITER_PROGRAM_FAIL:
+            ret = FISKTA_EXIT_PROGRAM_FAIL;
+            break;
+        default:
+            ret = FISKTA_EXIT_IO;
+            break;
+        }
     }
 
-    // Otherwise evaluate last iteration outcome
-    switch (loop_state.last_result.status) {
-    case ITER_OK:
-        return FISKTA_EXIT_OK;
-    case ITER_IO_ERROR:
-        return FISKTA_EXIT_IO;
-    case ITER_RESOURCE_ERROR:
-        return FISKTA_EXIT_RESOURCE;
-    case ITER_CAPACITY_ERROR:
-        return FISKTA_EXIT_CAPACITY;
-    case ITER_PROGRAM_FAIL:
-        return FISKTA_EXIT_PROGRAM_FAIL;
-    default:
-        return FISKTA_EXIT_IO;
+    ErrorDetail* detail = &loop_state.last_result.error_detail;
+    if (detail->err != FISKTA_E_OK && err_to_exit_code(detail->err) == ret) {
+        error_detail_publish(detail);
+    } else {
+        error_clear();
     }
+    return ret;
 }
 
 FISKTA_API int fiskta_runtime_execute(const FisktaProgram* prog,

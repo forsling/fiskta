@@ -419,6 +419,15 @@ def tests():
              tokens=["skip","to","NOTEXIST"], input_file="small.txt",
              expect=dict(stdout="", exit=PROGRAM_FAIL_EXIT)),
 
+        dict(id="error-006-recovered-or-clears-diagnostic",
+             tokens=["view","BOF+2b","EOF-2b","skip","to","BOF-1b","OR","take","+1b"], input_file="overlap.txt",
+             expect=dict(stdout="a", stderr="", exit=0)),
+
+        dict(id="error-006a-terminal-clause-retains-diagnostic",
+             tokens=["view","BOF+2b","EOF-2b","skip","to","BOF-1b"], input_file="overlap.txt",
+             expect=dict(stdout="", stderr="", exit=PROGRAM_FAIL_EXIT),
+             library_expect=dict(stderr="fiskta: location not resolvable: skip to: target location (1) outside view bounds [2, 8]\n")),
+
 
         dict(id="error-007-negative-skip-beyond-bof",
              tokens=["skip","-1000b"], input_file="small.txt",
@@ -3523,6 +3532,7 @@ def main():
     args = ap.parse_args()
 
     exe = Path(args.exe)
+    is_library_wrapper = "fiskta_library_wrapper" in exe.name
     if not args.no_fixtures:
         make_fixtures()
 
@@ -3558,10 +3568,13 @@ def main():
         else:
             in_path = str(FIX / in_name)
         code, out, err = run(exe, tokens, in_path, stdin_data, extra_args)
-        ok_stdout, stdout_why = expect_stdout(out, t["expect"])
-        ok_stderr, stderr_why = expect_stderr(err, t["expect"])
-        ok_exit = (code == t["expect"]["exit"] or
-                   ("alt_exit" in t["expect"] and code == t["expect"]["alt_exit"]))
+        expected = dict(t["expect"])
+        if is_library_wrapper:
+            expected.update(t.get("library_expect", {}))
+        ok_stdout, stdout_why = expect_stdout(out, expected)
+        ok_stderr, stderr_why = expect_stderr(err, expected)
+        ok_exit = (code == expected["exit"] or
+                   ("alt_exit" in expected and code == expected["alt_exit"]))
 
         if ok_stdout and ok_stderr and ok_exit:
             print(f"[PASS] {tid}")
@@ -3571,12 +3584,12 @@ def main():
         else:
             print(f"[FAIL] {tid}")
             if not ok_exit:
-                print(f"  exit: want {t['expect']['exit']}, got {code}")
+                print(f"  exit: want {expected['exit']}, got {code}")
             if not ok_stdout:
                 print(f"  {stdout_why}")
             if not ok_stderr:
                 print(f"  {stderr_why}")
-            elif err and not ("stderr" in t["expect"] or "stderr_contains" in t["expect"]):
+            elif err and not ("stderr" in expected or "stderr_contains" in expected):
                 # Only show actual stderr if we're not already reporting a mismatch
                 print(f"  stderr: {err.decode('utf-8', 'ignore').strip()}")
             failures += 1

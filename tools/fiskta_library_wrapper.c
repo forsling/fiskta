@@ -12,6 +12,13 @@
 #include <string.h>
 #include <getopt.h>
 
+#define CALLBACK_MESSAGE_MAX 160
+
+static i32 error_callback_count = 0;
+static enum FisktaErr last_callback_err = FISKTA_E_OK;
+static i32 last_callback_position = -1;
+static char last_callback_message[CALLBACK_MESSAGE_MAX] = { 0 };
+
 // Output callback: write to stdout
 static void output_to_stdout(const void* data, size_t len, void* userdata)
 {
@@ -26,6 +33,15 @@ static void error_to_stderr(enum FisktaErr err, const char* context,
     (void)context;
     (void)userdata;
 
+    error_callback_count++;
+    last_callback_err = err;
+    last_callback_position = position;
+    if (message) {
+        snprintf(last_callback_message, sizeof last_callback_message, "%s", message);
+    } else {
+        last_callback_message[0] = '\0';
+    }
+
     fprintf(stderr, "fiskta: %s", fiskta_err_str(err));
 
     if (message && message[0]) {
@@ -37,6 +53,28 @@ static void error_to_stderr(enum FisktaErr err, const char* context,
     }
 
     fprintf(stderr, "\n");
+}
+
+static bool runtime_error_contract_holds(int result, i32 callbacks_before)
+{
+    enum FisktaErr err = fiskta_error_code();
+    i32 position = fiskta_error_position();
+    const char* message = fiskta_error_message();
+
+    if (result == FISKTA_EXIT_OK) {
+        return error_callback_count == callbacks_before &&
+            err == FISKTA_E_OK && position == -1 && message == NULL;
+    }
+
+    if (error_callback_count == callbacks_before) {
+        return true;
+    }
+
+    const char* expected_message = last_callback_message[0] ? last_callback_message : NULL;
+    return error_callback_count == callbacks_before + 1 &&
+        err == last_callback_err && position == last_callback_position &&
+        ((message == NULL && expected_message == NULL) ||
+            (message && expected_message && strcmp(message, expected_message) == 0));
 }
 
 // Read entire file into memory
@@ -485,7 +523,12 @@ int main(int argc, char** argv)
     };
 
     // Execute on in-memory buffer
+    i32 callbacks_before = error_callback_count;
     result = fiskta_runtime_execute_buffer(&prog, input_data, input_len, &buffers, &config);
+    if (!runtime_error_contract_holds(result, callbacks_before)) {
+        fprintf(stderr, "fiskta_library_wrapper: runtime error-state contract violated\n");
+        result = FISKTA_EXIT_PROGRAM_FAIL;
+    }
 
     // Cleanup
     free(input_data);
