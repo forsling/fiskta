@@ -357,11 +357,12 @@ actionable task, so position is priority.
 
 ### View boundaries
 
-- [x] (view-utf8-char-boundary) Keep character extraction inside byte-bounded views
+- [H] (view-utf8-char-boundary) Keep character extraction inside byte-bounded views
   Context: positive character takes call `io_prev_char_start()` and use the returned character start without clamping it to the active view. If the view begins inside a multi-byte UTF-8 character, `take +Nc` can stage and emit bytes before the view's lower bound, violating the view's `[lo, hi)` restriction.
   Repro gate: after `zig build test`, `zig-out/bin/fiskta --input fixtures/unicode-test.txt view BOF+7b EOF take +1c | od -An -tx1` emits `e4 b8 96`; the first byte is at offset 6, before the view lower bound at offset 7.
   Files: `src/engine.c` (character take range construction), `src/fileio.c` (character-boundary behavior if needed), `tools/test.py` (views bisecting UTF-8 characters)
   Acceptance: no character-based take or skip stages output outside an active view, including when either view boundary bisects a valid or malformed UTF-8 sequence; regression tests cover positive and negative movement at both bounds; `zig build test` passes.
+  Evidence: Active-view character decoding is now window-local for takes, skip offsets, and location offsets, with boundary fragments treated as one-byte characters and view-edge crossings preserved as failures; `python3 tools/test.py --exe zig-out/bin/fiskta --filter view-utf8` runs 15 focused cases and `zig build test` covers the full suite. Judge whether treating UTF-8 fragments bisected by byte views as independent one-byte characters is the intended user-facing model. Independent review did not profile allocation or exercise near-`INT64_MAX` files, but source inspection found only stack locals and existing fixed buffers.
 
 ### Library error reporting
 
