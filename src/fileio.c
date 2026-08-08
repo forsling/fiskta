@@ -601,6 +601,127 @@ enum FisktaErr io_step_chars(File* io, i64 start, i64 delta, i64* out)
     return FISKTA_E_OK;
 }
 
+enum FisktaErr io_char_start_window(File* io, i64 pos, i64 lo, i64 hi, i64* out)
+{
+    lo = lo < 0 ? 0 : lo;
+    hi = hi > io->size ? io->size : hi;
+    if (hi < lo) {
+        hi = lo;
+    }
+    if (pos <= lo) {
+        *out = lo;
+        return FISKTA_E_OK;
+    }
+    if (pos >= hi) {
+        *out = hi;
+        return FISKTA_E_OK;
+    }
+
+    // A position is inside a character only when a complete, valid sequence
+    // spans it wholly inside the window. Otherwise it is already a boundary;
+    // this matches the one-byte fallback used for malformed UTF-8.
+    i64 read_lo = pos - 3;
+    if (read_lo < lo) {
+        read_lo = lo;
+    }
+    i64 read_hi = pos + 3;
+    if (read_hi > hi) {
+        read_hi = hi;
+    }
+    size_t n;
+    enum FisktaErr err = io_read_at(io, read_lo, io->buf, (size_t)(read_hi - read_lo), &n);
+    if (err != FISKTA_E_OK) {
+        return err;
+    }
+
+    i64 available_hi = read_lo + (i64)n;
+    for (i64 candidate = read_lo; candidate < pos; candidate++) {
+        i32 len = utf8_len_from_lead_byte(io->buf[candidate - read_lo]);
+        i64 end = candidate + len;
+        if (len <= 1 || end <= pos || end > hi || end > available_hi) {
+            continue;
+        }
+        bool valid = true;
+        for (i32 j = 1; j < len; j++) {
+            if (!utf8_is_cont_byte(io->buf[candidate - read_lo + j])) {
+                valid = false;
+                break;
+            }
+        }
+        if (valid) {
+            *out = candidate;
+            return FISKTA_E_OK;
+        }
+    }
+
+    *out = pos;
+    return FISKTA_E_OK;
+}
+
+enum FisktaErr io_step_chars_window(File* io, i64 start, i64 delta, i64 lo, i64 hi, i64* out)
+{
+    lo = lo < 0 ? 0 : lo;
+    hi = hi > io->size ? io->size : hi;
+    if (hi < lo) {
+        hi = lo;
+    }
+    i64 cur = start;
+    if (cur < lo) {
+        cur = lo;
+    }
+    if (cur > hi) {
+        cur = hi;
+    }
+
+    if (delta >= 0) {
+        for (i64 i = 0; i < delta; i++) {
+            if (cur >= hi) {
+                *out = hi;
+                return FISKTA_E_OK;
+            }
+            i64 read_hi = cur + 4;
+            if (read_hi > hi) {
+                read_hi = hi;
+            }
+            size_t n;
+            enum FisktaErr err = io_read_at(io, cur, io->buf, (size_t)(read_hi - cur), &n);
+            if (err != FISKTA_E_OK) {
+                return err;
+            }
+            if (n == 0) {
+                *out = cur;
+                return FISKTA_E_OK;
+            }
+
+            i32 len = utf8_len_from_lead_byte(io->buf[0]);
+            bool valid = len > 0 && (size_t)len <= n;
+            for (i32 j = 1; valid && j < len; j++) {
+                if (!utf8_is_cont_byte(io->buf[j])) {
+                    valid = false;
+                }
+            }
+            cur += valid ? len : 1;
+        }
+        *out = cur;
+        return FISKTA_E_OK;
+    }
+
+    // Backward movement uses the same window-local decoding rule as forward
+    // movement, so truncated and malformed bytes count individually.
+    for (i64 i = delta; i < 0; i++) {
+        if (cur <= lo) {
+            *out = lo;
+            return FISKTA_E_OK;
+        }
+        enum FisktaErr err = io_char_start_window(io, cur - 1, lo, hi, &cur);
+        if (err != FISKTA_E_OK) {
+            return err;
+        }
+    }
+    *out = cur;
+    return FISKTA_E_OK;
+}
+
 /*****************
  * LINE INDEXING *
  *****************/

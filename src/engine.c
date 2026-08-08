@@ -31,6 +31,22 @@ static inline i64 view_bof(const FisktaView* v) { return (v && v->active) ? v->l
 static inline i64 view_eof(const FisktaView* v, const File* io) { return (v && v->active) ? v->hi : io_size(io); }
 static inline i64 view_clamp(const FisktaView* v, const File* io, i64 x) { return clamp64(x, view_bof(v), view_eof(v, io)); }
 
+static enum FisktaErr char_start_in_view(File* io, i64 pos, const FisktaView* view, i64* out)
+{
+    if (view && view->active) {
+        return io_char_start_window(io, pos, view->lo, view->hi, out);
+    }
+    return io_prev_char_start(io, pos, out);
+}
+
+static enum FisktaErr step_chars_in_view(File* io, i64 start, i64 delta, const FisktaView* view, i64* out)
+{
+    if (view && view->active) {
+        return io_step_chars_window(io, start, delta, view->lo, view->hi, out);
+    }
+    return io_step_chars(io, start, delta, out);
+}
+
 // Apply delta with clamping to prevent overflow past clamp edges
 static inline void apply_delta_with_clamp(i64* base, i64 delta, const FisktaView* v, const File* io, ClampPolicy cp)
 {
@@ -420,11 +436,11 @@ static enum FisktaErr skip_op(
         *c_cursor = view_clamp(c_view, io, *c_cursor);
     } else { // FISKTA_UNIT_CHARS
         i64 char_start;
-        enum FisktaErr err = io_prev_char_start(io, *c_cursor, &char_start);
+        enum FisktaErr err = char_start_in_view(io, *c_cursor, c_view, &char_start);
         if (err != FISKTA_E_OK) {
             return err;
         }
-        err = io_step_chars(io, char_start, op->u.skip.by_offset.offset, c_cursor);
+        err = step_chars_in_view(io, char_start, op->u.skip.by_offset.offset, c_view, c_cursor);
         if (err != FISKTA_E_OK) {
             return err;
         }
@@ -526,13 +542,13 @@ static enum FisktaErr take_len_op(
         }
     } else { // FISKTA_UNIT_CHARS
         i64 cstart;
-        enum FisktaErr err = io_prev_char_start(io, *c_cursor, &cstart);
+        enum FisktaErr err = char_start_in_view(io, *c_cursor, c_view, &cstart);
         if (err != FISKTA_E_OK) {
             return err;
         }
         if (op->u.take_len.offset > 0) {
             start = cstart;
-            err = io_step_chars(io, cstart, op->u.take_len.offset, &end);
+            err = step_chars_in_view(io, cstart, op->u.take_len.offset, c_view, &end);
             if (err != FISKTA_E_OK) {
                 return err;
             }
@@ -540,12 +556,15 @@ static enum FisktaErr take_len_op(
         } else {
             end = cstart;
             i64 s;
-            err = io_step_chars(io, cstart, op->u.take_len.offset, &s);
+            err = step_chars_in_view(io, cstart, op->u.take_len.offset, c_view, &s);
             if (err != FISKTA_E_OK) {
                 return err;
             }
             start = clamp64(s, view_bof(c_view), end);
         }
+        // Byte views are absolute even when their edges split UTF-8 sequences.
+        start = view_clamp(c_view, io, start);
+        end = view_clamp(c_view, io, end);
     }
 
     // Stage the range
@@ -921,11 +940,20 @@ static enum FisktaErr resolve_location(
             }
         } else { // FISKTA_UNIT_CHARS
             i64 cs;
-            enum FisktaErr e = io_prev_char_start(io, base, &cs);
+            enum FisktaErr e;
+            if (clamp == CLAMP_VIEW) {
+                e = char_start_in_view(io, base, c_view, &cs);
+            } else {
+                e = io_prev_char_start(io, base, &cs);
+            }
             if (e != FISKTA_E_OK) {
                 return e;
             }
-            e = io_step_chars(io, cs, loc->offset, &cs);
+            if (clamp == CLAMP_VIEW) {
+                e = step_chars_in_view(io, cs, loc->offset, c_view, &cs);
+            } else {
+                e = io_step_chars(io, cs, loc->offset, &cs);
+            }
             if (e != FISKTA_E_OK) {
                 return e;
             }

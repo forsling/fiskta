@@ -255,6 +255,10 @@ def run(exe: Path, tokens, in_path: str | None, stdin_data: bytes | None, extra_
         sys.exit(2)
 
 def expect_stdout(actual: bytes, expect: dict) -> tuple[bool, str]:
+    if "stdout_bytes" in expect:
+        want = expect["stdout_bytes"]
+        ok = actual == want
+        return ok, "" if ok else f"stdout mismatch\n---want({len(want)}B)\n{want!r}\n---got({len(actual)}B)\n{actual!r}"
     if "stdout" in expect:
         want = expect["stdout"].encode("utf-8")
         ok = actual == want
@@ -2802,6 +2806,44 @@ def tests():
         dict(id="view-050-view-single-byte",
              tokens=["view","BOF","EOF","take","+1b"], input_file="overlap.txt",
              expect=dict(stdout="a", exit=0)),
+
+        # Byte-bounded views define independent UTF-8 windows. Boundary
+        # fragments and malformed sequences remain byte-local characters.
+        dict(id="view-utf8-001-valid-lower-positive-take",
+             tokens=["view","BOF+1b","EOF","take","+1c","THEN","print",r"\c"], input_file="-",
+             stdin=b"\xE4\xB8\x96X", expect=dict(stdout_bytes=b"\xB82", exit=0)),
+
+        dict(id="view-utf8-002-valid-lower-positive-skip",
+             tokens=["view","BOF+1b","EOF","skip","1c","take","+1c","THEN","print",r"\c"], input_file="-",
+             stdin=b"\xE4\xB8\x96X", expect=dict(stdout_bytes=b"\x963", exit=0)),
+
+        dict(id="view-utf8-003-valid-lower-negative",
+             tokens=["view","BOF+1b","EOF","skip","-1c","take","+1c","THEN","print",r"\c"], input_file="-",
+             stdin=b"\xE4\xB8\x96X", expect=dict(stdout_bytes=b"\xB82", exit=0)),
+
+        dict(id="view-utf8-004-valid-upper-positive",
+             tokens=["view","BOF","BOF+2b","skip","100c","skip","1c","take","+1c","THEN","print",r"\c"], input_file="-",
+             stdin=b"\xE4\xB8\x96X", expect=dict(stdout="2", exit=0)),
+
+        dict(id="view-utf8-005-valid-upper-negative",
+             tokens=["view","BOF","BOF+2b","skip","100c","skip","-1c","take","+1c","THEN","print",r"\c"], input_file="-",
+             stdin=b"\xE4\xB8\x96X", expect=dict(stdout_bytes=b"\xB82", exit=0)),
+
+        dict(id="view-utf8-006-malformed-lower-positive",
+             tokens=["view","BOF+1b","EOF","take","+1c","THEN","print",r"\c"], input_file="-",
+             stdin=b"\xE4\xB8XZ", expect=dict(stdout_bytes=b"\xB82", exit=0)),
+
+        dict(id="view-utf8-007-malformed-lower-negative",
+             tokens=["view","BOF+1b","EOF","skip","-1c","take","+1c","THEN","print",r"\c"], input_file="-",
+             stdin=b"\xE4\xB8XZ", expect=dict(stdout_bytes=b"\xB82", exit=0)),
+
+        dict(id="view-utf8-008-malformed-upper-positive",
+             tokens=["view","BOF","BOF+2b","skip","100c","skip","1c","take","+1c","THEN","print",r"\c"], input_file="-",
+             stdin=b"\xE4\xB8XZ", expect=dict(stdout="2", exit=0)),
+
+        dict(id="view-utf8-009-malformed-upper-negative",
+             tokens=["view","BOF","BOF+2b","skip","100c","skip","-1c","take","+1c","THEN","print",r"\c"], input_file="-",
+             stdin=b"\xE4\xB8XZ", expect=dict(stdout_bytes=b"\xB82", exit=0)),
 
         # ---------- CLI option smoke tests ----------
         dict(id="cli-001-version-flag",

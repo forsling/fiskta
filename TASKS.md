@@ -357,7 +357,7 @@ actionable task, so position is priority.
 
 ### View boundaries
 
-- [ ] (view-utf8-char-boundary) Keep character extraction inside byte-bounded views
+- [x] (view-utf8-char-boundary) Keep character extraction inside byte-bounded views
   Context: positive character takes call `io_prev_char_start()` and use the returned character start without clamping it to the active view. If the view begins inside a multi-byte UTF-8 character, `take +Nc` can stage and emit bytes before the view's lower bound, violating the view's `[lo, hi)` restriction.
   Repro gate: after `zig build test`, `zig-out/bin/fiskta --input fixtures/unicode-test.txt view BOF+7b EOF take +1c | od -An -tx1` emits `e4 b8 96`; the first byte is at offset 6, before the view lower bound at offset 7.
   Files: `src/engine.c` (character take range construction), `src/fileio.c` (character-boundary behavior if needed), `tools/test.py` (views bisecting UTF-8 characters)

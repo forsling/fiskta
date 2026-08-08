@@ -178,3 +178,7 @@ enum FisktaErr io_step_lines(File* io, i64 start_line_start, i64 delta, i64* out
 // UTF-8 character navigation
 enum FisktaErr io_prev_char_start(File* io, i64 pos, i64* out_char_start); // snap to start of the char containing/after pos
 enum FisktaErr io_step_chars(File* io, i64 start_char_start, i64 delta, i64* out_char_start);
+// Windowed variants treat lo/hi as character boundaries. UTF-8 fragments at
+// either byte boundary are handled permissively as one-byte characters.
+enum FisktaErr io_char_start_window(File* io, i64 pos, i64 lo, i64 hi, i64* out_char_start);
+enum FisktaErr io_step_chars_window(File* io, i64 start, i64 delta, i64 lo, i64 hi, i64* out);
