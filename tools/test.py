@@ -1555,6 +1555,22 @@ def tests():
              tokens=["find:re","a{2,4}","skip","to","match-start","take","to","match-end"], input_file="-", stdin=b"a",
              expect=dict(stdout="", exit=PROGRAM_FAIL_EXIT)),
 
+        dict(id="regex-zero-min-atom-empty",
+             tokens=["find:re","a{0,2}","print","found"], input_file="-", stdin=b"",
+             expect=dict(stdout="found", exit=0)),
+
+        dict(id="regex-zero-min-atom-absent",
+             tokens=["find:re","a{0,2}b","take","to","match-end"], input_file="-", stdin=b"b",
+             expect=dict(stdout="b", exit=0)),
+
+        dict(id="regex-zero-min-atom-greedy",
+             tokens=["find:re","a{0,2}","take","to","match-end"], input_file="-", stdin=b"aab",
+             expect=dict(stdout="aa", exit=0)),
+
+        dict(id="regex-zero-min-atom-lazy",
+             tokens=["find:re","a{0,2}?","take","to","match-end"], input_file="-", stdin=b"aab",
+             expect=dict(stdout="", exit=0)),
+
         # Quantifiers with character classes
         dict(id="regex-quantifier-charclass-digit-plus",
              tokens=["find:re","\\d+","skip","to","match-start","take","to","match-end"], input_file="-", stdin=b"abc123def",
@@ -2003,6 +2019,22 @@ def tests():
         dict(id="regex-grouping-brace-quantifier-min-only",
              tokens=["find:re","(ab){2}","take","to","match-end"], input_file="-", stdin=b"abab",
              expect=dict(stdout="abab", exit=0)),
+
+        dict(id="regex-zero-min-group-empty",
+             tokens=["find:re","(a){0,2}","print","found"], input_file="-", stdin=b"",
+             expect=dict(stdout="found", exit=0)),
+
+        dict(id="regex-zero-min-group-absent",
+             tokens=["find:re","(a){0,2}b","take","to","match-end"], input_file="-", stdin=b"b",
+             expect=dict(stdout="b", exit=0)),
+
+        dict(id="regex-zero-min-group-greedy",
+             tokens=["find:re","(a){0,2}","take","to","match-end"], input_file="-", stdin=b"aab",
+             expect=dict(stdout="aa", exit=0)),
+
+        dict(id="regex-zero-min-group-lazy",
+             tokens=["find:re","(a){0,2}?","take","to","match-end"], input_file="-", stdin=b"aab",
+             expect=dict(stdout="", exit=0)),
 
         # Nested brace quantifiers now work with counter-based approach!
         dict(id="regex-grouping-nested-brace-small",

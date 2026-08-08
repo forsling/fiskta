@@ -348,7 +348,7 @@ actionable task, so position is priority.
 
 ### Regex correctness
 
-- [ ] (regex-zero-min-bounds) Honor zero occurrences in bounded regex quantifiers
+- [x] (regex-zero-min-bounds) Honor zero occurrences in bounded regex quantifiers
   Context: atom and grouped `{0,n}` quantifiers are marked nullable, but their counter-based programs emit the quantified atom once before reaching the loop/exit split. Consequently `a{0,2}` and `(a){0,2}` cannot take the zero-occurrence path, and lazy variants consume when they should prefer an empty match.
   Repro gate: `zig-out/bin/fiskta --input fixtures/empty.txt find:re 'a{0,2}' print found` exits 1 on the current tree after `zig build test` creates fixtures; it should print `found` and exit 0.
   Files: `src/regex_prog.c` (counter-program construction for atoms and groups), `tools/test.py` (zero-minimum greedy and lazy regressions)

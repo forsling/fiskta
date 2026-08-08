@@ -1090,6 +1090,15 @@ static enum FisktaErr compile_atom(ReB* b, FisktaString pat, size_t* i_inout, bo
                 return e;
             }
 
+            // A zero minimum needs an entry path that bypasses the group.
+            int zero_split_pc = -1;
+            if (min_count == 0) {
+                e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &zero_split_pc);
+                if (e != FISKTA_E_OK) {
+                    return e;
+                }
+            }
+
             // Loop: pattern, INC, SPLIT->(CHECK+JMP | continue)
             int loop_start = b->nins;
 
@@ -1180,6 +1189,16 @@ static enum FisktaErr compile_atom(ReB* b, FisktaString pat, size_t* i_inout, bo
                 } else {
                     b->ins[split_pc].x = check_branch; // greedy: try to loop first
                     b->ins[split_pc].y = exit_branch; // or exit
+                }
+            }
+
+            if (zero_split_pc >= 0) {
+                if (is_lazy) {
+                    b->ins[zero_split_pc].x = b->nins; // skip first -> lazy
+                    b->ins[zero_split_pc].y = loop_start; // take second
+                } else {
+                    b->ins[zero_split_pc].x = loop_start; // take first -> greedy
+                    b->ins[zero_split_pc].y = b->nins; // skip second
                 }
             }
         }
@@ -1543,6 +1562,15 @@ static enum FisktaErr compile_atom(ReB* b, FisktaString pat, size_t* i_inout, bo
                 return e;
             }
 
+            // A zero minimum needs an entry path that bypasses the atom.
+            int zero_split_pc = -1;
+            if (min_count == 0) {
+                e = emit_inst(b, RI_SPLIT, -1, -1, 0x01 | (is_lazy ? 0x02 : 0x00), -1, &zero_split_pc);
+                if (e != FISKTA_E_OK) {
+                    return e;
+                }
+            }
+
             // Loop: atom, INC, SPLIT->(CHECK+JMP | continue)
             int loop_start = b->nins;
 
@@ -1673,6 +1701,16 @@ static enum FisktaErr compile_atom(ReB* b, FisktaString pat, size_t* i_inout, bo
                 } else {
                     b->ins[split_pc].x = check_branch; // greedy: try to loop first
                     b->ins[split_pc].y = exit_branch; // or exit
+                }
+            }
+
+            if (zero_split_pc >= 0) {
+                if (is_lazy) {
+                    b->ins[zero_split_pc].x = b->nins; // skip first -> lazy
+                    b->ins[zero_split_pc].y = loop_start; // take second
+                } else {
+                    b->ins[zero_split_pc].x = loop_start; // take first -> greedy
+                    b->ins[zero_split_pc].y = b->nins; // skip second
                 }
             }
         }
