@@ -3291,6 +3291,10 @@ def tests():
              tokens=["find:re","[a-z]{10,500}","take","to","match-end"], input_file="-", stdin=b"test" * 150,
              expect=dict(stdout="test" * 125, exit=0)),  # 500 chars
 
+        dict(id="regex-overlap-counted-repeat-work-budget",
+             tokens=["find:re","a{20000,}b","print","found"], input_file="-", stdin=b"a" * 20000 + b"b",
+             expect=dict(stdout="found", exit=0)),
+
         # Tests for trivial quantifiers using no counters
         dict(id="trivial-quantifiers-no-counter-usage",
              tokens=["find:re","a{0}b{1}c{1}(d{0})(e{1})","take","to","match-end"], input_file="-", stdin=b"bce",

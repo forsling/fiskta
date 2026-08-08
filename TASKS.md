@@ -348,12 +348,11 @@ actionable task, so position is priority.
 
 ### Regex correctness
 
-- [*] (regex-overlap-starts) Retry regex matches at overlapping candidate starts
+- [x] (regex-overlap-starts) Retry regex matches at overlapping candidate starts
   Context: `regex_search_window()` starts a new attempt only when the active thread list is empty at the beginning of an input position. If an attempt dies while consuming that position, the VM advances before starting again and skips a viable overlapping start. On input `aab`, `find:re "ab"` incorrectly reports no match instead of matching bytes 1–3. The fix must preserve bounded, input-size-independent scratch usage.
   Repro gate: `printf aab | zig-out/bin/fiskta --input - find:re ab print found` exits 1 with no output on the current tree; it should print `found` and exit 0.
   Files: `src/regex_vm.c` (search-start scheduling), `tools/test.py` (overlapping-start regressions)
   Acceptance: forward regex search finds the earliest valid match when a candidate begins at the byte where a prior partial attempt fails; backward search still returns the rightmost valid match; regressions cover literal, optional-prefix, and self-overlapping patterns; `zig build test` passes.
-  Review: Starting every candidate while deduplicating by `(pc, counter_state)` retains input-proportional counter states, so `a{20000,}b` over 20,000 `a` bytes plus `b` now exhausts the 50M work budget and exits 9 although the pre-change implementation matched successfully.
 
 - [ ] (regex-zero-min-bounds) Honor zero occurrences in bounded regex quantifiers
   Context: atom and grouped `{0,n}` quantifiers are marked nullable, but their counter-based programs emit the quantified atom once before reaching the loop/exit split. Consequently `a{0,2}` and `(a){0,2}` cannot take the zero-occurrence path, and lazy variants consume when they should prefer an empty match.

@@ -351,6 +351,10 @@ enum FisktaErr regex_search_window(File* io, i64 win_lo, i64 win_hi,
     i64 best_ms = -1;
     i64 best_me = -1;
     u64 best_priority = UINT64_MAX; // Worst priority (higher = worse)
+    // Counted repeats can have one distinct counter state per candidate start.
+    // Search them serially so scratch and successful-search work stay bounded.
+    const int serial_starts = re->counter_count > 0;
+    i64 serial_start = win_lo;
 
     // Work budget: prevent step-count explosion from nested quantifiers
     u64 work_count = 0;
@@ -464,7 +468,8 @@ enum FisktaErr regex_search_window(File* io, i64 win_lo, i64 win_hi,
                 }
             }
             // Once a forward match exists, later starts cannot improve it.
-            if (best_ms < 0) {
+            if (best_ms < 0 && (!serial_starts || curr.n == 0)) {
+                serial_start = pos;
                 err = add_thread_ordered(re, &next, 0, pos, pos, win_lo, win_hi, io->size,
                     seen_next, &ignored_match, pos, curr_c, prev_char, at_bol, at_eol,
                     zero_counters, 0ULL, 0, &work_count, work_budget);
@@ -473,11 +478,14 @@ enum FisktaErr regex_search_window(File* io, i64 win_lo, i64 win_hi,
                 }
             }
         } else {
-            err = add_thread_ordered(re, &next, 0, pos, pos, win_lo, win_hi, io->size,
-                seen_next, &ignored_match, pos, curr_c, prev_char, at_bol, at_eol,
-                zero_counters, 0ULL, 0, &work_count, work_budget);
-            if (err != FISKTA_E_OK) {
-                return err;
+            if (!serial_starts || curr.n == 0) {
+                serial_start = pos;
+                err = add_thread_ordered(re, &next, 0, pos, pos, win_lo, win_hi, io->size,
+                    seen_next, &ignored_match, pos, curr_c, prev_char, at_bol, at_eol,
+                    zero_counters, 0ULL, 0, &work_count, work_budget);
+                if (err != FISKTA_E_OK) {
+                    return err;
+                }
             }
             for (int i = 0; i < curr.n; i++) {
                 err = merge_thread(re, &next, &curr.v[i], seen_next);
@@ -525,6 +533,24 @@ enum FisktaErr regex_search_window(File* io, i64 win_lo, i64 win_hi,
             *ms = best_ms;
             *me = best_me;
             return FISKTA_E_OK;
+        }
+
+        // A serial attempt that ended without a final forward result must try
+        // the next candidate start, including starts it consumed past.
+        if (serial_starts && curr.n == 0 && serial_start < win_hi) {
+            pos = serial_start + 1;
+            block_lo = pos;
+            block_hi = pos;
+            have_prev = 0;
+            if (pos > 0) {
+                size_t n_read;
+                enum FisktaErr read_err = io_read_at(io, pos - 1, &prev_c, 1, &n_read);
+                if (read_err != FISKTA_E_OK) {
+                    return read_err;
+                }
+                have_prev = n_read == 1;
+            }
+            continue;
         }
 
         if (pos == win_hi) {
@@ -582,6 +608,27 @@ enum FisktaErr regex_search_window(File* io, i64 win_lo, i64 win_hi,
         seen_curr = seen_next;
         seen_next = tmpb;
         seen_clear_bytes(seen_curr, need_seen);
+
+        if (serial_starts && curr.n == 0) {
+            if (dir == DIR_FWD && best_ms >= 0) {
+                *ms = best_ms;
+                *me = best_me;
+                return FISKTA_E_OK;
+            }
+            pos = serial_start + 1;
+            block_lo = pos;
+            block_hi = pos;
+            have_prev = 0;
+            if (pos > 0) {
+                size_t n_read;
+                enum FisktaErr read_err = io_read_at(io, pos - 1, &prev_c, 1, &n_read);
+                if (read_err != FISKTA_E_OK) {
+                    return read_err;
+                }
+                have_prev = n_read == 1;
+            }
+            continue;
+        }
         // advance and carry previous char
         prev_c = curr_c;
         have_prev = (pos < win_hi);
