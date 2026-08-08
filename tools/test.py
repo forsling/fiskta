@@ -1362,6 +1362,22 @@ def tests():
              tokens=["find:re","...","take","+3b"], input_file="overlap.txt",
              expect=dict(stdout="abc", exit=0)),
 
+        dict(id="regex-overlap-literal-retries-failed-byte",
+             tokens=["find:re","ab","skip","to","match-start","take","to","match-end"], input_file="-", stdin=b"aab",
+             expect=dict(stdout="ab", exit=0)),
+
+        dict(id="regex-overlap-optional-prefix",
+             tokens=["find:re","a?bc","skip","to","match-start","take","to","match-end"], input_file="-", stdin=b"aabc",
+             expect=dict(stdout="abc", exit=0)),
+
+        dict(id="regex-overlap-self-overlapping-pattern",
+             tokens=["find:re","aab","skip","to","match-start","take","to","match-end"], input_file="-", stdin=b"aaab",
+             expect=dict(stdout="aab", exit=0)),
+
+        dict(id="regex-overlap-backward-rightmost",
+             tokens=["skip","3b","find:re","to","BOF","aa","print",r"\c"], input_file="-", stdin=b"aaa",
+             expect=dict(stdout="1", exit=0)),
+
         # Character classes
         dict(id="regex-005-digit-class",
              tokens=["find:re","\\d","take","+1b"], input_file="-", stdin=b"abc123def",
@@ -2130,7 +2146,7 @@ def tests():
 
         dict(id="regex-101-question-quantifier-not-require-two",
              tokens=["find:re","(ab)?x","take","to","match-end"], input_file="-", stdin=b"ababx",
-             expect=dict(stdout="x", exit=0)),  # Should find first match, not require 2 occurrences
+             expect=dict(stdout="abx", exit=0)),  # Earliest valid start is the overlapping second "ab"
 
         dict(id="regex-102-plus-quantifier-requires-one",
              tokens=["find:re","(ab)+x"], input_file="-", stdin=b"x",

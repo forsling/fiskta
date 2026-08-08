@@ -100,6 +100,27 @@ static inline int re_seen_hit_or_set(unsigned char* seen, int pc, u32 sig)
     return 0;
 }
 
+// Merge an already-closed thread into a list, keeping the first equivalent
+// (pc, counter state). Callers order candidates by search direction so the
+// leftmost/rightmost start wins without retaining input-sized start history.
+static enum FisktaErr merge_thread(const FisktaReProg* p, ReList* l,
+    const ReThread* thread, unsigned char* seen)
+{
+    u32 sig = (p->counter_count > 0)
+        ? re_counters_sig(thread->counters, p->counter_count)
+        : 1;
+    if (re_seen_hit_or_set(seen, thread->pc, sig)) {
+        return FISKTA_E_OK;
+    }
+    if (l->n >= l->cap) {
+        error_set(FISKTA_E_CAPACITY, -1,
+            "regex: exceeded internal NFA thread limit (%d threads)", l->cap);
+        return FISKTA_E_CAPACITY;
+    }
+    l->v[l->n++] = *thread;
+    return FISKTA_E_OK;
+}
+
 // Maximum recursion depth to prevent stack overflow with pathological patterns
 #define MAX_EPSILON_RECURSION_DEPTH 500
 
@@ -330,8 +351,6 @@ enum FisktaErr regex_search_window(File* io, i64 win_lo, i64 win_hi,
     i64 best_ms = -1;
     i64 best_me = -1;
     u64 best_priority = UINT64_MAX; // Worst priority (higher = worse)
-    i64 min_start = 0;
-    int have_min = 0;
 
     // Work budget: prevent step-count explosion from nested quantifiers
     u64 work_count = 0;
@@ -427,143 +446,85 @@ enum FisktaErr regex_search_window(File* io, i64 win_lo, i64 win_hi,
         int next_at_eol = (pos + 1 == win_hi) || (next1 == '\n')
             || (next1 == '\r' && next2 == '\n');
 
-        // If no active threads, start a new leftmost attempt at pos
-        if (curr.n == 0) {
-            have_min = 1;
-            min_start = pos;
-            seen_clear_bytes(seen_curr, need_seen);
-            int match_found = 0;
-            int zero_counters[MAX_RE_COUNTERS] = { 0 };
-            enum FisktaErr err = add_thread_ordered(re, &curr, 0, pos, pos, win_lo, win_hi, io->size,
-                seen_curr, &match_found, min_start, curr_c, prev_char, at_bol, at_eol, zero_counters, 0ULL, 0,
-                &work_count, work_budget);
-            if (err != FISKTA_E_OK) {
-                return err;
-            }
-            if (match_found) {
-                // epsilon-only match (no consumption): end == pos
-                // Find the priority of the best MATCH thread at min_start
-                u64 match_priority = UINT64_MAX;
-                for (int i = 0; i < curr.n; i++) {
-                    if (curr.v[i].start == min_start && curr.v[i].pc >= 0 && curr.v[i].pc < re->nins && re->ins[curr.v[i].pc].op == RI_MATCH) {
-                        if (curr.v[i].priority < match_priority) {
-                            match_priority = curr.v[i].priority;
-                        }
-                    }
-                }
+        // Merge a new attempt at every input position with attempts already in
+        // flight. Equivalent states keep the earlier start for forward search
+        // and the later start for backward search, bounding the list by NFA
+        // state rather than by input length.
+        rlist_clear(&next);
+        seen_clear_bytes(seen_next, need_seen);
+        int zero_counters[MAX_RE_COUNTERS] = { 0 };
+        int ignored_match = 0;
+        enum FisktaErr err;
 
-                // Three-tier comparison per user spec:
-                // (1) earlier start wins
-                // (2) same start → compare (priority, end) lexicographically
-                //     - Better priority wins regardless of end
-                //     - Equal priority → longer end wins
-                //     - Worse priority AND shorter/equal end → reject
-                int accept_match = 0;
-                if (best_ms < 0) {
-                    accept_match = 1; // First match
-                } else if (min_start < best_ms) {
-                    accept_match = 1; // Tier 1: Earlier start wins
-                } else if (min_start == best_ms) {
-                    // Lexicographic comparison: (priority, -end)
-                    // Lower priority is better; for equal priority, longer end is better
-                    if (match_priority < best_priority) {
-                        accept_match = 1; // Better priority
-                    } else if (match_priority == best_priority && pos > best_me) {
-                        accept_match = 1; // Equal priority, longer end
-                    }
-                    // Note: worse priority is rejected even if longer
-                }
-
-#ifdef DEBUG_PRIORITY
-                fprintf(stderr, "Epsilon-1: min_start=%lld, pos=%lld, match_prio=%llu, best_ms=%lld, best_me=%lld, best_prio=%llu, accept=%d\n",
-                    (long long)min_start, (long long)pos, (unsigned long long)match_priority,
-                    (long long)best_ms, (long long)best_me, (unsigned long long)best_priority, accept_match);
-#endif
-                if (accept_match) {
-                    best_ms = min_start;
-                    best_me = pos;
-                    best_priority = match_priority;
-                }
-                if (dir == DIR_FWD) {
-                    // Remove MATCH threads but keep other threads to continue greedy matching
-                    int write_idx = 0;
-                    for (int i = 0; i < curr.n; i++) {
-                        int pc = curr.v[i].pc;
-                        i64 st = curr.v[i].start;
-                        // Keep only non-MATCH threads from min_start
-                        if (st == min_start && (pc < 0 || pc >= re->nins || re->ins[pc].op != RI_MATCH)) {
-                            curr.v[write_idx++] = curr.v[i];
-                        }
-                    }
-                    curr.n = write_idx;
-                    // If no more threads from min_start, return the best match
-                    if (curr.n == 0) {
-                        *ms = best_ms;
-                        *me = best_me;
-                        return FISKTA_E_OK;
-                    }
-                } else {
-                    // Backward search: reset and try next position
-                    curr.n = 0;
-                    have_min = 0;
-                }
-            }
-        } else {
-            seen_clear_bytes(seen_curr, need_seen);
-            // Re-run epsilon to discover MATCH at this pos (no consumption)
-            int match_found = 0;
-            unsigned char curr_char = curr_c;
-            // prev_char already computed above
-            for (int k = 0; k < curr.n; k++) {
-                // IMPORTANT: keep global min_start
-                enum FisktaErr err = add_thread_ordered(re, &curr, curr.v[k].pc, curr.v[k].start, pos, win_lo, win_hi, io->size,
-                    seen_curr, &match_found, min_start, curr_char, prev_char, at_bol, at_eol, curr.v[k].counters, curr.v[k].priority, 0,
-                    &work_count, work_budget);
+        if (dir == DIR_FWD) {
+            for (int i = 0; i < curr.n; i++) {
+                err = merge_thread(re, &next, &curr.v[i], seen_next);
                 if (err != FISKTA_E_OK) {
                     return err;
                 }
             }
-            if (match_found) {
-                // epsilon-only match at current pos
-                // Find the priority of the best MATCH thread at min_start
-                u64 match_priority = UINT64_MAX;
-                for (int i = 0; i < curr.n; i++) {
-                    if (curr.v[i].start == min_start && curr.v[i].pc >= 0 && curr.v[i].pc < re->nins && re->ins[curr.v[i].pc].op == RI_MATCH) {
-                        if (curr.v[i].priority < match_priority) {
-                            match_priority = curr.v[i].priority;
-                        }
-                    }
+            // Once a forward match exists, later starts cannot improve it.
+            if (best_ms < 0) {
+                err = add_thread_ordered(re, &next, 0, pos, pos, win_lo, win_hi, io->size,
+                    seen_next, &ignored_match, pos, curr_c, prev_char, at_bol, at_eol,
+                    zero_counters, 0ULL, 0, &work_count, work_budget);
+                if (err != FISKTA_E_OK) {
+                    return err;
                 }
-
-                if (dir == DIR_FWD) {
-                    // For forward search, return immediately with first match (using priority for tie-breaking)
-                    *ms = min_start;
-                    *me = pos;
-                    return FISKTA_E_OK;
-                }
-
-                // Backward search: apply three-tier comparison
-                int accept_match = 0;
-                if (best_ms < 0) {
-                    accept_match = 1; // First match
-                } else if (min_start < best_ms) {
-                    accept_match = 1; // Tier 1: Earlier start wins
-                } else if (min_start == best_ms) {
-                    if (match_priority < best_priority) {
-                        accept_match = 1; // Tier 2: Better priority → ALWAYS wins
-                    } else if (match_priority == best_priority && pos > best_me) {
-                        accept_match = 1; // Tier 3: SAME priority → longer end wins
-                    }
-                }
-
-                if (accept_match) {
-                    best_ms = min_start;
-                    best_me = pos;
-                    best_priority = match_priority;
-                }
-                curr.n = 0;
-                have_min = 0;
             }
+        } else {
+            err = add_thread_ordered(re, &next, 0, pos, pos, win_lo, win_hi, io->size,
+                seen_next, &ignored_match, pos, curr_c, prev_char, at_bol, at_eol,
+                zero_counters, 0ULL, 0, &work_count, work_budget);
+            if (err != FISKTA_E_OK) {
+                return err;
+            }
+            for (int i = 0; i < curr.n; i++) {
+                err = merge_thread(re, &next, &curr.v[i], seen_next);
+                if (err != FISKTA_E_OK) {
+                    return err;
+                }
+            }
+        }
+
+        ReList tmp_l = curr;
+        curr = next;
+        next = tmp_l;
+        unsigned char* tmpb = seen_curr;
+        seen_curr = seen_next;
+        seen_next = tmpb;
+
+        // Record matches at this position, then discard MATCH threads. Active
+        // starts that can no longer beat the best result are discarded too.
+        int write_idx = 0;
+        for (int i = 0; i < curr.n; i++) {
+            int pc = curr.v[i].pc;
+            i64 st = curr.v[i].start;
+            if (pc >= 0 && pc < re->nins && re->ins[pc].op == RI_MATCH) {
+                u64 priority = curr.v[i].priority;
+                int better_start = best_ms < 0
+                    || (dir == DIR_FWD ? st < best_ms : st > best_ms);
+                if (better_start || (st == best_ms
+                        && (priority < best_priority
+                            || (priority == best_priority && pos > best_me)))) {
+                    best_ms = st;
+                    best_me = pos;
+                    best_priority = priority;
+                }
+                continue;
+            }
+            if (best_ms >= 0
+                && (dir == DIR_FWD ? st > best_ms : st < best_ms)) {
+                continue;
+            }
+            curr.v[write_idx++] = curr.v[i];
+        }
+        curr.n = write_idx;
+
+        if (dir == DIR_FWD && best_ms >= 0 && curr.n == 0) {
+            *ms = best_ms;
+            *me = best_me;
+            return FISKTA_E_OK;
         }
 
         if (pos == win_hi) {
@@ -578,16 +539,11 @@ enum FisktaErr regex_search_window(File* io, i64 win_lo, i64 win_hi,
         for (int i = 0; i < curr.n; i++) {
             int pc = curr.v[i].pc;
             i64 st = curr.v[i].start;
-            // Only proceed for threads at current leftmost start
-            if (have_min && st > min_start) {
-                continue;
-            }
-
             ReInst* inst = &re->ins[pc];
             switch (inst->op) {
             case RI_CHAR:
                 if (c == inst->ch) {
-                    enum FisktaErr err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, next1, c, next_at_bol, next_at_eol, curr.v[i].counters, curr.v[i].priority, 0,
+                    err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, st, next1, c, next_at_bol, next_at_eol, curr.v[i].counters, curr.v[i].priority, 0,
                         &work_count, work_budget);
                     if (err != FISKTA_E_OK) {
                         return err;
@@ -596,7 +552,7 @@ enum FisktaErr regex_search_window(File* io, i64 win_lo, i64 win_hi,
                 break;
             case RI_ANY:
                 if (c != '\n') { // dot ≠ newline
-                    enum FisktaErr err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, next1, c, next_at_bol, next_at_eol, curr.v[i].counters, curr.v[i].priority, 0,
+                    err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, st, next1, c, next_at_bol, next_at_eol, curr.v[i].counters, curr.v[i].priority, 0,
                         &work_count, work_budget);
                     if (err != FISKTA_E_OK) {
                         return err;
@@ -605,7 +561,7 @@ enum FisktaErr regex_search_window(File* io, i64 win_lo, i64 win_hi,
                 break;
             case RI_CLASS:
                 if (inst->cls_idx >= 0 && inst->cls_idx < re->nclasses && cls_has(&re->classes[inst->cls_idx], c)) {
-                    enum FisktaErr err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, min_start, next1, c, next_at_bol, next_at_eol, curr.v[i].counters, curr.v[i].priority, 0,
+                    err = add_thread_ordered(re, &next, pc + 1, st, pos + 1, win_lo, win_hi, io->size, seen_next, &(int) { 0 }, st, next1, c, next_at_bol, next_at_eol, curr.v[i].counters, curr.v[i].priority, 0,
                         &work_count, work_budget);
                     if (err != FISKTA_E_OK) {
                         return err;
@@ -618,81 +574,11 @@ enum FisktaErr regex_search_window(File* io, i64 win_lo, i64 win_hi,
             }
         }
 
-        // Check for matches in the next threads
-        int match_found = 0;
-        for (int i = 0; i < next.n; i++) {
-            int pc = next.v[i].pc;
-            if (pc >= 0 && pc < re->nins && re->ins[pc].op == RI_MATCH) {
-                match_found = 1;
-                break;
-            }
-        }
-
-        if (match_found) {
-            // For greedy matching, record the match but continue as long as there are active threads from min_start
-            // Find the priority of the best MATCH thread at min_start
-            u64 match_priority = UINT64_MAX;
-            for (int i = 0; i < next.n; i++) {
-                if (next.v[i].start == min_start && next.v[i].pc >= 0 && next.v[i].pc < re->nins && re->ins[next.v[i].pc].op == RI_MATCH) {
-                    if (next.v[i].priority < match_priority) {
-                        match_priority = next.v[i].priority;
-                    }
-                }
-            }
-
-            // Three-tier comparison
-            int accept_match = 0;
-            if (best_ms < 0) {
-                accept_match = 1; // First match
-            } else if (min_start < best_ms) {
-                accept_match = 1; // Tier 1: Earlier start wins
-            } else if (min_start == best_ms) {
-                if (match_priority < best_priority) {
-                    accept_match = 1; // Tier 2: Better priority → ALWAYS wins
-                } else if (match_priority == best_priority && (pos + 1) > best_me) {
-                    accept_match = 1; // Tier 3: SAME priority → longer end wins
-                }
-            }
-
-#ifdef DEBUG_PRIORITY
-            fprintf(stderr, "Consume: min_start=%lld, pos+1=%lld, match_prio=%llu, best_ms=%lld, best_me=%lld, best_prio=%llu, accept=%d\n",
-                (long long)min_start, (long long)(pos + 1), (unsigned long long)match_priority,
-                (long long)best_ms, (long long)best_me, (unsigned long long)best_priority, accept_match);
-#endif
-            if (accept_match) {
-                best_ms = min_start;
-                best_me = pos + 1;
-                best_priority = match_priority;
-            }
-            if (dir == DIR_FWD) {
-                // Remove MATCH threads and threads not from min_start
-                int write_idx = 0;
-                for (int i = 0; i < next.n; i++) {
-                    int pc = next.v[i].pc;
-                    i64 st = next.v[i].start;
-                    // Keep only non-MATCH threads from min_start
-                    if (st == min_start && (pc < 0 || pc >= re->nins || re->ins[pc].op != RI_MATCH)) {
-                        next.v[write_idx++] = next.v[i];
-                    }
-                }
-                next.n = write_idx;
-                // If no more threads from min_start, return the best match
-                if (next.n == 0) {
-                    *ms = best_ms;
-                    *me = best_me;
-                    return FISKTA_E_OK;
-                }
-            } else {
-                curr.n = 0;
-                have_min = 0; // reset for later leftmost starts
-            }
-        }
-
         // Advance: swap lists (do NOT swap raw buffers; swap the structs)
-        ReList tmp_l = curr;
+        tmp_l = curr;
         curr = next;
         next = tmp_l;
-        unsigned char* tmpb = seen_curr;
+        tmpb = seen_curr;
         seen_curr = seen_next;
         seen_next = tmpb;
         seen_clear_bytes(seen_curr, need_seen);
