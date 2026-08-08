@@ -375,11 +375,12 @@ actionable task, so position is priority.
 
 ### CLI robustness
 
-- [x] (continue-time-lookahead-overflow) Parse optional continue intervals without signed overflow
+- [H] (continue-time-lookahead-overflow) Parse optional continue intervals without signed overflow
   Context: the `--continue` optional-value lookahead accumulates its numeric prefix in a signed `int` without bounds checks before passing accepted values to the checked time parser. A long numeric token therefore invokes undefined behavior during CLI parsing instead of producing a usage error.
   Repro gate: `zig build asan` followed by `zig-out/bin/fiskta-asan --continue 999999999999999999999h --input fixtures/overlap.txt take +1b` aborts with signed integer overflow at `src/main.c:191` on the current tree.
   Files: `src/main.c` (overflow-free optional-value recognition), `tools/test.py` (oversized interval regression)
   Acceptance: optional `--continue`/`--continue-on-fail` interval recognition performs no unchecked arithmetic; oversized numeric values return exit 7 with a clear diagnostic under optimized and sanitizer builds; valid zero and suffixed intervals keep their current behavior; `zig build test` passes under the normal and ASan binaries.
+  Evidence: Optional continuation intervals are now recognized by token shape only and checked numeric conversion remains centralized in `parse_time_option()`, so oversized values produce option-specific diagnostics and exit 7; `zig build test` and `python3 tools/test.py --exe zig-out/bin/fiskta-asan` cover the normal and sanitizer suites. Judge whether huge intervals fail clearly while optional-value ambiguity and unsupported attached forms remain unchanged. Independent review exercised all four spellings and suffixes, numeric boundaries, leading/bare zero, invalid suffixes, operation tokens, and missing operations with no residual gaps.
 
 ---
 
