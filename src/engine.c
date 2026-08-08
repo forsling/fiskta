@@ -47,6 +47,40 @@ static enum FisktaErr step_chars_in_view(File* io, i64 start, i64 delta, const F
     return io_step_chars(io, start, delta, out);
 }
 
+static enum FisktaErr step_location_chars_in_view(File* io, i64 start, i64 delta,
+    const FisktaView* view, i64* out)
+{
+    i64 cur = start;
+    if (delta > 0) {
+        for (i64 i = 0; i < delta; i++) {
+            if (cur >= view->hi) {
+                if (view->hi == INT64_MAX) {
+                    return FISKTA_E_LOC_RESOLVE;
+                }
+                *out = view->hi + 1;
+                return FISKTA_E_OK;
+            }
+            enum FisktaErr err = io_step_chars_window(io, cur, 1, view->lo, view->hi, &cur);
+            if (err != FISKTA_E_OK) {
+                return err;
+            }
+        }
+    } else {
+        for (i64 i = delta; i < 0; i++) {
+            if (cur <= view->lo) {
+                *out = view->lo - 1;
+                return FISKTA_E_OK;
+            }
+            enum FisktaErr err = io_step_chars_window(io, cur, -1, view->lo, view->hi, &cur);
+            if (err != FISKTA_E_OK) {
+                return err;
+            }
+        }
+    }
+    *out = cur;
+    return FISKTA_E_OK;
+}
+
 // Apply delta with clamping to prevent overflow past clamp edges
 static inline void apply_delta_with_clamp(i64* base, i64 delta, const FisktaView* v, const File* io, ClampPolicy cp)
 {
@@ -940,16 +974,19 @@ static enum FisktaErr resolve_location(
             }
         } else { // FISKTA_UNIT_CHARS
             i64 cs;
-            enum FisktaErr e;
-            if (clamp == CLAMP_VIEW) {
-                e = char_start_in_view(io, base, c_view, &cs);
-            } else {
-                e = io_prev_char_start(io, base, &cs);
-            }
+            bool base_in_view = c_view && c_view->active
+                && base >= c_view->lo && base <= c_view->hi;
+            bool use_view_chars = clamp == CLAMP_VIEW
+                || (clamp == CLAMP_NONE && base_in_view);
+            enum FisktaErr e = use_view_chars
+                ? char_start_in_view(io, base, c_view, &cs)
+                : io_prev_char_start(io, base, &cs);
             if (e != FISKTA_E_OK) {
                 return e;
             }
-            if (clamp == CLAMP_VIEW) {
+            if (clamp == CLAMP_NONE && base_in_view) {
+                e = step_location_chars_in_view(io, cs, loc->offset, c_view, &cs);
+            } else if (use_view_chars) {
                 e = step_chars_in_view(io, cs, loc->offset, c_view, &cs);
             } else {
                 e = io_step_chars(io, cs, loc->offset, &cs);

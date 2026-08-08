@@ -2845,6 +2845,30 @@ def tests():
              tokens=["view","BOF","BOF+2b","skip","100c","skip","-1c","take","+1c","THEN","print",r"\c"], input_file="-",
              stdin=b"\xE4\xB8XZ", expect=dict(stdout_bytes=b"\xB82", exit=0)),
 
+        dict(id="view-utf8-010-valid-lower-location-positive",
+             tokens=["view","BOF+1b","EOF","skip","to","BOF+1c","take","+1c"], input_file="-",
+             stdin=b"\xE4\xB8\x96X", expect=dict(stdout_bytes=b"\x96", exit=0)),
+
+        dict(id="view-utf8-011-valid-upper-location-negative",
+             tokens=["view","BOF","BOF+2b","skip","to","EOF-1c","take","+1c"], input_file="-",
+             stdin=b"\xE4\xB8\x96X", expect=dict(stdout_bytes=b"\xB8", exit=0)),
+
+        dict(id="view-utf8-012-malformed-lower-location-positive",
+             tokens=["view","BOF+1b","EOF","skip","to","BOF+1c","take","+1c"], input_file="-",
+             stdin=b"\xE4\xB8XZ", expect=dict(stdout="X", exit=0)),
+
+        dict(id="view-utf8-013-malformed-upper-location-negative",
+             tokens=["view","BOF","BOF+2b","skip","to","EOF-1c","take","+1c"], input_file="-",
+             stdin=b"\xE4\xB8XZ", expect=dict(stdout_bytes=b"\xB8", exit=0)),
+
+        dict(id="view-utf8-014-location-before-lower-fails",
+             tokens=["view","BOF+1b","EOF","skip","to","BOF-1c","take","+1c"], input_file="-",
+             stdin=b"\xE4\xB8\x96X", expect=dict(stdout="", exit=PROGRAM_FAIL_EXIT)),
+
+        dict(id="view-utf8-015-location-after-upper-fails",
+             tokens=["view","BOF","BOF+2b","skip","to","EOF+1c","take","+1c"], input_file="-",
+             stdin=b"\xE4\xB8\x96X", expect=dict(stdout="", exit=PROGRAM_FAIL_EXIT)),
+
         # ---------- CLI option smoke tests ----------
         dict(id="cli-001-version-flag",
              tokens=["--version"], input_file=None,
